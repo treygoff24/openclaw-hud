@@ -164,15 +164,16 @@ app.get('/api/model-usage', (req, res) => {
       for (const line of raw.split('\n').filter(Boolean)) {
         try {
           const e = JSON.parse(line);
-          if (e.type === 'model_change' && e.model) {
-            if (!usage[e.model]) usage[e.model] = { total: 0, agents: {} };
-            usage[e.model].total++;
-            usage[e.model].agents[agentId] = (usage[e.model].agents[agentId] || 0) + 1;
+          if (e.type === 'model_change' && e.modelId) {
+            if (!usage[e.modelId]) usage[e.modelId] = { total: 0, agents: {} };
+            usage[e.modelId].total++;
+            usage[e.modelId].agents[agentId] = (usage[e.modelId].agents[agentId] || 0) + 1;
           }
-          if (e.type === 'message' && e.model) {
-            if (!usage[e.model]) usage[e.model] = { total: 0, agents: {} };
-            usage[e.model].total++;
-            usage[e.model].agents[agentId] = (usage[e.model].agents[agentId] || 0) + 1;
+          const msgModel = e.type === 'message' && (e.model || e.message?.model);
+          if (msgModel) {
+            if (!usage[msgModel]) usage[msgModel] = { total: 0, agents: {} };
+            usage[msgModel].total++;
+            usage[msgModel].agents[agentId] = (usage[msgModel].agents[agentId] || 0) + 1;
           }
         } catch {}
       }
