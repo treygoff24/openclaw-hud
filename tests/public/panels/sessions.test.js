@@ -1,0 +1,104 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+function loadScript(relativePath) {
+  const code = readFileSync(join(__dirname, '../../../public', relativePath), 'utf-8');
+  new Function(code)();
+}
+
+beforeEach(() => {
+  document.body.innerHTML = '<span id="session-count"></span><div id="sessions-list"></div>';
+  window.HUD = {};
+  window.escapeHtml = function(s) {
+    if (s == null) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  };
+  // Load utils first for HUD.utils.timeAgo
+  loadScript('utils.js');
+  loadScript('panels/sessions.js');
+});
+
+describe('sessions.render', () => {
+  it('renders session count', () => {
+    HUD.sessions.render([
+      { agentId: 'a', sessionId: 's1', status: 'active', updatedAt: Date.now() }
+    ]);
+    expect(document.getElementById('session-count').textContent).toBe('1');
+  });
+
+  it('renders session rows with correct structure', () => {
+    HUD.sessions.render([
+      { agentId: 'bot', sessionId: 'abc12345xyz', label: 'my-session', status: 'active', updatedAt: Date.now() - 5000 }
+    ]);
+    const rows = document.querySelectorAll('.session-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelector('.session-agent').textContent).toBe('bot');
+    expect(rows[0].querySelector('.session-label').textContent).toBe('my-session');
+    expect(rows[0].querySelector('.status-dot-green')).not.toBeNull();
+    expect(rows[0].querySelector('.session-age').textContent).toContain('s ago');
+  });
+
+  it('uses correct status dot classes', () => {
+    const statuses = [
+      { status: 'active', expected: 'status-dot-green' },
+      { status: 'completed', expected: 'status-dot-completed' },
+      { status: 'warm', expected: 'status-dot-amber' },
+      { status: 'stale', expected: 'status-dot-gray' },
+      { status: 'unknown', expected: 'status-dot-gray' }
+    ];
+    statuses.forEach(({ status, expected }) => {
+      HUD.sessions.render([{ agentId: 'a', sessionId: 's', status, updatedAt: Date.now() }]);
+      expect(document.querySelector(`.${expected}`)).not.toBeNull();
+    });
+  });
+
+  it('shows depth tag for subagents', () => {
+    HUD.sessions.render([
+      { agentId: 'a', sessionId: 's', status: 'active', spawnDepth: 2, updatedAt: Date.now() }
+    ]);
+    expect(document.querySelector('.session-label').innerHTML).toContain('depth:2');
+  });
+
+  it('does not show depth tag when spawnDepth is 0', () => {
+    HUD.sessions.render([
+      { agentId: 'a', sessionId: 's', status: 'active', spawnDepth: 0, updatedAt: Date.now() }
+    ]);
+    expect(document.querySelector('.session-label').innerHTML).not.toContain('depth');
+  });
+
+  it('renders empty array', () => {
+    HUD.sessions.render([]);
+    expect(document.getElementById('session-count').textContent).toBe('0');
+    expect(document.querySelectorAll('.session-row').length).toBe(0);
+  });
+
+  it('falls back to sessionId prefix when no label or key', () => {
+    HUD.sessions.render([
+      { agentId: 'a', sessionId: 'abcdefghijklmnop', status: 'active', updatedAt: Date.now() }
+    ]);
+    expect(document.querySelector('.session-label').textContent).toContain('abcdefgh');
+  });
+
+  it('caps at 40 rows', () => {
+    const sessions = Array.from({ length: 50 }, (_, i) => ({
+      agentId: 'a', sessionId: `s${i}`, status: 'active', updatedAt: Date.now()
+    }));
+    HUD.sessions.render(sessions);
+    expect(document.getElementById('session-count').textContent).toBe('50');
+    expect(document.querySelectorAll('.session-row').length).toBe(40);
+  });
+
+  it('sets data attributes on session rows', () => {
+    HUD.sessions.render([
+      { agentId: 'bot', sessionId: 'xyz', label: 'lbl', status: 'active', updatedAt: Date.now() }
+    ]);
+    const row = document.querySelector('.session-row');
+    expect(row.dataset.agent).toBe('bot');
+    expect(row.dataset.session).toBe('xyz');
+    expect(row.dataset.label).toBe('lbl');
+  });
+});
