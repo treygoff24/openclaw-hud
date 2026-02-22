@@ -104,6 +104,88 @@
   </div>
 </div>
 
+<!-- Cron Edit Modal -->
+<div class="modal-overlay" id="cron-modal">
+  <div class="modal-content cron-edit-modal">
+    <div class="modal-header">
+      <span>EDIT MISSION: <span id="cron-edit-name" style="color:var(--cyan)"></span></span>
+      <span class="modal-close" id="cron-modal-close">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div class="cron-form-grid">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="cron-name" class="hud-input">
+        </div>
+
+        <div class="form-group">
+          <label>Enabled</label>
+          <label class="toggle">
+            <input type="checkbox" id="cron-enabled">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label>Agent ID</label>
+          <select id="cron-agent" class="hud-select"></select>
+        </div>
+
+        <div class="form-group">
+          <label>Session Target</label>
+          <select id="cron-session-target" class="hud-select">
+            <option value="main">Main (systemEvent)</option>
+            <option value="isolated">Isolated (agentTurn)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Schedule Type</label>
+          <select id="cron-schedule-kind" class="hud-select">
+            <option value="cron">Cron Expression</option>
+            <option value="at">One-time (at)</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="cron-expr-group">
+          <label>Cron Expression</label>
+          <input type="text" id="cron-expr" class="hud-input" placeholder="0 8 * * *">
+        </div>
+
+        <div class="form-group" id="cron-tz-group">
+          <label>Timezone</label>
+          <input type="text" id="cron-tz" class="hud-input" placeholder="America/Chicago">
+        </div>
+
+        <div class="form-group" id="cron-at-group" style="display:none">
+          <label>Run At</label>
+          <input type="datetime-local" id="cron-at" class="hud-input">
+        </div>
+
+        <div class="form-group" id="cron-model-group">
+          <label>Model Override (optional)</label>
+          <input type="text" id="cron-model" class="hud-input" placeholder="default (leave empty)">
+        </div>
+
+        <div class="form-group" id="cron-timeout-group">
+          <label>Timeout (seconds)</label>
+          <input type="number" id="cron-timeout" class="hud-input" placeholder="300">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label id="cron-prompt-label">Prompt / Message</label>
+        <textarea id="cron-prompt" class="hud-textarea" rows="6"></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="hud-btn hud-btn-cancel" onclick="closeCronModal()">CANCEL</button>
+        <button class="hud-btn hud-btn-save" onclick="saveCronJob()">SAVE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

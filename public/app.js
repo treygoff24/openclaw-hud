@@ -68,8 +68,13 @@ $('#agent-search').addEventListener('input', e => {
   renderAgents(window._agents || []);
 });
 
-// Event delegation for session rows
+// Event delegation for session rows and cron rows
 document.addEventListener('click', e => {
+  const cronRow = e.target.closest('[data-cron-id]');
+  if (cronRow) {
+    openCronEditor(cronRow.dataset.cronId);
+    return;
+  }
   const row = e.target.closest('[data-agent][data-session]');
   if (row) {
     openSessionLog(row.dataset.agent, row.dataset.session, row.dataset.label || '');
@@ -151,7 +156,7 @@ function renderCron(data) {
 
     const lastError = j.state?.lastError ? `<div style="color:var(--red);font-size:11px;margin-top:2px;">${escapeHtml(j.state.lastError)}</div>` : '';
 
-    return `<div class="cron-row-v2">
+    return `<div class="cron-row-v2" data-cron-id="${escapeHtml(j.id)}">
       <div class="${dotClass}"></div>
       <div class="cron-main">
         <div class="cron-name">${escapeHtml(j.name)}
@@ -396,7 +401,250 @@ async function openSessionLog(agentId, sessionId, label) {
 
 $('#modal-close').onclick = () => $('#log-modal').classList.remove('active');
 $('#log-modal').onclick = e => { if (e.target === $('#log-modal')) $('#log-modal').classList.remove('active'); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#log-modal').classList.remove('active'); });
+
+function closeModal() {
+  $('#log-modal').classList.remove('active');
+  $('#cron-modal').classList.remove('active');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// === Cron Editor ===
+let currentEditingJobId = null;
+
+$('#cron-modal-close').onclick = () => closeCronModal();
+$('#cron-modal').onclick = e => { if (e.target === $('#cron-modal')) closeCronModal(); };
+
+function closeCronModal() { $('#cron-modal').classList.remove('active'); currentEditingJobId = null; }
+
+// Dynamic field visibility
+$('#cron-session-target').addEventListener('change', e => {
+  const isMain = e.target.value === 'main';
+  $('#cron-model-group').style.display = isMain ? 'none' : '';
+  $('#cron-timeout-group').style.display = isMain ? 'none' : '';
+  $('#cron-prompt-label').textContent = isMain ? 'System Event Text' : 'Agent Turn Message';
+});
+
+$('#cron-schedule-kind').addEventListener('change', e => {
+  const isCron = e.target.value === 'cron';
+  $('#cron-expr-group').style.display = isCron ? '' : 'none';
+  $('#cron-tz-group').style.display = isCron ? '' : 'none';
+  $('#cron-at-group').style.display = isCron ? 'none' : '';
+});
+
+async function openCronEditor(jobId) {
+  // Fetch fresh data
+  const cronData = await fetch('/api/cron').then(r => r.json());
+  const job = (cronData.jobs || []).find(j => j.id === jobId);
+  if (!job) return alert('Job not found');
+
+  currentEditingJobId = jobId;
+
+  // Populate agents dropdown
+  const agents = window._agents || [];
+  $('#cron-agent').innerHTML = agents.map(a =>
+    `<option value="${escapeHtml(a.id)}">${escapeHtml(a.id)}</option>`
+  ).join('');
+
+  // Fill form
+  $('#cron-edit-name').textContent = job.name || jobId;
+  $('#cron-name').value = job.name || '';
+  $('#cron-enabled').checked = !!job.enabled;
+  $('#cron-agent').value = job.agentId || '';
+  $('#cron-session-target').value = job.sessionTarget || 'main';
+  $('#cron-schedule-kind').value = job.schedule?.kind || 'cron';
+  $('#cron-expr').value = job.schedule?.expr || '';
+  $('#cron-tz').value = job.schedule?.tz || 'America/Chicago';
+
+  // Handle at schedule
+  if (job.schedule?.at) {
+    const d = new Date(job.schedule.at);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    $('#cron-at').value = local;
+  } else {
+    $('#cron-at').value = '';
+  }
+
+  // Payload
+  const isMain = job.sessionTarget === 'main';
+  $('#cron-prompt').value = isMain ? (job.payload?.text || '') : (job.payload?.message || '');
+  $('#cron-model').value = job.payload?.model || '';
+  $('#cron-timeout').value = job.payload?.timeoutSeconds || '';
+
+  // Trigger visibility
+  $('#cron-session-target').dispatchEvent(new Event('change'));
+  $('#cron-schedule-kind').dispatchEvent(new Event('change'));
+
+  $('#cron-modal').classList.add('active');
+}
+
+async function saveCronJob() {
+  const jobId = currentEditingJobId;
+  if (!jobId) return;
+  const sessionTarget = $('#cron-session-target').value;
+
+  const updates = {
+    name: $('#cron-name').value,
+    enabled: $('#cron-enabled').checked,
+    agentId: $('#cron-agent').value,
+    sessionTarget,
+    schedule: { kind: $('#cron-schedule-kind').value },
+    payload: { kind: sessionTarget === 'main' ? 'systemEvent' : 'agentTurn' }
+  };
+
+  if (updates.schedule.kind === 'cron') {
+    updates.schedule.expr = $('#cron-expr').value;
+    updates.schedule.tz = $('#cron-tz').value || 'America/Chicago';
+  } else {
+    updates.schedule.at = new Date($('#cron-at').value).toISOString();
+  }
+
+  if (sessionTarget === 'main') {
+    updates.payload.text = $('#cron-prompt').value;
+  } else {
+    updates.payload.message = $('#cron-prompt').value;
+    const model = $('#cron-model').value.trim();
+    if (model) updates.payload.model = model;
+    const timeout = parseInt($('#cron-timeout').value);
+    if (timeout > 0) updates.payload.timeoutSeconds = timeout;
+  }
+
+  const res = await fetch(`/api/cron/${jobId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  });
+
+  if (res.ok) {
+    closeCronModal();
+    fetchAll();
+  } else {
+    alert('Save failed: ' + (await res.text()));
+  }
+}
+
+// --- Cron Editor ---
+let _cronData = null;
+let _editingJobId = null;
+
+function openCronEditor(jobId) {
+  if (!_cronData) return;
+  const job = (_cronData.jobs || []).find(j => j.id === jobId);
+  if (!job) return;
+  _editingJobId = jobId;
+
+  $('#cron-edit-name').textContent = job.name || jobId;
+  $('#cron-name').value = job.name || '';
+  $('#cron-enabled').checked = !!job.enabled;
+
+  // Populate agent dropdown
+  const agentSelect = $('#cron-agent');
+  const agents = (window._agents || []).map(a => a.id);
+  agentSelect.innerHTML = agents.map(id =>
+    `<option value="${escapeHtml(id)}"${id === job.agentId ? ' selected' : ''}>${escapeHtml(id)}</option>`
+  ).join('');
+
+  $('#cron-session-target').value = job.sessionTarget || 'main';
+  updateSessionTargetFields();
+
+  // Schedule
+  const sched = job.schedule || {};
+  if (sched.at) {
+    $('#cron-schedule-kind').value = 'at';
+    const d = new Date(sched.at);
+    $('#cron-at').value = d.toISOString().slice(0, 16);
+  } else {
+    $('#cron-schedule-kind').value = 'cron';
+    $('#cron-expr').value = sched.expr || '';
+    $('#cron-tz').value = sched.tz || 'America/Chicago';
+  }
+  updateScheduleFields();
+
+  // Payload
+  const payload = job.payload || {};
+  $('#cron-model').value = payload.model || '';
+  $('#cron-timeout').value = payload.runTimeoutSeconds || '';
+  $('#cron-prompt').value = payload.task || payload.message || '';
+
+  $('#cron-modal').classList.add('active');
+}
+
+function closeCronModal() {
+  $('#cron-modal').classList.remove('active');
+  _editingJobId = null;
+}
+
+function updateSessionTargetFields() {
+  const isIsolated = $('#cron-session-target').value === 'isolated';
+  $('#cron-model-group').style.display = isIsolated ? '' : 'none';
+  $('#cron-timeout-group').style.display = isIsolated ? '' : 'none';
+  $('#cron-prompt-label').textContent = isIsolated ? 'Prompt / Task' : 'System Event Message';
+}
+
+function updateScheduleFields() {
+  const isCron = $('#cron-schedule-kind').value === 'cron';
+  $('#cron-expr-group').style.display = isCron ? '' : 'none';
+  $('#cron-tz-group').style.display = isCron ? '' : 'none';
+  $('#cron-at-group').style.display = isCron ? 'none' : '';
+}
+
+$('#cron-session-target').addEventListener('change', updateSessionTargetFields);
+$('#cron-schedule-kind').addEventListener('change', updateScheduleFields);
+$('#cron-modal-close').onclick = closeCronModal;
+$('#cron-modal').addEventListener('click', e => { if (e.target === $('#cron-modal')) closeCronModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#cron-modal').classList.contains('active')) closeCronModal(); });
+
+async function saveCronJob() {
+  if (!_editingJobId) return;
+  const sessionTarget = $('#cron-session-target').value;
+  const isIsolated = sessionTarget === 'isolated';
+  const isCron = $('#cron-schedule-kind').value === 'cron';
+
+  const schedule = isCron
+    ? { kind: 'cron', expr: $('#cron-expr').value, tz: $('#cron-tz').value || 'America/Chicago' }
+    : { kind: 'at', at: new Date($('#cron-at').value).toISOString() };
+
+  const payloadKind = isIsolated ? 'agentTurn' : 'systemEvent';
+  const payload = { kind: payloadKind };
+  const promptVal = $('#cron-prompt').value;
+  if (isIsolated) {
+    payload.task = promptVal;
+    if ($('#cron-model').value) payload.model = $('#cron-model').value;
+    if ($('#cron-timeout').value) payload.runTimeoutSeconds = parseInt($('#cron-timeout').value);
+  } else {
+    payload.message = promptVal;
+  }
+
+  const updates = {
+    name: $('#cron-name').value,
+    enabled: $('#cron-enabled').checked,
+    agentId: $('#cron-agent').value,
+    sessionTarget,
+    schedule,
+    payload
+  };
+
+  try {
+    const res = await fetch(`/api/cron/${encodeURIComponent(_editingJobId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+    closeCronModal();
+    fetchAll();
+  } catch (err) {
+    alert('Error saving: ' + err.message);
+  }
+}
+
+// Cron row click delegation
+document.addEventListener('click', e => {
+  const row = e.target.closest('.cron-row-v2[data-cron-id]');
+  if (row) {
+    openCronEditor(row.dataset.cronId);
+  }
+});
 
 // Fetch all data
 async function fetchAll() {
@@ -414,6 +662,7 @@ async function fetchAll() {
     window._treeData = tree;
     renderAgents(agents);
     renderSessions(sessions);
+    _cronData = cron;
     renderCron(cron);
     renderSystem(config);
     renderModelUsage(usage);
