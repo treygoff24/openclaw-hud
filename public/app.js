@@ -408,120 +408,6 @@ function closeModal() {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// === Cron Editor ===
-let currentEditingJobId = null;
-
-$('#cron-modal-close').onclick = () => closeCronModal();
-$('#cron-modal').onclick = e => { if (e.target === $('#cron-modal')) closeCronModal(); };
-
-function closeCronModal() { $('#cron-modal').classList.remove('active'); currentEditingJobId = null; }
-
-// Dynamic field visibility
-$('#cron-session-target').addEventListener('change', e => {
-  const isMain = e.target.value === 'main';
-  $('#cron-model-group').style.display = isMain ? 'none' : '';
-  $('#cron-timeout-group').style.display = isMain ? 'none' : '';
-  $('#cron-prompt-label').textContent = isMain ? 'System Event Text' : 'Agent Turn Message';
-});
-
-$('#cron-schedule-kind').addEventListener('change', e => {
-  const isCron = e.target.value === 'cron';
-  $('#cron-expr-group').style.display = isCron ? '' : 'none';
-  $('#cron-tz-group').style.display = isCron ? '' : 'none';
-  $('#cron-at-group').style.display = isCron ? 'none' : '';
-});
-
-async function openCronEditor(jobId) {
-  // Fetch fresh data
-  const cronData = await fetch('/api/cron').then(r => r.json());
-  const job = (cronData.jobs || []).find(j => j.id === jobId);
-  if (!job) return alert('Job not found');
-
-  currentEditingJobId = jobId;
-
-  // Populate agents dropdown
-  const agents = window._agents || [];
-  $('#cron-agent').innerHTML = agents.map(a =>
-    `<option value="${escapeHtml(a.id)}">${escapeHtml(a.id)}</option>`
-  ).join('');
-
-  // Fill form
-  $('#cron-edit-name').textContent = job.name || jobId;
-  $('#cron-name').value = job.name || '';
-  $('#cron-enabled').checked = !!job.enabled;
-  $('#cron-agent').value = job.agentId || '';
-  $('#cron-session-target').value = job.sessionTarget || 'main';
-  $('#cron-schedule-kind').value = job.schedule?.kind || 'cron';
-  $('#cron-expr').value = job.schedule?.expr || '';
-  $('#cron-tz').value = job.schedule?.tz || 'America/Chicago';
-
-  // Handle at schedule
-  if (job.schedule?.at) {
-    const d = new Date(job.schedule.at);
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    $('#cron-at').value = local;
-  } else {
-    $('#cron-at').value = '';
-  }
-
-  // Payload
-  const isMain = job.sessionTarget === 'main';
-  $('#cron-prompt').value = isMain ? (job.payload?.text || '') : (job.payload?.message || '');
-  $('#cron-model').value = job.payload?.model || '';
-  $('#cron-timeout').value = job.payload?.timeoutSeconds || '';
-
-  // Trigger visibility
-  $('#cron-session-target').dispatchEvent(new Event('change'));
-  $('#cron-schedule-kind').dispatchEvent(new Event('change'));
-
-  $('#cron-modal').classList.add('active');
-}
-
-async function saveCronJob() {
-  const jobId = currentEditingJobId;
-  if (!jobId) return;
-  const sessionTarget = $('#cron-session-target').value;
-
-  const updates = {
-    name: $('#cron-name').value,
-    enabled: $('#cron-enabled').checked,
-    agentId: $('#cron-agent').value,
-    sessionTarget,
-    schedule: { kind: $('#cron-schedule-kind').value },
-    payload: { kind: sessionTarget === 'main' ? 'systemEvent' : 'agentTurn' }
-  };
-
-  if (updates.schedule.kind === 'cron') {
-    updates.schedule.expr = $('#cron-expr').value;
-    updates.schedule.tz = $('#cron-tz').value || 'America/Chicago';
-  } else {
-    updates.schedule.at = new Date($('#cron-at').value).toISOString();
-  }
-
-  if (sessionTarget === 'main') {
-    updates.payload.text = $('#cron-prompt').value;
-  } else {
-    updates.payload.message = $('#cron-prompt').value;
-    const model = $('#cron-model').value.trim();
-    if (model) updates.payload.model = model;
-    const timeout = parseInt($('#cron-timeout').value);
-    if (timeout > 0) updates.payload.timeoutSeconds = timeout;
-  }
-
-  const res = await fetch(`/api/cron/${jobId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates)
-  });
-
-  if (res.ok) {
-    closeCronModal();
-    fetchAll();
-  } else {
-    alert('Save failed: ' + (await res.text()));
-  }
-}
-
 // --- Cron Editor ---
 let _cronData = null;
 let _editingJobId = null;
@@ -637,14 +523,6 @@ async function saveCronJob() {
     alert('Error saving: ' + err.message);
   }
 }
-
-// Cron row click delegation
-document.addEventListener('click', e => {
-  const row = e.target.closest('.cron-row-v2[data-cron-id]');
-  if (row) {
-    openCronEditor(row.dataset.cronId);
-  }
-});
 
 // Fetch all data
 async function fetchAll() {
