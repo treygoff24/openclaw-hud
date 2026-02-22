@@ -104,15 +104,46 @@ body::before {
   50% { opacity: 0.3; }
 }
 
+/* HUD Layout */
+.hud-layout {
+  display: flex;
+  flex-direction: row;
+  min-height: calc(100vh - 70px);
+  overflow: hidden;
+}
+
 /* Dashboard Layout */
 .dashboard {
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 16px 24px;
-  max-width: 1600px;
-  margin: 0 auto;
+  flex: 1 1 100%;
+  min-width: 0;
+  transition: flex-basis 300ms ease-out;
+  overflow-y: auto;
+  container-type: inline-size;
+  container-name: dashboard;
 }
+.hud-layout.chat-open .dashboard {
+  flex: 1 1 40%;
+}
+.chat-pane {
+  flex: 0 0 0;
+  overflow: hidden;
+  transition: flex-basis 300ms ease-out;
+  border-left: 1px solid var(--border-dim);
+}
+.hud-layout.chat-open .chat-pane {
+  flex: 0 0 60%;
+}
+
+@container dashboard (max-width: 900px) {
+  .row-3 { grid-template-columns: 1fr; }
+  .row-2-wide { grid-template-columns: 1fr; }
+  .row-2 { grid-template-columns: 1fr; }
+}
+
 .row {
   display: grid;
   gap: 16px;
@@ -433,39 +464,7 @@ body::before {
   overflow-y: auto;
   max-height: calc(80vh - 50px);
 }
-.log-entry {
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(26,30,53,0.3);
-  font-size: 12px;
-}
-.log-entry .log-role {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 2px;
-  display: inline-block;
-  margin-right: 8px;
-}
-.log-role.user { background: rgba(0,229,255,0.1); color: var(--cyan); }
-.log-role.assistant { background: rgba(255,45,123,0.1); color: var(--magenta); }
-.log-role.system { background: rgba(255,171,0,0.1); color: var(--amber); }
-.log-role.tool { background: rgba(57,255,20,0.1); color: var(--green); }
-.log-content {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-label);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-top: 4px;
-  max-height: 120px;
-  overflow: hidden;
-}
-.log-time {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  float: right;
-}
+/* log modal CSS removed — chat pane replaces it */
 
 /* Search */
 .search-box {

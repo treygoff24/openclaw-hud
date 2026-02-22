@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chat-pane.css">
 </head>
 <body>
 <div class="hex-bg"></div>
@@ -37,6 +38,7 @@
   </div>
 </header>
 
+<div class="hud-layout">
 <main class="dashboard">
   <!-- Row 1: Overview panels -->
   <div class="row row-3">
@@ -93,15 +95,19 @@
   </div>
 </main>
 
-<!-- Session Log Modal -->
-<div class="modal-overlay" id="log-modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <span id="modal-title">SESSION LOG</span>
-      <span class="modal-close" id="modal-close">&times;</span>
+<aside class="chat-pane" id="chat-pane">
+  <div class="chat-header">
+    <div class="chat-header-info">
+      <span class="chat-status-dot"></span>
+      <span class="chat-title" id="chat-title">Select a session</span>
     </div>
-    <div class="modal-body" id="modal-body"></div>
+    <button class="chat-close" id="chat-close" aria-label="Close chat pane">&times;</button>
   </div>
+  <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
+    <div class="chat-empty" id="chat-empty">Select a session from the tree</div>
+  </div>
+  <div class="chat-new-pill" id="chat-new-pill" style="display:none">New messages ↓</div>
+</aside>
 </div>
 
 <!-- Cron Edit Modal -->
@@ -243,6 +249,7 @@
 <!-- Toast notification -->
 <div id="toast" class="toast"></div>
 
+<script src="chat-pane.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
