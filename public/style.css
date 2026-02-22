@@ -639,6 +639,15 @@ body::before {
   color: var(--text-dim);
   margin-top: 3px;
 }
+.token-breakdown {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  margin-top: 2px;
+}
+.token-cost {
+  color: var(--accent, #4ecdc4);
+}
 
 /* === Phase 8: Enhanced Cron Rows === */
 .cron-row-v2 {

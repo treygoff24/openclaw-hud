@@ -148,7 +148,14 @@ app.get('/api/cron', (req, res) => {
 app.get('/api/model-usage', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
-  const usage = {}; // model -> { total: N, agents: { agentId: N } }
+  const usage = {}; // model -> { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, totalCost, agents }
+
+  const ensure = (model) => {
+    if (!usage[model]) usage[model] = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, totalCost: 0, agents: {} };
+  };
+  const ensureAgent = (model, agentId) => {
+    if (!usage[model].agents[agentId]) usage[model].agents[agentId] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  };
 
   for (const agentId of agents) {
     const sessDir = path.join(agentsDir, agentId, 'sessions');
@@ -161,19 +168,33 @@ app.get('/api/model-usage', (req, res) => {
     for (const file of files) {
       const raw = safeRead(path.join(sessDir, file));
       if (!raw) continue;
+      let currentModel = null;
       for (const line of raw.split('\n').filter(Boolean)) {
         try {
           const e = JSON.parse(line);
           if (e.type === 'model_change' && e.modelId) {
-            if (!usage[e.modelId]) usage[e.modelId] = { total: 0, agents: {} };
-            usage[e.modelId].total++;
-            usage[e.modelId].agents[agentId] = (usage[e.modelId].agents[agentId] || 0) + 1;
+            currentModel = e.modelId;
           }
-          const msgModel = e.type === 'message' && (e.model || e.message?.model);
-          if (msgModel) {
-            if (!usage[msgModel]) usage[msgModel] = { total: 0, agents: {} };
-            usage[msgModel].total++;
-            usage[msgModel].agents[agentId] = (usage[msgModel].agents[agentId] || 0) + 1;
+          if (e.type === 'message' && e.message?.usage) {
+            const u = e.message.usage;
+            const model = e.message.model || currentModel || 'unknown';
+            ensure(model);
+            ensureAgent(model, agentId);
+            const inp = u.input || 0;
+            const out = u.output || 0;
+            const cr = u.cacheRead || 0;
+            const cw = u.cacheWrite || 0;
+            const tot = u.totalTokens || (inp + out + cr + cw);
+            const cost = u.cost?.total || 0;
+            usage[model].inputTokens += inp;
+            usage[model].outputTokens += out;
+            usage[model].cacheReadTokens += cr;
+            usage[model].cacheWriteTokens += cw;
+            usage[model].totalTokens += tot;
+            usage[model].totalCost += cost;
+            usage[model].agents[agentId].inputTokens += inp;
+            usage[model].agents[agentId].outputTokens += out;
+            usage[model].agents[agentId].totalTokens += tot;
           }
         } catch {}
       }
