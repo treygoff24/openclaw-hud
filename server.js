@@ -367,13 +367,6 @@ function validateContextFiles(filesText) {
     } catch (err) {
       if (err.code !== 'ENOENT') return { error: `Cannot resolve path: ${f}` };
     }
-    // Reject files over 10MB
-    try {
-      const stats = fs.statSync(resolved);
-      if (stats.size > 10 * 1024 * 1024) {
-        return { error: `File too large (>10MB): ${f}` };
-      }
-    } catch {} // file may not exist yet
   }
   return { valid: files };
 }
