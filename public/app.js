@@ -568,6 +568,7 @@ function openSpawnModal() {
   }
 
   $('#spawn-modal').classList.add('active');
+  $('#spawn-prompt').focus();
 }
 
 function closeSpawnModal() {

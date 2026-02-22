@@ -362,7 +362,9 @@ function validateContextFiles(filesText) {
       if (!ALLOWED_ROOTS.some(root => real.startsWith(root + path.sep) || real === root)) {
         return { error: `Path escapes allowed directory via symlink: ${f}` };
       }
-    } catch {} // file may not exist — agent handles that
+    } catch (err) {
+      if (err.code !== 'ENOENT') return { error: `Cannot resolve path: ${f}` };
+    }
   }
   return { valid: files };
 }
@@ -390,6 +392,7 @@ app.post('/api/spawn', express.json(), async (req, res) => {
 
   // Validate
   if (!prompt?.trim()) return res.status(400).json({ error: 'Prompt is required' });
+  if (prompt.length > 50000) return res.status(400).json({ error: 'Prompt too long (max 50,000 chars)' });
   if (!agentId) return res.status(400).json({ error: 'Agent is required' });
   if (mode && !['run', 'session'].includes(mode)) return res.status(400).json({ error: 'Invalid mode' });
   if (label && !/^[a-zA-Z0-9_-]{1,64}$/.test(label)) return res.status(400).json({ error: 'Invalid label: alphanumeric, hyphens, underscores only (max 64 chars)' });
@@ -425,7 +428,7 @@ app.post('/api/spawn', express.json(), async (req, res) => {
           mode: mode || 'run',
           ...(model && { model }),
           ...(label && { label }),
-          ...(timeout > 0 && { runTimeoutSeconds: timeout })
+          ...(timeout != null && timeout > 0 && { runTimeoutSeconds: timeout })
         }
       })
     });
