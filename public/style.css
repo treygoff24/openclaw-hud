@@ -870,3 +870,98 @@ body::before {
   .header-right .stat-block { display: none; }
   .header-divider { display: none; }
 }
+
+/* === Spawn Button in panel header === */
+.spawn-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 4px 12px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.spawn-btn:hover {
+  background: rgba(0, 229, 255, 0.2);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+/* === Spawn Modal === */
+.spawn-modal-content {
+  max-width: 640px;
+}
+
+.spawn-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.label-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+/* === Spawn Error Bar === */
+.spawn-error {
+  background: rgba(255, 0, 60, 0.12);
+  border: 1px solid #ff003c;
+  color: #ff003c;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 16px;
+  border-radius: 2px;
+}
+
+/* === Launch Button === */
+.hud-btn-launch {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  letter-spacing: 3px;
+  font-weight: bold;
+  min-width: 140px;
+  transition: all 0.2s;
+}
+.hud-btn-launch:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.25);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+}
+.hud-btn-launch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* === Toast Notification === */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: rgba(10, 10, 20, 0.95);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 12px 20px;
+  border-radius: 4px;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 10000;
+  pointer-events: none;
+}
+.toast.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+.toast.error {
+  border-color: #ff003c;
+  color: #ff003c;
+  box-shadow: 0 0 20px rgba(255, 0, 60, 0.2);
+}
