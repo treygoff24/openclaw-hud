@@ -1,0 +1,30 @@
+{
+  meta: { version: "1.0.0" },
+  gateway: {
+    port: 3779,
+    mode: "local",
+    bind: "127.0.0.1",
+  },
+  agents: {
+    defaults: {
+      model: { primary: "anthropic/claude-sonnet-4" },
+      maxConcurrent: 3,
+      subagents: { maxSpawnDepth: 3, maxChildren: 10 },
+      models: {
+        "anthropic/claude-sonnet-4": { alias: "sonnet" },
+        "anthropic/claude-haiku-4": { alias: "haiku" },
+        "openai/gpt-4o": { alias: "gpt4o" },
+      },
+    },
+  },
+  channels: {
+    discord: { enabled: true },
+    telegram: { enabled: true },
+  },
+  models: {
+    providers: {
+      anthropic: {},
+      openai: {},
+    },
+  },
+}

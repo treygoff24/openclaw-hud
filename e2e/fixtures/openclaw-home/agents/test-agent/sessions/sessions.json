@@ -1,0 +1,17 @@
+{
+  "agent:test-agent:main": {
+    "sessionId": "sess-abc-001",
+    "updatedAt": 1771798136188,
+    "label": "main",
+    "lastChannel": "discord",
+    "spawnDepth": 0
+  },
+  "agent:test-agent:subagent:research": {
+    "sessionId": "sess-abc-002",
+    "updatedAt": 1771797836188,
+    "label": "research-task",
+    "spawnedBy": "agent:test-agent:main",
+    "spawnDepth": 1,
+    "lastChannel": "discord"
+  }
+}
