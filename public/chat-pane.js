@@ -5,20 +5,11 @@
   let currentSession = null;
   let subscribedKey = null;
   const _wsQueue = [];
-
-  // Inline escapeHtml since this loads before app.js
-  function _escapeHtml(s) {
-    if (s == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-  }
-
-  function getEscape() {
-    return (typeof escapeHtml === 'function') ? escapeHtml : _escapeHtml;
-  }
+  // I3: Generation counter to discard stale fetch responses
+  let _openGeneration = 0;
 
   function createMessageEl(entry) {
+    // M7: removed dead `esc` variable (getEscape() call that was never used)
     const role = entry.role || entry.type || 'system';
     let roleClass = 'system';
     if (role === 'user') roleClass = 'user';
@@ -33,6 +24,14 @@
     }
     if (entry.name) content = '[' + entry.name + '] ' + content;
     if (!content && entry.type) content = entry.type;
+
+    // M2: Truncation indicator
+    const MAX_CONTENT = 2000;
+    let truncated = false;
+    if (content.length > MAX_CONTENT) {
+      content = content.slice(0, MAX_CONTENT);
+      truncated = true;
+    }
 
     const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
 
@@ -51,12 +50,19 @@
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
-    contentDiv.textContent = content.slice(0, 2000);
+    contentDiv.textContent = content;
+    if (truncated) {
+      const indicator = document.createElement('span');
+      indicator.className = 'chat-truncated';
+      indicator.textContent = ' … [truncated]';
+      contentDiv.appendChild(indicator);
+    }
     div.appendChild(contentDiv);
 
     return div;
   }
 
+  // I1: Safe WS send with pending-message queue
   function sendWs(msg) {
     if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
       window._hudWs.send(JSON.stringify(msg));
@@ -67,18 +73,32 @@
 
   window._flushChatWsQueue = function() {
     while (_wsQueue.length > 0) {
-      sendWs(_wsQueue.shift());
+      const msg = _wsQueue.shift();
+      if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
+        window._hudWs.send(JSON.stringify(msg));
+      } else {
+        // WS not ready yet, put it back
+        _wsQueue.unshift(msg);
+        break;
+      }
     }
   };
 
   window.openChatPane = function(agentId, sessionId, label) {
     if (!agentId || !sessionId) return;
 
+    // I3: Increment generation so in-flight fetches become stale
+    const gen = ++_openGeneration;
+
     const layout = document.querySelector('.hud-layout');
     if (layout) layout.classList.add('chat-open');
 
     const titleEl = document.getElementById('chat-title');
     if (titleEl) titleEl.textContent = agentId + ' // ' + (label || sessionId.slice(0, 8));
+
+    // Hide LIVE indicator until subscription confirmed
+    const liveEl = document.getElementById('chat-live');
+    if (liveEl) liveEl.classList.remove('visible');
 
     // Unsubscribe previous
     if (subscribedKey && subscribedKey !== agentId + '/' + sessionId) {
@@ -91,13 +111,12 @@
     localStorage.setItem('hud-chat-session', JSON.stringify(currentSession));
 
     const messagesEl = document.getElementById('chat-messages');
-    const emptyEl = document.getElementById('chat-empty');
 
-    // Clear messages (keep empty el)
+    // Clear messages
     while (messagesEl.firstChild) {
       messagesEl.removeChild(messagesEl.firstChild);
     }
-    // Re-add empty as loading
+    // Add loading indicator
     const loadingDiv = document.createElement('div');
     loadingDiv.className = 'chat-loading';
     loadingDiv.id = 'chat-empty';
@@ -108,6 +127,9 @@
     fetch('/api/session-log/' + encodeURIComponent(agentId) + '/' + encodeURIComponent(sessionId) + '?limit=100')
       .then(r => r.json())
       .then(entries => {
+        // I3: Discard if a newer openChatPane call has occurred
+        if (gen !== _openGeneration) return;
+
         const empty = document.getElementById('chat-empty');
         if (!entries.length) {
           if (empty) empty.textContent = 'No log entries';
@@ -119,6 +141,7 @@
         container.scrollTop = container.scrollHeight;
       })
       .catch(err => {
+        if (gen !== _openGeneration) return;
         const empty = document.getElementById('chat-empty');
         if (empty) empty.textContent = 'Error: ' + err.message;
       });
@@ -143,6 +166,15 @@
 
   // WS message handler - called from app.js
   window.handleChatWsMessage = function(data) {
+    // M4: Handle subscribed confirmation — show LIVE indicator
+    if (data.type === 'subscribed') {
+      if (currentSession && data.sessionId === currentSession.sessionId) {
+        const liveEl = document.getElementById('chat-live');
+        if (liveEl) liveEl.classList.add('visible');
+      }
+      return;
+    }
+
     if (data.type !== 'log-entry') return;
     if (!currentSession) return;
     if (data.agentId !== currentSession.agentId || data.sessionId !== currentSession.sessionId) return;
@@ -161,8 +193,9 @@
     if (nearBottom) {
       container.scrollTop = container.scrollHeight;
     } else {
+      // M5: Toggle pill visibility via CSS class instead of inline style
       const pill = document.getElementById('chat-new-pill');
-      if (pill) pill.style.display = '';
+      if (pill) pill.classList.add('visible');
     }
   };
 
@@ -171,7 +204,8 @@
     if (e.target.id === 'chat-new-pill') {
       const container = document.getElementById('chat-messages');
       if (container) container.scrollTop = container.scrollHeight;
-      e.target.style.display = 'none';
+      // M5: Use CSS class
+      e.target.classList.remove('visible');
     }
   });
 

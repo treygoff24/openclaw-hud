@@ -1,12 +1,7 @@
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
-function escapeHtml(s) {
-  if (s == null) return '';
-  const d = document.createElement('div');
-  d.textContent = String(s);
-  return d.innerHTML;
-}
+// escapeHtml is loaded from utils.js
 
 // Phase 4: Uptime counter
 const pageStartTime = Date.now();
@@ -651,7 +646,9 @@ try {
   ws.onmessage = e => {
     const data = JSON.parse(e.data);
     if (data.type === 'tick') fetchAll();
-    if (window.handleChatWsMessage) window.handleChatWsMessage(data);
+    if (data.type === 'subscribed' || data.type === 'log-entry') {
+      if (window.handleChatWsMessage) window.handleChatWsMessage(data);
+    }
   };
   ws.onclose = () => {
     startPolling();

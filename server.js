@@ -507,6 +507,11 @@ setInterval(() => {
 }, 10000);
 
 // --- WebSocket: Log subscription protocol ---
+// I4: We use Node's built-in fs.watch() instead of chokidar to avoid an extra dependency.
+// fs.watch() has known platform quirks (duplicate events on macOS, no recursive on some OSes),
+// but for our use case (watching individual .jsonl files on localhost) it works well enough.
+// The 100ms debounce timer mitigates duplicate-event issues. If problems arise on Linux with
+// inotify limits, consider switching to chokidar.
 const logWatchers = new Map(); // filePath -> { watcher, dirWatcher, clients: Set<ws>, offset, debounceTimer, sessionId }
 
 function getLogFilePath(agentId, sessionId) {
@@ -592,13 +597,16 @@ function removeClientFromWatcher(filePath, client) {
   }
 }
 
-// Track client -> subscribed file paths for cleanup on disconnect
-const clientSubscriptions = new WeakMap(); // ws -> Set<filePath>
+// Track client -> subscribed file paths (ordered) for cleanup and limits
+const clientSubscriptions = new WeakMap(); // ws -> Array<filePath> (ordered, oldest first)
+
+// I6: Max subscriptions per client
+const MAX_SUBSCRIPTIONS_PER_CLIENT = 5;
 
 const ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 wss.on('connection', (ws) => {
-  clientSubscriptions.set(ws, new Set());
+  clientSubscriptions.set(ws, []);
 
   ws.on('message', (raw) => {
     let msg;
@@ -612,21 +620,47 @@ wss.on('connection', (ws) => {
         return;
       }
       const filePath = getLogFilePath(agentId, sessionId);
-      let entry = logWatchers.get(filePath);
-      if (!entry) entry = startWatcher(filePath, sessionId);
-      entry.agentId = agentId;
-      entry.clients.add(ws);
-      clientSubscriptions.get(ws).add(filePath);
+      const subs = clientSubscriptions.get(ws);
+
+      // I2: Auto-unsubscribe previous subscriptions for this client
+      // (rapid session switching shouldn't leak watchers)
+      // Remove this client from any existing subscriptions to OTHER sessions
+      const toRemove = subs.filter(fp => fp !== filePath);
+      for (const fp of toRemove) {
+        removeClientFromWatcher(fp, ws);
+      }
+      // Reset subscription list
+      subs.length = 0;
+
+      // I6: Enforce max subscription limit (after cleanup, we're adding 1)
+      // If somehow we still exceed, drop the oldest
+      while (subs.length >= MAX_SUBSCRIPTIONS_PER_CLIENT) {
+        const oldest = subs.shift();
+        removeClientFromWatcher(oldest, ws);
+      }
+
+      // Skip if already subscribed to this exact path
+      if (!subs.includes(filePath)) {
+        let entry = logWatchers.get(filePath);
+        if (!entry) entry = startWatcher(filePath, sessionId);
+        entry.agentId = agentId;
+        entry.clients.add(ws);
+        subs.push(filePath);
+      }
+
       ws.send(JSON.stringify({ type: 'subscribed', sessionId }));
     } else if (msg.type === 'unsubscribe-log') {
       const { sessionId } = msg;
       if (!sessionId) return;
+      const subs = clientSubscriptions.get(ws);
       // Find the watcher for this sessionId
       for (const [filePath, entry] of logWatchers) {
         if (entry.sessionId === sessionId) {
           removeClientFromWatcher(filePath, ws);
-          const subs = clientSubscriptions.get(ws);
-          if (subs) subs.delete(filePath);
+          if (subs) {
+            const idx = subs.indexOf(filePath);
+            if (idx !== -1) subs.splice(idx, 1);
+          }
           break;
         }
       }
