@@ -66,7 +66,7 @@
   <div class="row row-2-wide">
     <div class="panel" id="p-tree">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">SESSION TREE <span class="count" id="tree-count">0</span></div>
+      <div class="panel-header"><span>SESSION TREE</span> <div style="display:flex;align-items:center;gap:12px;"><button class="spawn-btn" id="open-spawn-btn">+ NEW</button><span class="count" id="tree-count">0</span></div></div>
       <div class="panel-body" id="tree-body"></div>
     </div>
 
@@ -185,6 +185,63 @@
     </div>
   </div>
 </div>
+
+<!-- Spawn Session Modal -->
+<div class="modal-overlay" id="spawn-modal">
+  <div class="modal-content spawn-modal-content">
+    <div class="modal-header">
+      <span>LAUNCH NEW SESSION</span>
+      <span class="modal-close" id="spawn-modal-close">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="spawn-error" class="spawn-error" style="display:none"></div>
+
+      <div class="spawn-form-grid">
+        <div class="form-group">
+          <label>Agent</label>
+          <select id="spawn-agent" class="hud-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <select id="spawn-model" class="hud-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Label <span class="label-hint">(optional)</span></label>
+          <input type="text" id="spawn-label" class="hud-input" placeholder="my-research-task">
+        </div>
+        <div class="form-group">
+          <label>Mode</label>
+          <select id="spawn-mode" class="hud-select">
+            <option value="run">Run (one-shot, executes and stops)</option>
+            <option value="session">Session (persistent, accepts follow-ups)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Timeout <span class="label-hint">(seconds, 0 = no limit)</span></label>
+          <input type="number" id="spawn-timeout" class="hud-input" value="300" min="0" max="7200">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:16px;">
+        <label>Context Files <span class="label-hint">(one path per line, optional)</span></label>
+        <textarea id="spawn-files" class="hud-textarea" rows="3" placeholder="~/Development/project/src/main.js&#10;~/Development/project/README.md"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Task / Prompt</label>
+        <textarea id="spawn-prompt" class="hud-textarea" rows="8" placeholder="Describe what the agent should do..."></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="hud-btn hud-btn-launch" id="spawn-launch-btn">LAUNCH</button>
+        <button class="hud-btn hud-btn-cancel" id="spawn-cancel-btn">CANCEL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div id="toast" class="toast"></div>
 
 <script src="app.js"></script>
 </body>
