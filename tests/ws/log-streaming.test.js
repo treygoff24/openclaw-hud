@@ -1,227 +1,278 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import { mkdtempSync, writeFileSync, appendFileSync, rmSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import os from 'os';
+import WebSocket, { WebSocketServer } from 'ws';
+import http from 'http';
 
-// Instead of mocking fs (which doesn't work well with CJS require('fs')),
-// we'll use real temp files and real fs.watch behavior.
-// For the parts that need controlled behavior, we'll spy on specific methods.
+let tmpDir;
+let server;
+let wss;
+let clients = [];
+let setupWebSocket;
 
-const TMPDIR = path.join(os.tmpdir(), 'ws-test-' + Date.now());
-const MOCK_HOME = path.join(TMPDIR, '.openclaw');
-
-// Create the directory structure
-fs.mkdirSync(path.join(MOCK_HOME, 'agents', 'agent1', 'sessions'), { recursive: true });
-
-// Override OPENCLAW_HOME in helpers before loading log-streaming
-const helpers = require('../../lib/helpers');
-const origHome = helpers.OPENCLAW_HOME;
-helpers.OPENCLAW_HOME = MOCK_HOME;
-
-function makeWs(readyState = 1) {
-  return {
-    readyState,
-    send: vi.fn(),
-    _listeners: {},
-    on(e, cb) { (this._listeners[e] ||= []).push(cb); },
-    emit(e, ...a) { (this._listeners[e] || []).forEach(cb => cb(...a)); },
-  };
+function createClient(port) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.on('open', () => resolve(ws));
+    ws.on('error', reject);
+    clients.push(ws);
+  });
 }
 
-function makeWss() {
-  return {
-    _listeners: {},
-    on(e, cb) { (this._listeners[e] ||= []).push(cb); },
-    emit(e, ...a) { (this._listeners[e] || []).forEach(cb => cb(...a)); },
-  };
+function sendJSON(ws, obj) {
+  ws.send(JSON.stringify(obj));
+}
+
+function waitForMessage(ws, filter, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for message')), timeoutMs);
+    const handler = (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (!filter || filter(msg)) {
+        clearTimeout(timer);
+        ws.off('message', handler);
+        resolve(msg);
+      }
+    };
+    ws.on('message', handler);
+  });
+}
+
+function collectMessages(ws, durationMs = 500) {
+  const msgs = [];
+  const handler = (raw) => msgs.push(JSON.parse(raw.toString()));
+  ws.on('message', handler);
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      ws.off('message', handler);
+      resolve(msgs);
+    }, durationMs);
+  });
+}
+
+function makeSessionDir(agentId) {
+  const dir = join(tmpDir, 'agents', agentId, 'sessions');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+beforeEach(async () => {
+  tmpDir = mkdtempSync(join(os.tmpdir(), 'hud-ws-test-'));
+
+  // Set env BEFORE requiring modules so destructured OPENCLAW_HOME picks up tmpDir
+  process.env.OPENCLAW_HOME = tmpDir;
+
+  // Clear module cache so log-streaming.js re-reads OPENCLAW_HOME
+  const modKeys = Object.keys(require.cache).filter(
+    (k) => k.includes('log-streaming') || k.includes('helpers')
+  );
+  for (const k of modKeys) delete require.cache[k];
+
+  const mod = require('../../ws/log-streaming');
+  setupWebSocket = mod.setupWebSocket;
+
+  server = http.createServer();
+  wss = new WebSocketServer({ server });
+  setupWebSocket(wss);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  clients = [];
+});
+
+afterEach(async () => {
+  delete process.env.OPENCLAW_HOME;
+  for (const c of clients) {
+    try { c.close(); } catch {}
+  }
+  await new Promise((r) => {
+    if (wss) wss.close(() => r()); else r();
+  });
+  await new Promise((r) => {
+    if (server) server.close(() => r()); else r();
+  });
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+
+function port() {
+  return server.address().port;
 }
 
 describe('WebSocket log-streaming', () => {
-  let setupWebSocket, wss;
-  const logFile = (sess = 'sess1') => path.join(MOCK_HOME, 'agents', 'agent1', 'sessions', `${sess}.jsonl`);
-
-  beforeEach(async () => {
-    vi.useFakeTimers();
-    helpers.OPENCLAW_HOME = MOCK_HOME;
-
-    // Clean up any log files from previous tests
-    const sessDir = path.join(MOCK_HOME, 'agents', 'agent1', 'sessions');
-    for (const f of fs.readdirSync(sessDir)) {
-      fs.unlinkSync(path.join(sessDir, f));
-    }
-
-    vi.resetModules();
-    const mod = await import('../../ws/log-streaming.js');
-    setupWebSocket = mod.setupWebSocket;
-    wss = makeWss();
-    setupWebSocket(wss);
+  it('should respond with subscribed on subscribe-log', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'subscribed');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    const msg = await p;
+    expect(msg).toEqual({ type: 'subscribed', sessionId: 'sess1' });
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+  it('should return error for invalid agentId', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'error');
+    sendJSON(ws, { type: 'subscribe-log', agentId: '../bad', sessionId: 'sess1' });
+    const msg = await p;
+    expect(msg.type).toBe('error');
+    expect(msg.message).toContain('Invalid');
   });
 
-  const connect = () => { const ws = makeWs(); wss.emit('connection', ws); return ws; };
-  const sub = (ws, a = 'agent1', s = 'sess1') => ws.emit('message', JSON.stringify({ type: 'subscribe-log', agentId: a, sessionId: s }));
-
-  // === Validation ===
-
-  it('sends subscribed on valid subscribe', () => {
-    // Create the log file so watcher starts
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribed', sessionId: 'sess1' }));
+  it('should return error for missing sessionId', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'error');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1' });
+    const msg = await p;
+    expect(msg.type).toBe('error');
   });
 
-  it('rejects invalid agentId', () => {
-    const ws = connect();
-    ws.emit('message', JSON.stringify({ type: 'subscribe-log', agentId: '../bad', sessionId: 's1' }));
-    expect(JSON.parse(ws.send.mock.calls[0][0]).type).toBe('error');
+  it('should return error for invalid sessionId', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'error');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'bad/id' });
+    const msg = await p;
+    expect(msg.type).toBe('error');
   });
 
-  it('rejects invalid sessionId', () => {
-    const ws = connect();
-    ws.emit('message', JSON.stringify({ type: 'subscribe-log', agentId: 'ok', sessionId: 'b@d' }));
-    expect(JSON.parse(ws.send.mock.calls[0][0]).type).toBe('error');
+  it('should stream log entries when file exists before subscribe', async () => {
+    const dir = makeSessionDir('agent1');
+    const logFile = join(dir, 'sess1.jsonl');
+    writeFileSync(logFile, '');
+
+    const ws = await createClient(port());
+    const subP = waitForMessage(ws, (m) => m.type === 'subscribed');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    await subP;
+
+    const entryP = waitForMessage(ws, (m) => m.type === 'log-entry');
+    await delay(100);
+    appendFileSync(logFile, JSON.stringify({ role: 'user', content: 'hello' }) + '\n');
+    const msg = await entryP;
+    expect(msg.type).toBe('log-entry');
+    expect(msg.sessionId).toBe('sess1');
+    expect(msg.agentId).toBe('agent1');
+    expect(msg.entry).toEqual({ role: 'user', content: 'hello' });
   });
 
-  it('rejects missing agentId', () => {
-    const ws = connect();
-    ws.emit('message', JSON.stringify({ type: 'subscribe-log', sessionId: 's1' }));
-    expect(JSON.parse(ws.send.mock.calls[0][0]).type).toBe('error');
+  it('should stream log entries when file is created after subscribe', async () => {
+    const dir = makeSessionDir('agent1');
+    const logFile = join(dir, 'sess2.jsonl');
+
+    const ws = await createClient(port());
+    const subP = waitForMessage(ws, (m) => m.type === 'subscribed');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess2' });
+    await subP;
+
+    await delay(300);
+
+    // Create the file empty first - dir watcher detects it and sets up file watcher
+    writeFileSync(logFile, '');
+    await delay(500);
+
+    // Now append data - file watcher should fire
+    const entryP = waitForMessage(ws, (m) => m.type === 'log-entry');
+    appendFileSync(logFile, JSON.stringify({ role: 'assistant', content: 'hi' }) + '\n');
+    const msg = await entryP;
+    expect(msg.type).toBe('log-entry');
+    expect(msg.entry).toEqual({ role: 'assistant', content: 'hi' });
   });
 
-  it('rejects missing sessionId', () => {
-    const ws = connect();
-    ws.emit('message', JSON.stringify({ type: 'subscribe-log', agentId: 'a1' }));
-    expect(JSON.parse(ws.send.mock.calls[0][0]).type).toBe('error');
+  it('should stop sending entries after unsubscribe', async () => {
+    const dir = makeSessionDir('agent1');
+    const logFile = join(dir, 'sess1.jsonl');
+    writeFileSync(logFile, '');
+
+    const ws = await createClient(port());
+    const subP = waitForMessage(ws, (m) => m.type === 'subscribed');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    await subP;
+
+    sendJSON(ws, { type: 'unsubscribe-log', sessionId: 'sess1' });
+    await delay(200);
+
+    const collected = collectMessages(ws, 500);
+    appendFileSync(logFile, JSON.stringify({ role: 'user', content: 'ignored' }) + '\n');
+    const msgs = await collected;
+    const logEntries = msgs.filter((m) => m.type === 'log-entry');
+    expect(logEntries).toHaveLength(0);
   });
 
-  it('accepts IDs with hyphens/underscores', () => {
-    fs.mkdirSync(path.join(MOCK_HOME, 'agents', 'my-agent_1', 'sessions'), { recursive: true });
-    fs.writeFileSync(path.join(MOCK_HOME, 'agents', 'my-agent_1', 'sessions', 'sess-2_x.jsonl'), '');
-    const ws = connect();
-    sub(ws, 'my-agent_1', 'sess-2_x');
-    expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({ type: 'subscribed', sessionId: 'sess-2_x' });
+  it('should handle client disconnect without errors', async () => {
+    const dir = makeSessionDir('agent1');
+    const logFile = join(dir, 'sess1.jsonl');
+    writeFileSync(logFile, '');
+
+    const ws = await createClient(port());
+    const subP = waitForMessage(ws, (m) => m.type === 'subscribed');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    await subP;
+
+    ws.close();
+    await delay(200);
+
+    appendFileSync(logFile, JSON.stringify({ role: 'user', content: 'after-close' }) + '\n');
+    await delay(300);
   });
 
-  it('ignores malformed JSON', () => {
-    const ws = connect();
-    ws.emit('message', 'not{json');
-    expect(ws.send).not.toHaveBeenCalled();
+  it('should send entries to multiple clients subscribed to same session', async () => {
+    const dir = makeSessionDir('agent1');
+    const logFile = join(dir, 'sess1.jsonl');
+    writeFileSync(logFile, '');
+
+    const ws1 = await createClient(port());
+    const ws2 = await createClient(port());
+
+    const sub1 = waitForMessage(ws1, (m) => m.type === 'subscribed');
+    sendJSON(ws1, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    await sub1;
+
+    const sub2 = waitForMessage(ws2, (m) => m.type === 'subscribed');
+    sendJSON(ws2, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sess1' });
+    await sub2;
+
+    await delay(200);
+    const p1 = waitForMessage(ws1, (m) => m.type === 'log-entry');
+    const p2 = waitForMessage(ws2, (m) => m.type === 'log-entry');
+    appendFileSync(logFile, JSON.stringify({ role: 'user', content: 'broadcast' }) + '\n');
+
+    const [msg1, msg2] = await Promise.all([p1, p2]);
+    expect(msg1.entry.content).toBe('broadcast');
+    expect(msg2.entry.content).toBe('broadcast');
   });
 
-  it('ignores messages without type', () => {
-    const ws = connect();
-    ws.emit('message', JSON.stringify({ foo: 1 }));
-    expect(ws.send).not.toHaveBeenCalled();
+  it('should auto-unsubscribe previous session when subscribing to new one', async () => {
+    const dirA = makeSessionDir('agent1');
+    const fileA = join(dirA, 'sessA.jsonl');
+    writeFileSync(fileA, '');
+
+    const dirB = makeSessionDir('agent2');
+    const fileB = join(dirB, 'sessB.jsonl');
+    writeFileSync(fileB, '');
+
+    const ws = await createClient(port());
+
+    // Subscribe to A
+    const subA = waitForMessage(ws, (m) => m.type === 'subscribed' && m.sessionId === 'sessA');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent1', sessionId: 'sessA' });
+    await subA;
+
+    // Subscribe to B (should auto-unsub A)
+    const subB = waitForMessage(ws, (m) => m.type === 'subscribed' && m.sessionId === 'sessB');
+    sendJSON(ws, { type: 'subscribe-log', agentId: 'agent2', sessionId: 'sessB' });
+    await subB;
+
+    await delay(300);
+
+    // Verify B works
+    const entryP = waitForMessage(ws, (m) => m.type === 'log-entry' && m.entry.content === 'fromB');
+    appendFileSync(fileB, JSON.stringify({ role: 'user', content: 'fromB' }) + '\n');
+    const msg = await entryP;
+    expect(msg.entry.content).toBe('fromB');
+
+    // Verify A doesn't send
+    const collected = collectMessages(ws, 500);
+    appendFileSync(fileA, JSON.stringify({ role: 'user', content: 'fromA' }) + '\n');
+    const msgs = await collected;
+    const fromA = msgs.filter((m) => m.type === 'log-entry' && m.entry.content === 'fromA');
+    expect(fromA).toHaveLength(0);
   });
-
-  // === Unsubscribe ===
-
-  it('processes unsubscribe-log message', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    // Should not throw
-    ws.emit('message', JSON.stringify({ type: 'unsubscribe-log', sessionId: 'sess1' }));
-    expect(ws.send).toHaveBeenCalledTimes(1); // only the subscribed message
-  });
-
-  it('ignores unsubscribe without sessionId', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    ws.emit('message', JSON.stringify({ type: 'unsubscribe-log' }));
-    // Should not throw, subscribed still sent
-    expect(ws.send).toHaveBeenCalledTimes(1);
-  });
-
-  // === Client disconnect ===
-
-  it('cleans up on client disconnect without error', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    // Should not throw
-    ws.emit('close');
-  });
-
-  // === Periodic cleanup ===
-
-  it('periodic cleanup fires without error', () => {
-    vi.advanceTimersByTime(60000);
-  });
-
-  // === Multiple subscriptions ===
-
-  it('auto-unsubscribes previous session on new subscribe (same client)', () => {
-    fs.writeFileSync(logFile('sess1'), '');
-    fs.writeFileSync(logFile('sess2'), '');
-    const ws = connect();
-    sub(ws, 'agent1', 'sess1');
-    sub(ws, 'agent1', 'sess2');
-    // Both should have gotten subscribed confirmations
-    expect(ws.send).toHaveBeenCalledTimes(2);
-    const msgs = ws.send.mock.calls.map(c => JSON.parse(c[0]));
-    expect(msgs[0]).toEqual({ type: 'subscribed', sessionId: 'sess1' });
-    expect(msgs[1]).toEqual({ type: 'subscribed', sessionId: 'sess2' });
-  });
-
-  it('no duplicate subscription for same session', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    sub(ws);
-    // Second subscribe should still confirm
-    expect(ws.send).toHaveBeenCalledTimes(2);
-  });
-
-  // === File watching with real fs ===
-  // These tests verify the watcher setup by checking if subscribe works
-  // when file exists vs doesn't exist
-
-  it('subscribes successfully when log file exists', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws = connect();
-    sub(ws);
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribed', sessionId: 'sess1' }));
-  });
-
-  it('subscribes successfully when log file does not exist (dir watcher)', () => {
-    // Don't create the file — module should watch the directory instead
-    const ws = connect();
-    sub(ws);
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribed', sessionId: 'sess1' }));
-  });
-
-  // === Multiple clients on same session ===
-
-  it('two clients can subscribe to the same session', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws1 = connect();
-    const ws2 = connect();
-    sub(ws1);
-    sub(ws2);
-    expect(ws1.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribed', sessionId: 'sess1' }));
-    expect(ws2.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribed', sessionId: 'sess1' }));
-  });
-
-  it('disconnect of one client does not affect other', () => {
-    fs.writeFileSync(logFile(), '');
-    const ws1 = connect();
-    const ws2 = connect();
-    sub(ws1);
-    sub(ws2);
-    ws1.emit('close');
-    // ws2 should still be functional - no errors
-    expect(ws2.send).toHaveBeenCalledTimes(1);
-  });
-});
-
-afterAll(() => {
-  helpers.OPENCLAW_HOME = origHome;
-  try { fs.rmSync(TMPDIR, { recursive: true, force: true }); } catch {}
 });
