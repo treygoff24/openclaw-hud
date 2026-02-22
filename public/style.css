@@ -772,9 +772,12 @@ body::before {
 
 /* === Cron Edit Form === */
 .cron-edit-modal { max-width: 700px; }
-.cron-form-grid {
+.form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.cron-form-grid {
   gap: 0 20px;
 }
 .hud-input, .hud-select, .hud-textarea {
@@ -895,9 +898,6 @@ body::before {
 }
 
 .spawn-form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
 }
 
 .label-hint {

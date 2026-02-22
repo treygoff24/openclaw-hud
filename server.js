@@ -340,6 +340,8 @@ app.get('/api/models', (req, res) => {
 });
 
 // --- Spawn Session helpers ---
+// Note: Rate limiter is in-memory and resets on server restart.
+// This is intentional for single-user local use.
 const spawnTimestamps = [];
 const MAX_SPAWNS_PER_MINUTE = 5;
 
@@ -365,6 +367,13 @@ function validateContextFiles(filesText) {
     } catch (err) {
       if (err.code !== 'ENOENT') return { error: `Cannot resolve path: ${f}` };
     }
+    // Reject files over 10MB
+    try {
+      const stats = fs.statSync(resolved);
+      if (stats.size > 10 * 1024 * 1024) {
+        return { error: `File too large (>10MB): ${f}` };
+      }
+    } catch {} // file may not exist yet
   }
   return { valid: files };
 }
@@ -380,6 +389,8 @@ function getGatewayConfig() {
 }
 
 // --- API: Spawn Session ---
+// Security: This endpoint proxies to the gateway. Safe because server binds to 127.0.0.1 only.
+// If binding changes, add bearer token auth here.
 app.post('/api/spawn', express.json(), async (req, res) => {
   const { agentId, model, label, prompt, contextFiles, timeout, mode } = req.body;
 

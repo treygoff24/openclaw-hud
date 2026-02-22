@@ -403,9 +403,14 @@ $('#modal-close').onclick = () => $('#log-modal').classList.remove('active');
 $('#log-modal').onclick = e => { if (e.target === $('#log-modal')) $('#log-modal').classList.remove('active'); };
 
 function closeModal() {
-  $('#log-modal').classList.remove('active');
-  $('#cron-modal').classList.remove('active');
-  $('#spawn-modal').classList.remove('active');
+  // Close only the topmost active modal
+  const modals = ['#spawn-modal', '#cron-modal', '#log-modal'];
+  for (const id of modals) {
+    if ($(id).classList.contains('active')) {
+      $(id).classList.remove('active');
+      return; // only close one
+    }
+  }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
@@ -486,7 +491,6 @@ $('#cron-session-target').addEventListener('change', updateSessionTargetFields);
 $('#cron-schedule-kind').addEventListener('change', updateScheduleFields);
 $('#cron-modal-close').onclick = closeCronModal;
 $('#cron-modal').addEventListener('click', e => { if (e.target === $('#cron-modal')) closeCronModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#cron-modal').classList.contains('active')) closeCronModal(); });
 
 // Spawn modal
 $('#open-spawn-btn').addEventListener('click', openSpawnModal);
