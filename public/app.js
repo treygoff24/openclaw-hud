@@ -646,6 +646,7 @@ try {
   ws.onopen = () => {
     stopPolling();
     setConnectionStatus(true);
+    if (window._flushChatWsQueue) window._flushChatWsQueue();
   };
   ws.onmessage = e => {
     const data = JSON.parse(e.data);

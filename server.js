@@ -537,7 +537,7 @@ function readNewEntries(entry) {
   for (const line of lines) {
     let parsed;
     try { parsed = JSON.parse(line); } catch { continue; }
-    const msg = JSON.stringify({ type: 'log-entry', sessionId, entry: parsed });
+    const msg = JSON.stringify({ type: 'log-entry', sessionId, agentId: entry.agentId, entry: parsed });
     for (const client of entry.clients) {
       if (client.readyState === 1) client.send(msg);
     }
@@ -614,6 +614,7 @@ wss.on('connection', (ws) => {
       const filePath = getLogFilePath(agentId, sessionId);
       let entry = logWatchers.get(filePath);
       if (!entry) entry = startWatcher(filePath, sessionId);
+      entry.agentId = agentId;
       entry.clients.add(ws);
       clientSubscriptions.get(ws).add(filePath);
       ws.send(JSON.stringify({ type: 'subscribed', sessionId }));

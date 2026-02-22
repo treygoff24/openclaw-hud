@@ -4,6 +4,7 @@
 
   let currentSession = null;
   let subscribedKey = null;
+  const _wsQueue = [];
 
   // Inline escapeHtml since this loads before app.js
   function _escapeHtml(s) {
@@ -18,7 +19,6 @@
   }
 
   function createMessageEl(entry) {
-    const esc = getEscape();
     const role = entry.role || entry.type || 'system';
     let roleClass = 'system';
     if (role === 'user') roleClass = 'user';
@@ -60,8 +60,16 @@
   function sendWs(msg) {
     if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
       window._hudWs.send(JSON.stringify(msg));
+    } else {
+      _wsQueue.push(msg);
     }
   }
+
+  window._flushChatWsQueue = function() {
+    while (_wsQueue.length > 0) {
+      sendWs(_wsQueue.shift());
+    }
+  };
 
   window.openChatPane = function(agentId, sessionId, label) {
     if (!agentId || !sessionId) return;
