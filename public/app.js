@@ -77,7 +77,7 @@ document.addEventListener('click', e => {
   }
   const row = e.target.closest('[data-agent][data-session]');
   if (row) {
-    openSessionLog(row.dataset.agent, row.dataset.session, row.dataset.label || '');
+    openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '');
   }
   const card = e.target.closest('[data-agent-id]');
   if (card && !row) {
@@ -343,7 +343,7 @@ document.addEventListener('click', e => {
   if (treeNode && !e.target.closest('[data-toggle-key]')) {
     const agent = treeNode.dataset.agent;
     const session = treeNode.dataset.session;
-    if (agent && session) openSessionLog(agent, session, treeNode.dataset.label || '');
+    if (agent && session) openChatPane(agent, session, treeNode.dataset.label || '');
   }
 });
 
@@ -358,53 +358,11 @@ function showAgentSessions(agentId) {
   renderSessions(sessions);
 }
 
-// Open session log modal
-async function openSessionLog(agentId, sessionId, label) {
-  if (!agentId || !sessionId) return;
-  $('#modal-title').textContent = `${agentId} // ${label || sessionId.slice(0,8)}`;
-  $('#modal-body').innerHTML = '<div style="color:var(--text-dim);font-family:var(--font-mono);">Loading...</div>';
-  $('#log-modal').classList.add('active');
-
-  try {
-    const res = await fetch(`/api/session-log/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}?limit=80`);
-    const entries = await res.json();
-    if (!entries.length) {
-      $('#modal-body').innerHTML = '<div style="color:var(--text-dim);font-family:var(--font-mono);">No log entries</div>';
-      return;
-    }
-    $('#modal-body').innerHTML = entries.map(e => {
-      const role = e.role || e.type || '?';
-      let roleClass = 'system';
-      if (role === 'user') roleClass = 'user';
-      else if (role === 'assistant') roleClass = 'assistant';
-      else if (e.type === 'tool_use' || e.type === 'tool_result') roleClass = 'tool';
-
-      let content = '';
-      if (typeof e.content === 'string') content = e.content.slice(0, 500);
-      else if (Array.isArray(e.content)) {
-        content = e.content.map(c => typeof c === 'string' ? c : (c.text || JSON.stringify(c).slice(0,200))).join('\n').slice(0,500);
-      }
-      if (e.name) content = `[${e.name}] ${content}`;
-      if (!content && e.type) content = e.type;
-
-      const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
-      return `<div class="log-entry">
-        <span class="log-time">${time}</span>
-        <span class="log-role ${roleClass}">${escapeHtml(role)}</span>
-        <div class="log-content">${escapeHtml(content)}</div>
-      </div>`;
-    }).join('');
-  } catch (err) {
-    $('#modal-body').innerHTML = `<div style="color:var(--red);font-family:var(--font-mono);">Error: ${escapeHtml(err.message)}</div>`;
-  }
-}
-
-$('#modal-close').onclick = () => $('#log-modal').classList.remove('active');
-$('#log-modal').onclick = e => { if (e.target === $('#log-modal')) $('#log-modal').classList.remove('active'); };
+// Session log modal removed — replaced by chat pane
 
 function closeModal() {
   // Close only the topmost active modal
-  const modals = ['#spawn-modal', '#cron-modal', '#log-modal'];
+  const modals = ['#spawn-modal', '#cron-modal'];
   for (const id of modals) {
     if ($(id).classList.contains('active')) {
       $(id).classList.remove('active');
@@ -684,6 +642,7 @@ startPolling(); // start as fallback
 // WebSocket for ticks
 try {
   const ws = new WebSocket(`ws://${location.host}`);
+  window._hudWs = ws;
   ws.onopen = () => {
     stopPolling();
     setConnectionStatus(true);
@@ -691,6 +650,7 @@ try {
   ws.onmessage = e => {
     const data = JSON.parse(e.data);
     if (data.type === 'tick') fetchAll();
+    if (window.handleChatWsMessage) window.handleChatWsMessage(data);
   };
   ws.onclose = () => {
     startPolling();
