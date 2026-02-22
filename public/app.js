@@ -448,8 +448,8 @@ function openCronEditor(jobId) {
   // Payload
   const payload = job.payload || {};
   $('#cron-model').value = payload.model || '';
-  $('#cron-timeout').value = payload.runTimeoutSeconds || '';
-  $('#cron-prompt').value = payload.task || payload.message || '';
+  $('#cron-timeout').value = payload.timeoutSeconds || '';
+  $('#cron-prompt').value = payload.message || payload.text || '';
 
   $('#cron-modal').classList.add('active');
 }
@@ -493,11 +493,11 @@ async function saveCronJob() {
   const payload = { kind: payloadKind };
   const promptVal = $('#cron-prompt').value;
   if (isIsolated) {
-    payload.task = promptVal;
-    if ($('#cron-model').value) payload.model = $('#cron-model').value;
-    if ($('#cron-timeout').value) payload.runTimeoutSeconds = parseInt($('#cron-timeout').value);
-  } else {
     payload.message = promptVal;
+    if ($('#cron-model').value) payload.model = $('#cron-model').value;
+    if ($('#cron-timeout').value) payload.timeoutSeconds = parseInt($('#cron-timeout').value);
+  } else {
+    payload.text = promptVal;
   }
 
   const updates = {
