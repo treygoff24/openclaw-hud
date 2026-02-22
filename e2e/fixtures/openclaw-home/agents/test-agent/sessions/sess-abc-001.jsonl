@@ -1,10 +1,10 @@
-{"type":"model_change","modelId":"anthropic/claude-sonnet-4","timestamp":"2026-02-22T22:09:31.567Z"}
-{"type":"message","role":"system","content":"You are a helpful assistant.","timestamp":"2026-02-22T22:09:41.567Z"}
-{"type":"message","role":"user","content":"Hello, can you help me with a coding task?","timestamp":"2026-02-22T22:09:51.567Z"}
-{"type":"message","role":"assistant","content":"Of course! I'd be happy to help you with your coding task. What would you like to work on?","timestamp":"2026-02-22T22:10:01.567Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":150,"output":30,"cacheRead":0,"cacheWrite":100,"totalTokens":280,"cost":{"total":0.0042}}}}
-{"type":"message","role":"user","content":"Write a function that sorts an array of objects by a given key.","timestamp":"2026-02-22T22:10:11.567Z"}
-{"type":"tool_use","name":"write_file","content":"Writing sort function to utils.js","timestamp":"2026-02-22T22:10:21.567Z"}
-{"type":"tool_result","name":"write_file","content":"File written successfully","timestamp":"2026-02-22T22:10:26.567Z"}
-{"type":"message","role":"assistant","content":"I've written the sort function for you.","timestamp":"2026-02-22T22:10:31.567Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":300,"output":80,"cacheRead":100,"cacheWrite":0,"totalTokens":480,"cost":{"total":0.0065}}}}
-{"type":"message","role":"user","content":"Perfect, thanks!","timestamp":"2026-02-22T22:10:41.567Z"}
-{"type":"message","role":"assistant","content":"You're welcome! Let me know if you need anything else.","timestamp":"2026-02-22T22:10:51.567Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":400,"output":15,"cacheRead":200,"cacheWrite":0,"totalTokens":615,"cost":{"total":0.003}}}}
+{"type":"model_change","modelId":"anthropic/claude-sonnet-4","timestamp":"2026-02-22T22:10:20.015Z"}
+{"type":"message","role":"system","content":"You are a helpful assistant.","timestamp":"2026-02-22T22:10:30.015Z"}
+{"type":"message","role":"user","content":"Hello, can you help me with a coding task?","timestamp":"2026-02-22T22:10:40.015Z"}
+{"type":"message","role":"assistant","content":"Of course! I'd be happy to help you with your coding task. What would you like to work on?","timestamp":"2026-02-22T22:10:50.015Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":150,"output":30,"cacheRead":0,"cacheWrite":100,"totalTokens":280,"cost":{"total":0.0042}}}}
+{"type":"message","role":"user","content":"Write a function that sorts an array of objects by a given key.","timestamp":"2026-02-22T22:11:00.015Z"}
+{"type":"tool_use","name":"write_file","content":"Writing sort function to utils.js","timestamp":"2026-02-22T22:11:10.015Z"}
+{"type":"tool_result","name":"write_file","content":"File written successfully","timestamp":"2026-02-22T22:11:15.015Z"}
+{"type":"message","role":"assistant","content":"I've written the sort function for you.","timestamp":"2026-02-22T22:11:20.015Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":300,"output":80,"cacheRead":100,"cacheWrite":0,"totalTokens":480,"cost":{"total":0.0065}}}}
+{"type":"message","role":"user","content":"Perfect, thanks!","timestamp":"2026-02-22T22:11:30.015Z"}
+{"type":"message","role":"assistant","content":"You're welcome! Let me know if you need anything else.","timestamp":"2026-02-22T22:11:40.015Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":400,"output":15,"cacheRead":200,"cacheWrite":0,"totalTokens":615,"cost":{"total":0.003}}}}
