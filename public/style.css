@@ -607,6 +607,13 @@ body::before {
   background: var(--text-dim);
   flex-shrink: 0;
 }
+.status-dot-completed {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--cyan);
+  opacity: 0.35;
+  flex-shrink: 0;
+  box-shadow: 0 0 3px color-mix(in srgb, var(--cyan) 30%, transparent);
+}
 @keyframes pulse-dot-glm {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.7); }

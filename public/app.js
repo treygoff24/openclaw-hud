@@ -111,8 +111,8 @@ function renderSessions(sessions) {
   const now = Date.now();
   $('#sessions-list').innerHTML = sessions.slice(0, 40).map(s => {
     const label = s.label || s.key || s.sessionId?.slice(0,8);
-    const age = s.updatedAt ? (now - s.updatedAt) : Infinity;
-    const dotClass = age < 600000 ? 'status-dot-green' : age < 3600000 ? 'status-dot-amber' : 'status-dot-gray';
+    const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
+    const dotClass = statusMap[s.status] || 'status-dot-gray';
     const depthTag = s.spawnDepth > 0 ? `<span style="color:var(--text-dim);font-size:11px;margin-left:4px;">depth:${s.spawnDepth}</span>` : '';
     return `<div class="session-row" data-agent="${escapeHtml(s.agentId || '')}" data-session="${escapeHtml(s.sessionId || '')}" data-label="${escapeHtml(label || '')}">
       <div class="${dotClass}"></div>
@@ -280,8 +280,8 @@ function renderSessionTree(sessions) {
 
   function renderNode(node, prefix, isLast) {
     const now = Date.now();
-    const age = node.updatedAt ? (now - node.updatedAt) : Infinity;
-    const dotClass = age < 300000 ? 'status-dot-green' : age < 3600000 ? 'status-dot-amber' : 'status-dot-gray';
+    const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
+    const dotClass = statusMap[node.status] || 'status-dot-gray';
     const label = node.label || node.key;
     const kids = children[node.key] || [];
     const hasKids = kids.length > 0;

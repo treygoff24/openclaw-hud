@@ -103,7 +103,9 @@ app.get('/api/sessions', (req, res) => {
     const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
-      all.push({ agentId, key, ...val });
+      const s = { agentId, key, ...val };
+      s.status = getSessionStatus(s);
+      all.push(s);
     }
   }
   all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -204,6 +206,17 @@ app.get('/api/model-usage', (req, res) => {
 });
 
 // --- API: Session Tree ---
+function getSessionStatus(session) {
+  const age = Date.now() - (session.updatedAt || 0);
+  const isSubagent = (session.spawnDepth || 0) > 0;
+  const fiveMin = 5 * 60 * 1000;
+  const oneHour = 60 * 60 * 1000;
+  if (age < fiveMin) return 'active';
+  if (isSubagent && age >= fiveMin) return 'completed';
+  if (age < oneHour) return 'warm';
+  return 'stale';
+}
+
 app.get('/api/session-tree', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
@@ -235,7 +248,8 @@ app.get('/api/session-tree', (req, res) => {
     updatedAt: s.updatedAt || 0,
     lastChannel: s.lastChannel || null,
     groupChannel: s.groupChannel || null,
-    childCount: childCounts[s.key] || 0
+    childCount: childCounts[s.key] || 0,
+    status: getSessionStatus(s)
   }));
 
   result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
