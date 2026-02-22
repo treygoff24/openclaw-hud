@@ -1,47 +1,30 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { describe, it, expect } from 'vitest';
 
-function loadScript(relativePath) {
-  const code = readFileSync(join(__dirname, '../../public', relativePath), 'utf-8');
-  // Use eval so top-level function declarations become globals (window.escapeHtml)
-  const script = new Function(code);
-  script();
-  // escapeHtml is a function declaration — in new Function scope it's local.
-  // Re-execute with indirect eval to get it into global scope.
-  (0, eval)(code);
-}
-
-beforeEach(() => {
-  document.body.innerHTML = '';
-  window.HUD = {};
-  loadScript('utils.js');
-});
+window.HUD = window.HUD || {};
+await import('../../public/utils.js');
 
 describe('escapeHtml', () => {
   it('returns empty string for null', () => {
-    expect(escapeHtml(null)).toBe('');
+    expect(window.escapeHtml(null)).toBe('');
   });
   it('returns empty string for undefined', () => {
-    expect(escapeHtml(undefined)).toBe('');
+    expect(window.escapeHtml(undefined)).toBe('');
   });
   it('escapes < and >', () => {
-    expect(escapeHtml('<script>')).toBe('&lt;script&gt;');
+    expect(window.escapeHtml('<script>')).toBe('&lt;script&gt;');
   });
   it('escapes &', () => {
-    expect(escapeHtml('a&b')).toBe('a&amp;b');
+    expect(window.escapeHtml('a&b')).toBe('a&amp;b');
   });
-  it('preserves " in output (textContent→innerHTML does not escape quotes)', () => {
-    const result = escapeHtml('"hello"');
-    expect(result).toBe('"hello"');
+  it('preserves " in output', () => {
+    expect(window.escapeHtml('"hello"')).toBe('"hello"');
   });
-  it('preserves single quotes in output', () => {
-    const result = escapeHtml("it's");
-    expect(result).toBe("it's");
+  it('preserves single quotes', () => {
+    expect(window.escapeHtml("it's")).toBe("it's");
   });
   it('passes through plain text', () => {
-    expect(escapeHtml('hello world')).toBe('hello world');
+    expect(window.escapeHtml('hello world')).toBe('hello world');
   });
 });
 
@@ -52,27 +35,21 @@ describe('HUD.utils.timeAgo', () => {
     expect(HUD.utils.timeAgo(undefined)).toBe('—');
   });
   it('returns seconds ago', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 30000);
-    expect(result).toBe('30s ago');
+    expect(HUD.utils.timeAgo(Date.now() - 30000)).toBe('30s ago');
   });
   it('returns minutes ago', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 120000);
-    expect(result).toBe('2m ago');
+    expect(HUD.utils.timeAgo(Date.now() - 120000)).toBe('2m ago');
   });
   it('returns hours ago', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 7200000);
-    expect(result).toBe('2h ago');
+    expect(HUD.utils.timeAgo(Date.now() - 7200000)).toBe('2h ago');
   });
   it('returns days ago', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 172800000);
-    expect(result).toBe('2d ago');
+    expect(HUD.utils.timeAgo(Date.now() - 172800000)).toBe('2d ago');
   });
   it('boundary: 59s is seconds', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 59000);
-    expect(result).toBe('59s ago');
+    expect(HUD.utils.timeAgo(Date.now() - 59000)).toBe('59s ago');
   });
   it('boundary: 60s is minutes', () => {
-    const result = HUD.utils.timeAgo(Date.now() - 60000);
-    expect(result).toBe('1m ago');
+    expect(HUD.utils.timeAgo(Date.now() - 60000)).toBe('1m ago');
   });
 });

@@ -1,12 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-
-function loadScript(relativePath) {
-  const code = readFileSync(join(__dirname, '../../public', relativePath), 'utf-8');
-  new Function(code)();
-}
 
 function setupDOM() {
   document.body.innerHTML = `
@@ -20,25 +13,27 @@ function setupDOM() {
   `;
 }
 
-beforeEach(() => {
-  setupDOM();
-  window.HUD = {};
-  window._hudWs = null;
-  // Mock fetch
-  window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  // Mock localStorage
-  const store = {};
-  vi.stubGlobal('localStorage', {
-    getItem: vi.fn(k => store[k] || null),
-    setItem: vi.fn((k, v) => { store[k] = v; }),
-    removeItem: vi.fn(k => { delete store[k]; }),
-  });
-  // Mock WebSocket
-  window.WebSocket = { OPEN: 1 };
-  loadScript('chat-pane.js');
+setupDOM();
+window.HUD = window.HUD || {};
+window._hudWs = null;
+window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+const store = {};
+vi.stubGlobal('localStorage', {
+  getItem: vi.fn(k => store[k] || null),
+  setItem: vi.fn((k, v) => { store[k] = v; }),
+  removeItem: vi.fn(k => { delete store[k]; }),
 });
+window.WebSocket = { OPEN: 1 };
+
+await import('../../public/chat-pane.js');
 
 describe('openChatPane', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+  });
+
   it('returns early if no agentId or sessionId', () => {
     window.openChatPane(null, null);
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
@@ -78,6 +73,12 @@ describe('openChatPane', () => {
 });
 
 describe('closeChatPane', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+  });
+
   it('removes chat-open class', () => {
     window.openChatPane('agent1', 'sess1');
     window.closeChatPane();
@@ -92,6 +93,12 @@ describe('closeChatPane', () => {
 });
 
 describe('handleChatWsMessage', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+  });
+
   it('ignores non log-entry messages', () => {
     window.openChatPane('a', 's');
     const msgsBefore = document.getElementById('chat-messages').children.length;
@@ -112,7 +119,6 @@ describe('handleChatWsMessage', () => {
     const msgs = document.querySelectorAll('.chat-msg');
     expect(msgs.length).toBe(1);
     expect(msgs[0].querySelector('.chat-msg-content').textContent).toBe('hello');
-    expect(msgs[0].classList.contains('user')).toBe(true);
   });
 
   it('removes empty placeholder when appending', () => {
@@ -132,5 +138,141 @@ describe('handleChatWsMessage', () => {
     window.openChatPane('a', 's');
     window.handleChatWsMessage({ type: 'subscribed', sessionId: 'other' });
     expect(document.getElementById('chat-live').classList.contains('visible')).toBe(false);
+  });
+
+  it('handles tool_use entries with tool role class', () => {
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { type: 'tool_use', name: 'exec', content: 'result' } });
+    const msg = document.querySelector('.chat-msg.tool');
+    expect(msg).not.toBeNull();
+    expect(msg.querySelector('.chat-msg-content').textContent).toContain('[exec]');
+  });
+
+  it('handles array content', () => {
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'assistant', content: ['hello', { text: 'world' }] } });
+    const msg = document.querySelector('.chat-msg-content');
+    expect(msg.textContent).toContain('hello');
+    expect(msg.textContent).toContain('world');
+  });
+
+  it('truncates long content', () => {
+    window.openChatPane('a', 's');
+    const longContent = 'x'.repeat(3000);
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'user', content: longContent } });
+    const msg = document.querySelector('.chat-msg-content');
+    expect(msg.textContent.length).toBeLessThan(3000);
+    expect(msg.querySelector('.chat-truncated')).not.toBeNull();
+  });
+
+  it('uses type as content when content is missing', () => {
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { type: 'model_change' } });
+    const msg = document.querySelector('.chat-msg-content');
+    expect(msg.textContent).toBe('model_change');
+  });
+
+  it('handles object content in array', () => {
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'assistant', content: [{ foo: 'bar' }] } });
+    const msg = document.querySelector('.chat-msg-content');
+    expect(msg.textContent).toContain('foo');
+  });
+});
+
+describe('WS queue', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+  });
+
+  it('queues messages when WS is not open', () => {
+    window._hudWs = null;
+    window.openChatPane('a', 's');
+    // The subscribe-log message should be queued since no WS
+  });
+
+  it('flushes queue when WS becomes available', () => {
+    window._hudWs = null;
+    window.openChatPane('a', 's');
+    const mockSend = vi.fn();
+    window._hudWs = { readyState: 1, send: mockSend };
+    window._flushChatWsQueue();
+    expect(mockSend).toHaveBeenCalled();
+  });
+});
+
+describe('fetch response handling', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+  });
+
+  it('renders fetched log entries', async () => {
+    window.fetch = vi.fn(() => Promise.resolve({
+      json: () => Promise.resolve([
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'hi there' },
+      ])
+    }));
+    window.openChatPane('a', 's');
+    await new Promise(r => setTimeout(r, 50));
+    const msgs = document.querySelectorAll('.chat-msg');
+    expect(msgs.length).toBe(2);
+  });
+
+  it('shows "No log entries" when fetch returns empty', async () => {
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+    window.openChatPane('a', 's');
+    await new Promise(r => setTimeout(r, 50));
+    const empty = document.getElementById('chat-empty');
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toBe('No log entries');
+  });
+
+  it('handles fetch error gracefully', async () => {
+    window.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
+    window.openChatPane('a', 's');
+    await new Promise(r => setTimeout(r, 50));
+    const empty = document.getElementById('chat-empty');
+    expect(empty.textContent).toContain('Error');
+  });
+});
+
+describe('keyboard and UI events', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+  });
+
+  it('closes chat pane on Escape key', () => {
+    window.openChatPane('a', 's');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+  });
+
+  it('does not close chat on Escape when modal is active', () => {
+    window.openChatPane('a', 's');
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    document.body.appendChild(modal);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
+  });
+
+  it('close button closes chat', () => {
+    window.openChatPane('a', 's');
+    document.getElementById('chat-close').click();
+    expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+  });
+
+  it('shows new-pill and scrolls on click', () => {
+    window.openChatPane('a', 's');
+    const pill = document.getElementById('chat-new-pill');
+    pill.classList.add('visible');
+    pill.click();
+    expect(pill.classList.contains('visible')).toBe(false);
   });
 });

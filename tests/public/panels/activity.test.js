@@ -1,26 +1,24 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
-function loadScript(relativePath) {
-  const code = readFileSync(join(__dirname, '../../../public', relativePath), 'utf-8');
-  new Function(code)();
-}
+document.body.innerHTML = '<span id="activity-count"></span><div id="activity-feed"></div>';
+window.HUD = window.HUD || {};
+// Provide escapeHtml globally (as utils.js does)
+window.escapeHtml = function(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+};
 
-beforeEach(() => {
-  document.body.innerHTML = '<span id="activity-count"></span><div id="activity-feed"></div>';
-  window.HUD = {};
-  window.escapeHtml = function(s) {
-    if (s == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-  };
-  loadScript('panels/activity.js');
-});
+await import('../../../public/panels/activity.js');
 
 describe('activity.render', () => {
+  beforeEach(() => {
+    document.getElementById('activity-count').textContent = '';
+    document.getElementById('activity-feed').innerHTML = '';
+  });
+
   it('renders event count', () => {
     HUD.activity.render([
       { timestamp: Date.now(), type: 'message', agentId: 'bot', content: 'hello' }
@@ -53,9 +51,7 @@ describe('activity.render', () => {
   });
 
   it('handles missing fields gracefully', () => {
-    HUD.activity.render([
-      { timestamp: Date.now() }
-    ]);
+    HUD.activity.render([{ timestamp: Date.now() }]);
     const item = document.querySelector('.activity-item');
     expect(item.querySelector('.activity-type').textContent).toBe('?');
   });

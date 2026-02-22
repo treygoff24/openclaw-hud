@@ -6,6 +6,9 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+// Make escapeHtml available globally for other scripts
+window.escapeHtml = escapeHtml;
+
 window.HUD = window.HUD || {};
 HUD.utils = {
   timeAgo: function(ms) {
