@@ -445,9 +445,17 @@ function openCronEditor(jobId) {
   }
   updateScheduleFields();
 
+  // Populate model dropdown
+  const modelSelect = $('#cron-model');
+  if (window._modelAliases) {
+    modelSelect.innerHTML = window._modelAliases.map(m =>
+      `<option value="${escapeHtml(m.fullId)}">${escapeHtml(m.alias)}${m.fullId ? ' (' + escapeHtml(m.fullId.split('/').pop()) + ')' : ''}</option>`
+    ).join('');
+  }
+
   // Payload
   const payload = job.payload || {};
-  $('#cron-model').value = payload.model || '';
+  modelSelect.value = payload.model || '';
   $('#cron-timeout').value = payload.timeoutSeconds || '';
   $('#cron-prompt').value = payload.message || payload.text || '';
 
@@ -527,7 +535,7 @@ async function saveCronJob() {
 // Fetch all data
 async function fetchAll() {
   try {
-    const [agents, sessions, cron, config, usage, activity, tree] = await Promise.all([
+    const [agents, sessions, cron, config, usage, activity, tree, models] = await Promise.all([
       fetch('/api/agents').then(r => r.json()),
       fetch('/api/sessions').then(r => r.json()),
       fetch('/api/cron').then(r => r.json()),
@@ -535,7 +543,9 @@ async function fetchAll() {
       fetch('/api/model-usage').then(r => r.json()),
       fetch('/api/activity').then(r => r.json()),
       fetch('/api/session-tree').then(r => r.json()),
+      fetch('/api/models').then(r => r.json()),
     ]);
+    window._modelAliases = models;
     window._allSessions = sessions;
     window._treeData = tree;
     renderAgents(agents);

@@ -319,6 +319,18 @@ app.get('/api/session-tree', (req, res) => {
   res.json(filtered);
 });
 
+// --- API: Model Aliases ---
+app.get('/api/models', (req, res) => {
+  const config = safeJSON5(path.join(OPENCLAW_HOME, 'config', 'source-of-truth.json5'));
+  const models = config?.agents?.defaults?.models || {};
+  const aliases = Object.entries(models).map(([fullId, cfg]) => ({
+    alias: cfg.alias || fullId.split('/').pop(),
+    fullId,
+  }));
+  aliases.unshift({ alias: 'default', fullId: '' });
+  res.json(aliases);
+});
+
 // --- API: Activity Feed ---
 app.get('/api/activity', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
