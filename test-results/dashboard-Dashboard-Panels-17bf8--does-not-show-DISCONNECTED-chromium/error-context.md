@@ -1,0 +1,195 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: OPENCLAW OPENCLAW OPENCLAW
+      - generic [ref=e5]: KIMI K2.5 // COMMAND CENTER
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: AGENTS
+        - text: "1"
+      - generic [ref=e9]:
+        - generic [ref=e10]: ACTIVE
+        - text: "1"
+      - generic [ref=e11]:
+        - generic [ref=e12]: UPTIME
+        - text: 00:00:05
+      - generic [ref=e14]:
+        - generic [ref=e15]: 02/22/2026, 16:19:26
+        - generic [ref=e17]: "MODEL: anthropic/claude-sonnet-4"
+    - generic [ref=e18]: ⚠ DISCONNECTED
+  - generic [ref=e19]:
+    - main [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e27]:
+            - text: AGENT FLEET
+            - generic [ref=e28]: "1"
+          - generic [ref=e29]:
+            - textbox "FILTER AGENTS..." [ref=e30]
+            - generic [ref=e32] [cursor=pointer]:
+              - generic [ref=e34]: test-agent2 live
+              - generic [ref=e35]: 2 sess
+        - generic [ref=e36]:
+          - generic [ref=e41]:
+            - text: CRON CONTROL
+            - generic [ref=e42]: "3"
+          - generic [ref=e43]:
+            - generic [ref=e46] [cursor=pointer]:
+              - generic [ref=e47]: Morning Briefing test-agent
+              - generic [ref=e48]:
+                - generic [ref=e49]: 0 8 * * * (America/Chicago)
+                - generic [ref=e50]: default model
+              - generic [ref=e51]:
+                - generic [ref=e52]: COMPLETED
+                - generic [ref=e53]: "last: 831d ago"
+                - generic [ref=e54]: "next: —"
+            - generic [ref=e57] [cursor=pointer]:
+              - generic [ref=e58]: Weekly Summary test-agent
+              - generic [ref=e59]:
+                - generic [ref=e60]: 0 17 * * 5 (America/Chicago)
+                - generic [ref=e61]: anthropic/claude-sonnet-4
+              - generic [ref=e62]:
+                - generic [ref=e63]: SKIPPED
+                - generic [ref=e64]: "last: never"
+                - generic [ref=e65]: "next: —"
+            - generic [ref=e68] [cursor=pointer]:
+              - generic [ref=e69]: Health Check test-agent
+              - generic [ref=e70]:
+                - generic [ref=e71]: "*/30 * * * * (America/Chicago)"
+                - generic [ref=e72]: default model
+              - generic [ref=e73]:
+                - generic [ref=e74]: COMPLETED
+                - generic [ref=e75]: "last: 831d ago"
+                - generic [ref=e76]: "next: —"
+        - generic [ref=e77]:
+          - generic [ref=e82]: SYSTEM STATUS
+          - generic [ref=e83]:
+            - generic [ref=e84]:
+              - generic [ref=e85]: DEFAULT MODEL
+              - generic [ref=e86]: anthropic/claude-sonnet-4
+            - generic [ref=e87]:
+              - generic [ref=e88]: GATEWAY PORT
+              - generic [ref=e89]: "3779"
+            - generic [ref=e90]:
+              - generic [ref=e91]: GATEWAY MODE
+              - generic [ref=e92]: local
+            - generic [ref=e93]:
+              - generic [ref=e94]: GATEWAY BIND
+              - generic [ref=e95]: 127.0.0.1
+            - generic [ref=e96]:
+              - generic [ref=e97]: MAX CONCURRENT
+              - generic [ref=e98]: "3"
+            - generic [ref=e99]:
+              - generic [ref=e100]: SPAWN DEPTH
+              - generic [ref=e101]: "3"
+            - generic [ref=e102]:
+              - generic [ref=e103]: MAX CHILDREN
+              - generic [ref=e104]: "10"
+            - generic [ref=e105]:
+              - generic [ref=e106]: CHANNELS
+              - generic [ref=e107]: discord, telegram
+            - generic [ref=e108]:
+              - generic [ref=e109]: PROVIDERS
+              - generic [ref=e110]: anthropic, openai
+            - generic [ref=e112]: MODEL ALIASES
+            - generic [ref=e113]:
+              - generic [ref=e114]: sonnet
+              - generic [ref=e115]: anthropic/claude-sonnet-4
+            - generic [ref=e116]:
+              - generic [ref=e117]: haiku
+              - generic [ref=e118]: anthropic/claude-haiku-4
+            - generic [ref=e119]:
+              - generic [ref=e120]: gpt4o
+              - generic [ref=e121]: openai/gpt-4o
+      - generic [ref=e122]:
+        - generic [ref=e123]:
+          - generic [ref=e128]:
+            - generic [ref=e129]: SESSION TREE
+            - generic [ref=e130]:
+              - button "+ NEW" [ref=e131] [cursor=pointer]
+              - generic [ref=e132]: "2"
+          - generic [ref=e135]:
+            - generic [ref=e136] [cursor=pointer]:
+              - generic [ref=e137]: └─
+              - generic [ref=e138]: ▾
+              - generic [ref=e140]: main
+              - generic [ref=e141]: test-agent
+              - generic [ref=e142]: 5m ago
+            - generic [ref=e145] [cursor=pointer]:
+              - generic [ref=e146]: └─ └─
+              - generic [ref=e148]: research-task
+              - generic [ref=e149]: test-agent
+              - generic [ref=e150]: 10m ago
+        - generic [ref=e151]:
+          - generic [ref=e156]: MODEL USAGE
+          - generic [ref=e158]:
+            - generic [ref=e159]:
+              - generic [ref=e160]: claude-sonnet-4
+              - generic [ref=e161]: 1.4K tokens
+            - generic [ref=e164]: "IN: 900 · OUT: 145 · CACHE: 300 · $0.01"
+            - generic [ref=e165]: test-agent:1.4K
+      - generic [ref=e166]:
+        - generic [ref=e167]:
+          - generic [ref=e172]:
+            - text: ACTIVE SESSIONS
+            - generic [ref=e173]: "2"
+          - generic [ref=e174]:
+            - generic [ref=e175] [cursor=pointer]:
+              - generic [ref=e177]: test-agent
+              - generic [ref=e178]: main
+              - generic [ref=e179]: 5m ago
+            - generic [ref=e180] [cursor=pointer]:
+              - generic [ref=e182]: test-agent
+              - generic [ref=e183]: research-taskdepth:1
+              - generic [ref=e184]: 10m ago
+        - generic [ref=e185]:
+          - generic [ref=e190]:
+            - text: ACTIVITY FEED
+            - generic [ref=e191]: "7"
+          - generic [ref=e192]:
+            - generic [ref=e193]:
+              - generic [ref=e194]: 16:11
+              - generic [ref=e195]: message
+              - generic [ref=e196]: test-agent
+              - generic [ref=e197]: I'll research the latest quantum computing advances for you.
+            - generic [ref=e198]:
+              - generic [ref=e199]: 16:10
+              - generic [ref=e200]: message
+              - generic [ref=e201]: test-agent
+              - generic [ref=e202]: Research quantum computing advances.
+            - generic [ref=e203]:
+              - generic [ref=e204]: 16:10
+              - generic [ref=e205]: message
+              - generic [ref=e206]: test-agent
+              - generic [ref=e207]: You're welcome! Let me know if you need anything else.
+            - generic [ref=e208]:
+              - generic [ref=e209]: 16:10
+              - generic [ref=e210]: message
+              - generic [ref=e211]: test-agent
+              - generic [ref=e212]: Perfect, thanks!
+            - generic [ref=e213]:
+              - generic [ref=e214]: 16:10
+              - generic [ref=e215]: message
+              - generic [ref=e216]: test-agent
+              - generic [ref=e217]: I've written the sort function for you.
+            - generic [ref=e218]:
+              - generic [ref=e219]: 16:10
+              - generic [ref=e220]: tool_result
+              - generic [ref=e221]: test-agent
+              - generic [ref=e222]: ⚡ write_file
+            - generic [ref=e223]:
+              - generic [ref=e224]: 16:10
+              - generic [ref=e225]: tool_use
+              - generic [ref=e226]: test-agent
+              - generic [ref=e227]: ⚡ write_file
+    - complementary [ref=e228]:
+      - generic [ref=e229]:
+        - generic:
+          - generic: Select a session
+        - button "Close chat pane" [ref=e230] [cursor=pointer]: ×
+      - log [ref=e231]:
+        - generic [ref=e232]: Select a session from the tree
+```
