@@ -182,6 +182,45 @@ app.get('/api/model-usage', (req, res) => {
   res.json(usage);
 });
 
+// --- API: Session Tree ---
+app.get('/api/session-tree', (req, res) => {
+  const agentsDir = path.join(OPENCLAW_HOME, 'agents');
+  const agents = safeReaddir(agentsDir);
+  const allSessions = {};
+
+  for (const agentId of agents) {
+    const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
+    const sessions = safeJSON(sessFile) || {};
+    for (const [key, val] of Object.entries(sessions)) {
+      allSessions[key] = { key, agentId, ...val };
+    }
+  }
+
+  // Build flat list with childCount
+  const childCounts = {};
+  for (const s of Object.values(allSessions)) {
+    if (s.spawnedBy && allSessions[s.spawnedBy]) {
+      childCounts[s.spawnedBy] = (childCounts[s.spawnedBy] || 0) + 1;
+    }
+  }
+
+  const result = Object.values(allSessions).map(s => ({
+    key: s.key,
+    agentId: s.agentId,
+    label: s.label || null,
+    sessionId: s.sessionId,
+    spawnedBy: (s.spawnedBy && allSessions[s.spawnedBy]) ? s.spawnedBy : null,
+    spawnDepth: s.spawnDepth || 0,
+    updatedAt: s.updatedAt || 0,
+    lastChannel: s.lastChannel || null,
+    groupChannel: s.groupChannel || null,
+    childCount: childCounts[s.key] || 0
+  }));
+
+  result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json(result);
+});
+
 // --- API: Activity Feed ---
 app.get('/api/activity', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');

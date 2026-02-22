@@ -247,6 +247,93 @@ function renderActivity(events) {
   }).join('');
 }
 
+// Session Tree
+const treeCollapseState = {};
+
+function renderSessionTree(sessions) {
+  $('#tree-count').textContent = sessions.length;
+  
+  // Build parent->children map
+  const byKey = {};
+  sessions.forEach(s => { byKey[s.key] = s; });
+  const children = {};
+  const roots = [];
+  sessions.forEach(s => {
+    if (s.spawnedBy && byKey[s.spawnedBy]) {
+      if (!children[s.spawnedBy]) children[s.spawnedBy] = [];
+      children[s.spawnedBy].push(s);
+    } else {
+      roots.push(s);
+    }
+  });
+  // Sort children by updatedAt desc
+  for (const k in children) children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  roots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  function renderNode(node, prefix, isLast) {
+    const now = Date.now();
+    const age = node.updatedAt ? (now - node.updatedAt) : Infinity;
+    const dotClass = age < 300000 ? 'status-dot-green' : age < 3600000 ? 'status-dot-amber' : 'status-dot-gray';
+    const label = node.label || node.key;
+    const kids = children[node.key] || [];
+    const hasKids = kids.length > 0;
+    const collapsed = treeCollapseState[node.key] === true;
+    const toggleChar = hasKids ? (collapsed ? '▸' : '▾') : ' ';
+    const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count">${kids.length}</span>` : '';
+
+    let html = `<div class="tree-node">
+      <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-label="${escapeHtml(label)}">
+        <span class="tree-indent">${escapeHtml(prefix)}</span>
+        <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}">${toggleChar}</span>
+        <div class="${dotClass}"></div>
+        <span class="tree-label">${escapeHtml(label)}</span>
+        <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
+        ${countBadge}
+        <span class="tree-age">${timeAgo(node.updatedAt)}</span>
+      </div>`;
+
+    if (hasKids) {
+      html += `<div class="tree-children${collapsed ? ' collapsed' : ''}">`;
+      kids.forEach((kid, i) => {
+        const kidIsLast = i === kids.length - 1;
+        const childPrefix = prefix + (isLast ? '   ' : '│  ');
+        const connector = kidIsLast ? '└─ ' : '├─ ';
+        html += renderNode(kid, childPrefix + connector, kidIsLast);
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  let html = '<div class="tree-root">';
+  roots.forEach((r, i) => {
+    const connector = i === roots.length - 1 ? '└─ ' : '├─ ';
+    html += renderNode(r, connector, i === roots.length - 1);
+  });
+  html += '</div>';
+  
+  $('#tree-body').innerHTML = html;
+}
+
+// Tree event delegation
+document.addEventListener('click', e => {
+  const toggle = e.target.closest('[data-toggle-key]');
+  if (toggle) {
+    const key = toggle.dataset.toggleKey;
+    treeCollapseState[key] = !treeCollapseState[key];
+    if (window._treeData) renderSessionTree(window._treeData);
+    e.stopPropagation();
+    return;
+  }
+  const treeNode = e.target.closest('[data-tree-key]');
+  if (treeNode && !e.target.closest('[data-toggle-key]')) {
+    const agent = treeNode.dataset.agent;
+    const session = treeNode.dataset.session;
+    if (agent && session) openSessionLog(agent, session, treeNode.dataset.label || '');
+  }
+});
+
 // Show agent sessions (filter sessions panel)
 function showAgentSessions(agentId) {
   const sessions = (window._allSessions || []).filter(s => s.agentId === agentId);
@@ -306,21 +393,24 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#log-moda
 // Fetch all data
 async function fetchAll() {
   try {
-    const [agents, sessions, cron, config, usage, activity] = await Promise.all([
+    const [agents, sessions, cron, config, usage, activity, tree] = await Promise.all([
       fetch('/api/agents').then(r => r.json()),
       fetch('/api/sessions').then(r => r.json()),
       fetch('/api/cron').then(r => r.json()),
       fetch('/api/config').then(r => r.json()),
       fetch('/api/model-usage').then(r => r.json()),
       fetch('/api/activity').then(r => r.json()),
+      fetch('/api/session-tree').then(r => r.json()),
     ]);
     window._allSessions = sessions;
+    window._treeData = tree;
     renderAgents(agents);
     renderSessions(sessions);
     renderCron(cron);
     renderSystem(config);
     renderModelUsage(usage);
     renderActivity(activity);
+    renderSessionTree(tree);
     setConnectionStatus(true);
   } catch (err) {
     console.error('Fetch error:', err);
