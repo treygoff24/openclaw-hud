@@ -405,6 +405,7 @@ $('#log-modal').onclick = e => { if (e.target === $('#log-modal')) $('#log-modal
 function closeModal() {
   $('#log-modal').classList.remove('active');
   $('#cron-modal').classList.remove('active');
+  $('#spawn-modal').classList.remove('active');
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
@@ -487,6 +488,15 @@ $('#cron-modal-close').onclick = closeCronModal;
 $('#cron-modal').addEventListener('click', e => { if (e.target === $('#cron-modal')) closeCronModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#cron-modal').classList.contains('active')) closeCronModal(); });
 
+// Spawn modal
+$('#open-spawn-btn').addEventListener('click', openSpawnModal);
+$('#spawn-cancel-btn').addEventListener('click', closeSpawnModal);
+$('#spawn-modal-close').addEventListener('click', closeSpawnModal);
+$('#spawn-launch-btn').addEventListener('click', launchSession);
+$('#spawn-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'spawn-modal') closeSpawnModal();
+});
+
 async function saveCronJob() {
   if (!_editingJobId) return;
   const sessionTarget = $('#cron-session-target').value;
@@ -530,6 +540,96 @@ async function saveCronJob() {
   } catch (err) {
     alert('Error saving: ' + err.message);
   }
+}
+
+// --- Spawn Session ---
+function openSpawnModal() {
+  // Reset form
+  $('#spawn-error').style.display = 'none';
+  $('#spawn-label').value = '';
+  $('#spawn-mode').value = 'run';
+  $('#spawn-timeout').value = '300';
+  $('#spawn-files').value = '';
+  $('#spawn-prompt').value = '';
+
+  // Populate agent dropdown
+  const agentSelect = $('#spawn-agent');
+  const agents = (window._agents || []).map(a => a.id);
+  agentSelect.innerHTML = agents.map(id =>
+    `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`
+  ).join('');
+
+  // Populate model dropdown (reuse cached _modelAliases from fetchAll)
+  const modelSelect = $('#spawn-model');
+  if (window._modelAliases) {
+    modelSelect.innerHTML = window._modelAliases.map(m =>
+      `<option value="${escapeHtml(m.fullId)}">${escapeHtml(m.alias)}${m.fullId ? ' (' + escapeHtml(m.fullId.split('/').pop()) + ')' : ''}</option>`
+    ).join('');
+  }
+
+  $('#spawn-modal').classList.add('active');
+}
+
+function closeSpawnModal() {
+  $('#spawn-modal').classList.remove('active');
+}
+
+async function launchSession() {
+  const btn = $('#spawn-launch-btn');
+  const errorEl = $('#spawn-error');
+  errorEl.style.display = 'none';
+
+  const data = {
+    agentId: $('#spawn-agent').value,
+    model: $('#spawn-model').value || undefined,
+    label: $('#spawn-label').value.trim() || undefined,
+    mode: $('#spawn-mode').value,
+    timeout: parseInt($('#spawn-timeout').value) || undefined,
+    contextFiles: $('#spawn-files').value || undefined,
+    prompt: $('#spawn-prompt').value,
+  };
+
+  // Client-side validation
+  if (!data.prompt?.trim()) {
+    errorEl.textContent = 'Task / Prompt is required';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = 'LAUNCHING...';
+
+  try {
+    const res = await fetch('/api/spawn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Spawn failed');
+
+    closeSpawnModal();
+    showToast(`Session launched: ${data.label || data.agentId}`);
+    setTimeout(fetchAll, 2000); // slight delay for session to register in tree
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+function showToast(message, isError = false) {
+  const toast = $('#toast');
+  toast.textContent = message;
+  toast.className = 'toast' + (isError ? ' error' : '');
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+    setTimeout(() => toast.classList.remove('visible'), 3000);
+  });
 }
 
 // Fetch all data
