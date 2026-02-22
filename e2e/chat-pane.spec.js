@@ -52,9 +52,14 @@ test.describe('Chat Pane', () => {
     await expect(page.locator('#chat-messages')).toContainText('quantum computing');
   });
 
-  test('dashboard compresses when pane open', async ({ page }) => {
+  test('auto-scroll: messages area scrolled to bottom on open', async ({ page }) => {
     await openSession(page, 'sess-abc-001');
-    await expect(page.locator('.hud-layout')).toHaveClass(/chat-open/);
+    await page.waitForSelector('.chat-msg');
+    const isNearBottom = await page.evaluate(() => {
+      const el = document.getElementById('chat-messages');
+      return (el.scrollHeight - el.scrollTop - el.clientHeight) < 100;
+    });
+    expect(isNearBottom).toBe(true);
   });
 
   test('localStorage persistence across reload', async ({ page }) => {
