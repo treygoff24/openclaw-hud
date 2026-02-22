@@ -327,6 +327,14 @@ app.get('/api/models', (req, res) => {
     alias: cfg.alias || fullId.split('/').pop(),
     fullId,
   }));
+  // Add agent-specific models not in global config
+  const agentModels = [
+    { alias: 'haiku', fullId: 'anthropic/claude-haiku-4' },
+    { alias: 'vulcan (codex)', fullId: 'openai/gpt-5.3-codex' },
+  ];
+  for (const am of agentModels) {
+    if (!aliases.find(a => a.fullId === am.fullId)) aliases.push(am);
+  }
   aliases.unshift({ alias: 'default', fullId: '' });
   res.json(aliases);
 });
