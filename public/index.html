@@ -13,12 +13,27 @@
 
 <header class="hud-header">
   <div>
-    <div class="hud-logo glitch-hover">OPEN<span>CLAW</span> HUD</div>
+    <div class="logo-glitch" data-text="OPENCLAW">OPENCLAW</div>
     <div class="hud-subtitle">KIMI K2.5 // COMMAND CENTER</div>
   </div>
-  <div style="text-align:right;">
-    <div class="hud-time"><span class="hud-status-dot"></span><span id="clock"></span></div>
-    <div class="hud-subtitle" id="sys-model" style="margin-top:4px;"></div>
+  <div class="header-right">
+    <div class="stat-block">
+      <span class="stat-label">AGENTS</span>
+      <span class="stat-value" id="stat-agents">—</span>
+    </div>
+    <div class="stat-block">
+      <span class="stat-label">ACTIVE</span>
+      <span class="stat-value neon-cyan" id="stat-active">—</span>
+    </div>
+    <div class="stat-block">
+      <span class="stat-label">UPTIME</span>
+      <span class="stat-value" id="stat-uptime">—</span>
+    </div>
+    <div class="header-divider"></div>
+    <div style="text-align:right;">
+      <div class="hud-time"><span class="hud-status-dot"></span><span id="clock"></span></div>
+      <div class="hud-subtitle" id="sys-model" style="margin-top:4px;"></div>
+    </div>
   </div>
 </header>
 
