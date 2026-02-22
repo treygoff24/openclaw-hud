@@ -1,0 +1,55 @@
+/* Spawn Button */
+.spawn-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 4px 12px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.spawn-btn:hover {
+  background: rgba(0, 229, 255, 0.2);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+/* Spawn Modal */
+.spawn-modal-content { max-width: 640px; }
+
+.label-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.spawn-error {
+  background: rgba(255, 0, 60, 0.12);
+  border: 1px solid #ff003c;
+  color: #ff003c;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 16px;
+  border-radius: 2px;
+}
+
+.hud-btn-launch {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  letter-spacing: 3px;
+  font-weight: bold;
+  min-width: 140px;
+  transition: all 0.2s;
+}
+.hud-btn-launch:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.25);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+}
+.hud-btn-launch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
