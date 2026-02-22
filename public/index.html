@@ -37,57 +37,59 @@
   </div>
 </header>
 
-<main class="hud-grid">
-  <!-- 1. Agent Fleet -->
-  <div class="panel" id="p-agents">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">AGENT FLEET <span class="count" id="agent-count">0</span></div>
-    <div class="panel-body">
-      <input class="search-box" id="agent-search" placeholder="FILTER AGENTS...">
-      <div id="agents-list"></div>
+<main class="dashboard">
+  <!-- Row 1: Overview panels -->
+  <div class="row row-3">
+    <div class="panel" id="p-agents">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">AGENT FLEET <span class="count" id="agent-count">0</span></div>
+      <div class="panel-body">
+        <input class="search-box" id="agent-search" placeholder="FILTER AGENTS...">
+        <div id="agents-list"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="p-cron">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">CRON CONTROL <span class="count" id="cron-count">0</span></div>
+      <div class="panel-body" id="cron-list"></div>
+    </div>
+
+    <div class="panel" id="p-system">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">SYSTEM STATUS</div>
+      <div class="panel-body" id="system-info"></div>
     </div>
   </div>
 
-  <!-- 2. Active Sessions -->
-  <div class="panel panel-wide" id="p-sessions">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">ACTIVE SESSIONS <span class="count" id="session-count">0</span></div>
-    <div class="panel-body" id="sessions-list"></div>
+  <!-- Row 2: Session Tree + Model Usage -->
+  <div class="row row-2-wide">
+    <div class="panel" id="p-tree">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">SESSION TREE <span class="count" id="tree-count">0</span></div>
+      <div class="panel-body" id="tree-body"></div>
+    </div>
+
+    <div class="panel" id="p-models">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">MODEL USAGE</div>
+      <div class="panel-body" id="model-usage"></div>
+    </div>
   </div>
 
-  <!-- 3. Cron Control -->
-  <div class="panel" id="p-cron">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">CRON CONTROL <span class="count" id="cron-count">0</span></div>
-    <div class="panel-body" id="cron-list"></div>
-  </div>
+  <!-- Row 3: Active Sessions + Activity Feed -->
+  <div class="row row-2">
+    <div class="panel" id="p-sessions">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">ACTIVE SESSIONS <span class="count" id="session-count">0</span></div>
+      <div class="panel-body" id="sessions-list"></div>
+    </div>
 
-  <!-- 4. System Status -->
-  <div class="panel" id="p-system">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">SYSTEM STATUS</div>
-    <div class="panel-body" id="system-info"></div>
-  </div>
-
-  <!-- 5. Model Usage -->
-  <div class="panel" id="p-models">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">MODEL USAGE</div>
-    <div class="panel-body" id="model-usage"></div>
-  </div>
-
-  <!-- 6. Session Tree -->
-  <div class="panel panel-wide" id="p-tree">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">SESSION TREE <span class="count" id="tree-count">0</span></div>
-    <div class="panel-body" id="tree-body" style="max-height:500px;"></div>
-  </div>
-
-  <!-- 7. Activity Feed -->
-  <div class="panel panel-full" id="p-activity">
-    <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-    <div class="panel-header">ACTIVITY FEED <span class="count" id="activity-count">0</span></div>
-    <div class="panel-body" id="activity-feed" style="max-height:300px;"></div>
+    <div class="panel" id="p-activity">
+      <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
+      <div class="panel-header">ACTIVITY FEED <span class="count" id="activity-count">0</span></div>
+      <div class="panel-body" id="activity-feed"></div>
+    </div>
   </div>
 </main>
 
