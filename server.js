@@ -30,22 +30,37 @@ function safeReaddir(dp) {
   try { return fs.readdirSync(dp); } catch { return []; }
 }
 
-// --- API: Config / System Status ---
+// --- Helper: Strip sensitive fields recursively ---
+function stripSecrets(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripSecrets);
+  const clean = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (/apiKey|token|password|secret/i.test(k)) continue;
+    clean[k] = stripSecrets(v);
+  }
+  return clean;
+}
+
+// --- API: Config / System Status (Phase 6: enhanced) ---
 app.get('/api/config', (req, res) => {
   const config = safeJSON5(path.join(OPENCLAW_HOME, 'config', 'source-of-truth.json5'));
   if (!config) return res.json({});
   const defaults = config.agents?.defaults || {};
   const gateway = config.gateway || {};
   const channels = config.channels || {};
-  res.json({
+  const models = config.models || {};
+  res.json(stripSecrets({
     defaultModel: defaults.model?.primary || 'unknown',
     maxConcurrent: defaults.maxConcurrent,
     subagents: defaults.subagents,
     gateway: { port: gateway.port, mode: gateway.mode, bind: gateway.bind },
     channels: Object.keys(channels),
     models: defaults.models || {},
+    modelAliases: defaults.models || {},
+    providers: Object.keys(models.providers || {}),
     meta: config.meta
-  });
+  }));
 });
 
 // --- API: Agents ---
@@ -68,7 +83,8 @@ app.get('/api/agents', (req, res) => {
       lastChannel: val.lastChannel
     }));
     sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    return { id, sessions: sessionList, sessionCount: sessionList.length };
+    const activeSessions = sessionList.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < 3600000).length;
+    return { id, sessions: sessionList, sessionCount: sessionList.length, activeSessions };
   });
   result.sort((a, b) => {
     const aMax = a.sessions[0]?.updatedAt || 0;
@@ -109,10 +125,20 @@ app.get('/api/session-log/:agentId/:sessionId', (req, res) => {
   res.json(entries);
 });
 
-// --- API: Cron Jobs ---
+// --- API: Cron Jobs (Phase 8: enriched with model info) ---
 app.get('/api/cron', (req, res) => {
   const jobs = safeJSON(path.join(OPENCLAW_HOME, 'cron', 'jobs.json'));
-  res.json(jobs || { version: 1, jobs: [] });
+  const config = safeJSON5(path.join(OPENCLAW_HOME, 'config', 'source-of-truth.json5'));
+  const defaultModel = config?.agents?.defaults?.model?.primary || 'unknown';
+
+  const enrichedJobs = ((jobs?.jobs) || []).map(j => ({
+    ...j,
+    defaultModel,
+    modelOverride: j.payload?.model || j.model || null,
+    usesDefaultModel: !(j.payload?.model || j.model),
+  }));
+
+  res.json(stripSecrets({ version: jobs?.version || 1, jobs: enrichedJobs }));
 });
 
 // --- API: Model Usage (sampled from recent sessions) ---
@@ -123,7 +149,12 @@ app.get('/api/model-usage', (req, res) => {
 
   for (const agentId of agents) {
     const sessDir = path.join(agentsDir, agentId, 'sessions');
-    const files = safeReaddir(sessDir).filter(f => f.endsWith('.jsonl')).slice(-5);
+    const files = safeReaddir(sessDir).filter(f => f.endsWith('.jsonl'))
+      .map(f => { try { return { name: f, mtime: fs.statSync(path.join(sessDir, f)).mtimeMs }; } catch { return null; } })
+      .filter(Boolean)
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 10)
+      .map(f => f.name);
     for (const file of files) {
       const raw = safeRead(path.join(sessDir, file));
       if (!raw) continue;

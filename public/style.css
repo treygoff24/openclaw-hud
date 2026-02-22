@@ -506,25 +506,174 @@ body::before {
 .corner-deco.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
 .corner-deco.br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
 
-/* Glitch text effect on hover */
-.glitch-hover:hover {
-  animation: glitch 0.3s ease;
+/* === Phase 3: Glitch Logo === */
+.logo-glitch {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.8rem;
+  letter-spacing: 0.15em;
+  color: var(--cyan);
+  text-shadow: 0 0 20px rgba(0,229,255,0.4), 0 0 40px rgba(0,229,255,0.1);
+  position: relative;
 }
-@keyframes glitch {
-  0% { text-shadow: 2px 0 var(--magenta), -2px 0 var(--cyan); }
-  25% { text-shadow: -2px 0 var(--magenta), 2px 0 var(--cyan); }
-  50% { text-shadow: 1px 0 var(--magenta), -1px 0 var(--cyan); }
-  75% { text-shadow: -1px 0 var(--magenta), 1px 0 var(--cyan); }
-  100% { text-shadow: none; }
+.logo-glitch::before,
+.logo-glitch::after {
+  content: attr(data-text);
+  position: absolute; left: 0; top: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+.logo-glitch::before {
+  color: var(--magenta);
+  animation: glitch1 3s infinite;
+  clip-path: inset(0 0 65% 0);
+}
+.logo-glitch::after {
+  color: var(--amber);
+  animation: glitch2 3s infinite;
+  clip-path: inset(65% 0 0 0);
+}
+@keyframes glitch1 {
+  0%, 95%, 100% { transform: translateX(0); }
+  96% { transform: translateX(-3px); }
+  97% { transform: translateX(3px); }
+}
+@keyframes glitch2 {
+  0%, 93%, 100% { transform: translateX(0); }
+  94% { transform: translateX(4px); }
+  95% { transform: translateX(-2px); }
 }
 
-/* Hex background decoration */
-.hex-bg {
-  position: fixed;
-  top: 0; right: 0;
-  width: 400px; height: 400px;
-  opacity: 0.02;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(circle at 50% 50%, var(--cyan), transparent 70%);
+/* === Phase 4: Summary Stats Bar === */
+.header-right { display: flex; align-items: center; gap: 24px; }
+.stat-block { text-align: center; }
+.stat-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.stat-value.neon-cyan {
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(0,229,255,0.3);
+}
+.header-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--border-dim);
+}
+
+/* === Phase 5: GLM Animated Status Dots === */
+.status-dot-green {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse-dot-glm 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.status-dot-amber {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--amber);
+  animation: pulse-dot-glm 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.status-dot-red {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+  animation: blink-red 1s infinite;
+  flex-shrink: 0;
+}
+.status-dot-gray {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+@keyframes pulse-dot-glm {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+@keyframes blink-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* === Phase 7: Model Bar Gradients === */
+.model-bar-fill {
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  box-shadow: 0 0 8px var(--cyan);
+}
+.model-bar-fill.alt1 {
+  background: linear-gradient(90deg, var(--magenta), var(--amber));
+  box-shadow: 0 0 8px var(--magenta);
+}
+.model-bar-fill.alt2 {
+  background: linear-gradient(90deg, var(--amber), var(--green));
+  box-shadow: 0 0 8px var(--amber);
+}
+.model-bar-fill.alt3 {
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  box-shadow: 0 0 8px var(--green);
+}
+.model-agents {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+/* === Phase 8: Enhanced Cron Rows === */
+.cron-row-v2 {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(26,30,53,0.5);
+}
+.cron-main { flex: 1; }
+.cron-name {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.cron-agent-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--magenta);
+  margin-left: 8px;
+  opacity: 0.7;
+}
+.cron-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cron-model-info {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.cron-status-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* === Responsive: hide stat blocks on mobile === */
+@media (max-width: 1024px) {
+  .header-right .stat-block { display: none; }
+  .header-divider { display: none; }
 }
