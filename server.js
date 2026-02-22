@@ -36,7 +36,7 @@ function stripSecrets(obj) {
   if (Array.isArray(obj)) return obj.map(stripSecrets);
   const clean = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (/apiKey|token|password|secret/i.test(k)) continue;
+    if (/apiKey|token|password|secret|authorization|credential|private_key|signing_key/i.test(k)) continue;
     clean[k] = stripSecrets(v);
   }
   return clean;
@@ -113,6 +113,9 @@ app.get('/api/sessions', (req, res) => {
 // --- API: Session Log ---
 app.get('/api/session-log/:agentId/:sessionId', (req, res) => {
   const { agentId, sessionId } = req.params;
+  if (!/^[a-zA-Z0-9_-]+$/.test(agentId) || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid parameters' });
+  }
   const limit = parseInt(req.query.limit) || 50;
   const logFile = path.join(OPENCLAW_HOME, 'agents', agentId, 'sessions', `${sessionId}.jsonl`);
   const raw = safeRead(logFile);
@@ -226,7 +229,7 @@ setInterval(() => {
   broadcast({ type: 'tick', timestamp: Date.now() });
 }, 10000);
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  ╔══════════════════════════════════════════╗`);
   console.log(`  ║  🔮 OPENCLAW HUD — KIMI K2.5 EDITION    ║`);
   console.log(`  ║  http://localhost:${PORT}                  ║`);

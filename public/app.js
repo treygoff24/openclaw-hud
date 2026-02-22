@@ -1,6 +1,13 @@
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
+function escapeHtml(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
 // Phase 4: Uptime counter
 const pageStartTime = Date.now();
 function updateUptime() {
@@ -38,11 +45,39 @@ function timeAgo(ms) {
 // Neon bar colors
 const BAR_COLORS = ['var(--cyan)', 'var(--magenta)', 'var(--amber)', 'var(--green)', '#7c4dff', '#ff6e40', '#64ffda', '#ffd600'];
 
+// Connection status
+let connected = true;
+function setConnectionStatus(ok) {
+  connected = ok;
+  let badge = document.getElementById('connection-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'connection-badge';
+    badge.style.cssText = 'color:#ff1744;font-weight:bold;font-size:12px;margin-left:12px;font-family:var(--font-mono);';
+    const header = $('header') || document.querySelector('.header') || document.body.firstElementChild;
+    if (header) header.appendChild(badge);
+  }
+  badge.textContent = ok ? '' : '⚠ DISCONNECTED';
+  badge.style.display = ok ? 'none' : 'inline';
+}
+
 // State
 let agentFilter = '';
 $('#agent-search').addEventListener('input', e => {
   agentFilter = e.target.value.toLowerCase();
   renderAgents(window._agents || []);
+});
+
+// Event delegation for session rows
+document.addEventListener('click', e => {
+  const row = e.target.closest('[data-agent][data-session]');
+  if (row) {
+    openSessionLog(row.dataset.agent, row.dataset.session, row.dataset.label || '');
+  }
+  const card = e.target.closest('[data-agent-id]');
+  if (card && !row) {
+    showAgentSessions(card.dataset.agentId);
+  }
 });
 
 // Render agents
@@ -58,13 +93,12 @@ function renderAgents(agents) {
     if (isActive) activeCount++;
     const dotClass = isActive ? 'status-dot-green' : 'status-dot-gray';
     const activeBadge = (a.activeSessions > 0) ? `<span style="color:var(--green);font-size:11px;margin-left:6px;">${a.activeSessions} live</span>` : '';
-    return `<div class="agent-card" onclick="showAgentSessions('${a.id}')">
+    return `<div class="agent-card" data-agent-id="${escapeHtml(a.id)}">
       <div class="${dotClass}"></div>
-      <div class="agent-id">${a.id}${activeBadge}</div>
+      <div class="agent-id">${escapeHtml(a.id)}${activeBadge}</div>
       <div class="agent-sessions-count">${a.sessionCount} sess</div>
     </div>`;
   }).join('');
-  // Phase 4: Update summary stats
   const statAgents = document.getElementById('stat-agents');
   const statActive = document.getElementById('stat-active');
   if (statAgents) statAgents.textContent = agents.length;
@@ -80,10 +114,10 @@ function renderSessions(sessions) {
     const age = s.updatedAt ? (now - s.updatedAt) : Infinity;
     const dotClass = age < 600000 ? 'status-dot-green' : age < 3600000 ? 'status-dot-amber' : 'status-dot-gray';
     const depthTag = s.spawnDepth > 0 ? `<span style="color:var(--text-dim);font-size:11px;margin-left:4px;">depth:${s.spawnDepth}</span>` : '';
-    return `<div class="session-row" onclick="openSessionLog('${s.agentId || ''}','${s.sessionId}','${(label||'').replace(/'/g,'\\&#39;')}')">
+    return `<div class="session-row" data-agent="${escapeHtml(s.agentId || '')}" data-session="${escapeHtml(s.sessionId || '')}" data-label="${escapeHtml(label || '')}">
       <div class="${dotClass}"></div>
-      <div class="session-agent">${s.agentId || '?'}</div>
-      <div class="session-label">${label}${depthTag}</div>
+      <div class="session-agent">${escapeHtml(s.agentId || '?')}</div>
+      <div class="session-label">${escapeHtml(label)}${depthTag}</div>
       <div class="session-age">${timeAgo(s.updatedAt)}</div>
     </div>`;
   }).join('');
@@ -113,24 +147,27 @@ function renderCron(data) {
 
     const modelInfo = j.usesDefaultModel
       ? `<span style="color:var(--text-dim)">default model</span>`
-      : `<span style="color:var(--amber)">${j.modelOverride || '?'}</span>`;
+      : `<span style="color:var(--amber)">${escapeHtml(j.modelOverride || '?')}</span>`;
+
+    const lastError = j.state?.lastError ? `<div style="color:var(--red);font-size:11px;margin-top:2px;">${escapeHtml(j.state.lastError)}</div>` : '';
 
     return `<div class="cron-row-v2">
       <div class="${dotClass}"></div>
       <div class="cron-main">
-        <div class="cron-name">${j.name}
-          <span class="cron-agent-tag">${j.agentId || ''}</span>
+        <div class="cron-name">${escapeHtml(j.name)}
+          <span class="cron-agent-tag">${escapeHtml(j.agentId || '')}</span>
         </div>
         <div class="cron-meta">
-          <span class="cron-schedule">${j.schedule?.expr || '?'} (${j.schedule?.tz || '?'})</span>
+          <span class="cron-schedule">${escapeHtml(j.schedule?.expr || '?')} (${escapeHtml(j.schedule?.tz || '?')})</span>
           <span class="cron-model-info">${modelInfo}</span>
         </div>
         <div class="cron-status-row">
-          <span style="color:${statusColor}">${statusText.toUpperCase()}</span>
+          <span style="color:${statusColor}">${escapeHtml(statusText).toUpperCase()}</span>
           <span style="color:var(--text-dim)">last: ${lastRun}</span>
           <span style="color:var(--text-dim)">next: ${nextRun}</span>
           ${errors}
         </div>
+        ${lastError}
       </div>
     </div>`;
   }).join('');
@@ -150,7 +187,7 @@ function renderSystem(config) {
     ['PROVIDERS', (config.providers || []).join(', ') || '—'],
   ];
   let html = items.map(([l,v]) =>
-    `<div class="sys-row"><span class="sys-label">${l}</span><span class="sys-value">${v}</span></div>`
+    `<div class="sys-row"><span class="sys-label">${escapeHtml(l)}</span><span class="sys-value">${escapeHtml(String(v))}</span></div>`
   ).join('');
 
   // Model aliases sub-section
@@ -161,7 +198,7 @@ function renderSystem(config) {
       <span class="sys-label" style="color:var(--magenta)">MODEL ALIASES</span></div>`;
     html += aliasEntries.map(([model, cfg]) => {
       const alias = (typeof cfg === 'object' && cfg.alias) ? cfg.alias : (typeof cfg === 'string' ? cfg : '?');
-      return `<div class="sys-row"><span class="sys-label">${alias}</span><span class="sys-value" style="font-size:12px">${model}</span></div>`;
+      return `<div class="sys-row"><span class="sys-label">${escapeHtml(alias)}</span><span class="sys-value" style="font-size:12px">${escapeHtml(model)}</span></div>`;
     }).join('');
   }
 
@@ -181,11 +218,11 @@ function renderModelUsage(usage) {
     const colorClass = colorClasses[i % colorClasses.length];
     const agentBreakdown = Object.entries(data.agents || {})
       .sort((a,b) => b[1] - a[1])
-      .map(([a, c]) => `${a}:${c}`)
+      .map(([a, c]) => `${escapeHtml(a)}:${c}`)
       .join(' · ');
 
     return `<div class="model-bar-row">
-      <div class="model-bar-label"><span>${shortName}</span><span>${data.total} msgs</span></div>
+      <div class="model-bar-label"><span>${escapeHtml(shortName)}</span><span>${data.total} msgs</span></div>
       <div class="model-bar-track"><div class="model-bar-fill ${colorClass}" style="width:${pct}%"></div></div>
       <div class="model-agents">${agentBreakdown}</div>
     </div>`;
@@ -203,23 +240,22 @@ function renderActivity(events) {
     if (e.toolName) content = `⚡ ${e.toolName}`;
     return `<div class="activity-item">
       <span class="activity-time">${time}</span>
-      <span class="activity-type ${typeClass}">${e.type || '?'}</span>
-      <span class="activity-agent">${e.agentId}</span>
+      <span class="activity-type ${typeClass}">${escapeHtml(e.type || '?')}</span>
+      <span class="activity-agent">${escapeHtml(e.agentId)}</span>
       <span class="activity-content">${escapeHtml(content)}</span>
     </div>`;
   }).join('');
 }
 
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
 // Show agent sessions (filter sessions panel)
 function showAgentSessions(agentId) {
   const sessions = (window._allSessions || []).filter(s => s.agentId === agentId);
-  renderSessions(sessions.length ? sessions : window._allSessions || []);
+  if (sessions.length === 0) {
+    $('#sessions-list').innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);padding:16px;text-align:center;">No sessions for ${escapeHtml(agentId)}</div>`;
+    $('#session-count').textContent = '0';
+    return;
+  }
+  renderSessions(sessions);
 }
 
 // Open session log modal
@@ -230,7 +266,7 @@ async function openSessionLog(agentId, sessionId, label) {
   $('#log-modal').classList.add('active');
 
   try {
-    const res = await fetch(`/api/session-log/${agentId}/${sessionId}?limit=80`);
+    const res = await fetch(`/api/session-log/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}?limit=80`);
     const entries = await res.json();
     if (!entries.length) {
       $('#modal-body').innerHTML = '<div style="color:var(--text-dim);font-family:var(--font-mono);">No log entries</div>';
@@ -254,12 +290,12 @@ async function openSessionLog(agentId, sessionId, label) {
       const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
       return `<div class="log-entry">
         <span class="log-time">${time}</span>
-        <span class="log-role ${roleClass}">${role}</span>
+        <span class="log-role ${roleClass}">${escapeHtml(role)}</span>
         <div class="log-content">${escapeHtml(content)}</div>
       </div>`;
     }).join('');
   } catch (err) {
-    $('#modal-body').innerHTML = `<div style="color:var(--red);font-family:var(--font-mono);">Error: ${err.message}</div>`;
+    $('#modal-body').innerHTML = `<div style="color:var(--red);font-family:var(--font-mono);">Error: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -285,19 +321,42 @@ async function fetchAll() {
     renderSystem(config);
     renderModelUsage(usage);
     renderActivity(activity);
+    setConnectionStatus(true);
   } catch (err) {
     console.error('Fetch error:', err);
+    setConnectionStatus(false);
   }
 }
 
 fetchAll();
-setInterval(fetchAll, 15000);
+
+// Polling management - avoid double fetch
+let pollInterval = null;
+function startPolling() {
+  if (!pollInterval) pollInterval = setInterval(fetchAll, 15000);
+}
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+}
+
+startPolling(); // start as fallback
 
 // WebSocket for ticks
 try {
   const ws = new WebSocket(`ws://${location.host}`);
+  ws.onopen = () => {
+    stopPolling();
+    setConnectionStatus(true);
+  };
   ws.onmessage = e => {
     const data = JSON.parse(e.data);
     if (data.type === 'tick') fetchAll();
+  };
+  ws.onclose = () => {
+    startPolling();
+    setConnectionStatus(false);
+  };
+  ws.onerror = () => {
+    setConnectionStatus(false);
   };
 } catch {}
