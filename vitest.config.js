@@ -5,7 +5,8 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
-      include: ['lib/**', 'routes/**', 'ws/**', 'public/**'],
+      include: ['lib/**/*.js', 'routes/**/*.js', 'ws/**/*.js', 'public/**/*.js'],
+      exclude: ['public/index.html'],
     },
   },
 });
