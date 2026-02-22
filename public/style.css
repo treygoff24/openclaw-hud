@@ -77,15 +77,7 @@ body::before {
   background: linear-gradient(90deg, transparent, var(--cyan), transparent);
   opacity: 0.5;
 }
-.hud-logo {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: 4px;
-  color: var(--cyan);
-  text-shadow: 0 0 20px rgba(0,229,255,0.4), 0 0 40px rgba(0,229,255,0.1);
-}
-.hud-logo span { color: var(--magenta); }
+/* .hud-logo removed — replaced by .logo-glitch */
 .hud-subtitle {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -175,7 +167,7 @@ body::before {
 }
 .panel-body {
   padding: 12px 16px;
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
 }
 .panel-body::-webkit-scrollbar { width: 4px; }
