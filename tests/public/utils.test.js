@@ -32,16 +32,13 @@ describe('escapeHtml', () => {
   it('escapes &', () => {
     expect(escapeHtml('a&b')).toBe('a&amp;b');
   });
-  it('handles " (textContent/innerHTML may not escape quotes)', () => {
+  it('preserves " in output (textContent→innerHTML does not escape quotes)', () => {
     const result = escapeHtml('"hello"');
-    // jsdom textContent->innerHTML doesn't escape quotes, which is fine for text content
-    expect(result).toContain('hello');
+    expect(result).toBe('"hello"');
   });
-  it('escapes \'', () => {
-    // jsdom textContent -> innerHTML may or may not escape single quotes
+  it('preserves single quotes in output', () => {
     const result = escapeHtml("it's");
-    expect(result).toContain('it');
-    expect(result).toContain('s');
+    expect(result).toBe("it's");
   });
   it('passes through plain text', () => {
     expect(escapeHtml('hello world')).toBe('hello world');
