@@ -108,8 +108,10 @@ app.get('/api/sessions', (req, res) => {
       all.push(s);
     }
   }
-  all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  res.json(all.slice(0, 100));
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const recent = all.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
+  recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json(recent.slice(0, 100));
 });
 
 // --- API: Session Log ---
@@ -252,8 +254,10 @@ app.get('/api/session-tree', (req, res) => {
     status: getSessionStatus(s)
   }));
 
-  result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  res.json(result);
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const filtered = result.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
+  filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json(filtered);
 });
 
 // --- API: Activity Feed ---
