@@ -250,8 +250,23 @@
 <!-- Toast notification -->
 <div id="toast" class="toast"></div>
 
+<!-- Utilities (must load first) -->
 <script src="utils.js"></script>
+
+<!-- Panel modules (HUD namespace) -->
+<script src="panels/agents.js"></script>
+<script src="panels/sessions.js"></script>
+<script src="panels/cron.js"></script>
+<script src="panels/system.js"></script>
+<script src="panels/models.js"></script>
+<script src="panels/activity.js"></script>
+<script src="panels/session-tree.js"></script>
+<script src="panels/spawn.js"></script>
+
+<!-- Chat pane -->
 <script src="chat-pane.js"></script>
+
+<!-- Main entry point (must load last) -->
 <script src="app.js"></script>
 </body>
 </html>
