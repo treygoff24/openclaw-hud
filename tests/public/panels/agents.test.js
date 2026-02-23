@@ -97,8 +97,8 @@ describe('agents.showAgentSessions', () => {
 
   it('renders filtered sessions for the agent', () => {
     window._allSessions = [
-      { agentId: 'bot', sessionId: 's1', status: 'active', updatedAt: Date.now() },
-      { agentId: 'other', sessionId: 's2', status: 'active', updatedAt: Date.now() },
+      { agentId: 'bot', sessionId: 's1', sessionKey: 'agent:bot:s1', status: 'active', updatedAt: Date.now() },
+      { agentId: 'other', sessionId: 's2', sessionKey: 'agent:other:s2', status: 'active', updatedAt: Date.now() },
     ];
     HUD.agents.showAgentSessions('bot');
     expect(document.querySelectorAll('.session-row').length).toBe(1);

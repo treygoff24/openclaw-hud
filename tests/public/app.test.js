@@ -49,11 +49,23 @@ window.escapeHtml = function(s) {
 window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
 
 // Mock WebSocket
-const mockWs = {
-  onopen: null, onmessage: null, onclose: null, onerror: null,
-  send: vi.fn(), close: vi.fn(), readyState: 1,
-};
-window.WebSocket = vi.fn(() => mockWs);
+const createdSockets = [];
+function createMockWs() {
+  return {
+    onopen: null, onmessage: null, onclose: null, onerror: null,
+    send: vi.fn(), close: vi.fn(), readyState: 0,
+  };
+}
+window.WebSocket = vi.fn(function MockWebSocket() {
+  const ws = createMockWs();
+  createdSockets.push(ws);
+  return ws;
+});
+window.WebSocket.OPEN = 1;
+window.WebSocket.CONNECTING = 0;
+function getLatestWs() {
+  return createdSockets[createdSockets.length - 1];
+}
 
 // Mock localStorage
 const localStorageMock = {
@@ -67,6 +79,7 @@ Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 // Load all panels first, then app.js
 await import('../../public/utils.js');
 await import('../../public/chat-pane.js');
+const restoreSavedChatSessionSpy = vi.spyOn(window, 'restoreSavedChatSession');
 await import('../../public/panels/activity.js');
 await import('../../public/panels/sessions.js');
 await import('../../public/panels/agents.js');
@@ -148,7 +161,7 @@ describe('event delegation', () => {
 
   it('shows agent sessions on agent card click', () => {
     const now = Date.now();
-    window._allSessions = [{ agentId: 'bot1', sessionId: 's1', status: 'active', updatedAt: now }];
+    window._allSessions = [{ agentId: 'bot1', sessionId: 's1', sessionKey: 'agent:bot1:s1', status: 'active', updatedAt: now }];
     HUD.agents.render([{ id: 'bot1', sessions: [{ updatedAt: now }], sessionCount: 1, activeSessions: 1 }]);
     const card = document.querySelector('[data-agent-id]');
     expect(card).not.toBeNull();
@@ -158,18 +171,18 @@ describe('event delegation', () => {
   it('handles tree node click for chat', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'test' }
+      { key: 'k1', sessionKey: 'agent:a:s1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'test' }
     ]);
     const treeNode = document.querySelector('[data-tree-key]');
     expect(treeNode).not.toBeNull();
     treeNode.click();
-    expect(openChatSpy).toHaveBeenCalledWith('a', 's1', 'test', 'k1');
+    expect(openChatSpy).toHaveBeenCalledWith('a', 's1', 'test', 'agent:a:s1');
   });
 
   it('forwards canonical session key when clicking session row', () => {
     const now = Date.now();
     HUD.sessions.render([
-      { key: 'agent:a:main', agentId: 'a', sessionId: 'internal-session-1', status: 'active', updatedAt: now, label: 'main' }
+      { key: 'agent:a:main', sessionKey: 'agent:a:main', agentId: 'a', sessionId: 'internal-session-1', status: 'active', updatedAt: now, label: 'main' }
     ]);
     const row = document.querySelector('.session-row');
     expect(row).not.toBeNull();
@@ -180,8 +193,8 @@ describe('event delegation', () => {
   it('handles tree toggle click', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'P' },
-      { key: 'child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'C', spawnedBy: 'parent' },
+      { key: 'parent', sessionKey: 'agent:a:parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'P' },
+      { key: 'child', sessionKey: 'agent:a:child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'C', spawnedBy: 'parent' },
     ]);
     const toggle = document.querySelector('[data-toggle-key]');
     if (toggle) toggle.click();
@@ -204,30 +217,72 @@ describe('fetch error handling', () => {
   });
 });
 
+describe('chat restore integration', () => {
+  it('does not duplicate saved-session restore on subsequent fetchAll polls', async () => {
+    await HUD.fetchAll();
+    const afterFirstPoll = restoreSavedChatSessionSpy.mock.calls.length;
+    await HUD.fetchAll();
+    await HUD.fetchAll();
+    expect(restoreSavedChatSessionSpy.mock.calls.length).toBe(afterFirstPoll);
+  });
+});
+
 describe('WebSocket lifecycle', () => {
+  it('reconnects after pre-open failure and flushes queued chat messages', () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const firstWs = getLatestWs();
+    const timeoutsBefore = setTimeoutSpy.mock.calls.length;
+
+    window._hudWs = null;
+    window.ChatState.sendWs({ type: 'chat-history', sessionKey: 'agent:a:s' });
+
+    firstWs.readyState = window.WebSocket.CONNECTING;
+    if (firstWs.onerror) firstWs.onerror(new Error('connect failed'));
+    if (firstWs.onclose) firstWs.onclose();
+
+    const timeoutsAfter = setTimeoutSpy.mock.calls.length;
+    expect(timeoutsAfter - timeoutsBefore).toBe(1);
+    const reconnectTimer = setTimeoutSpy.mock.calls[timeoutsAfter - 1];
+    reconnectTimer[0]();
+
+    const reconnectWs = getLatestWs();
+    expect(reconnectWs).not.toBe(firstWs);
+    reconnectWs.readyState = window.WebSocket.OPEN;
+    if (reconnectWs.onopen) reconnectWs.onopen();
+
+    expect(reconnectWs.send).toHaveBeenCalledWith(JSON.stringify({ type: 'chat-history', sessionKey: 'agent:a:s' }));
+    setTimeoutSpy.mockRestore();
+  });
+
   it('handles onopen', () => {
-    if (mockWs.onopen) mockWs.onopen();
+    const ws = getLatestWs();
+    ws.readyState = window.WebSocket.OPEN;
+    if (ws.onopen) ws.onopen();
     // Should flush WS queue
   });
 
   it('handles tick message', () => {
     const callsBefore = window.fetch.mock.calls.length;
-    if (mockWs.onmessage) mockWs.onmessage({ data: JSON.stringify({ type: 'tick' }) });
+    const ws = getLatestWs();
+    if (ws.onmessage) ws.onmessage({ data: JSON.stringify({ type: 'tick' }) });
     expect(window.fetch.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
 
   it('handles log-entry message', () => {
-    if (mockWs.onmessage) mockWs.onmessage({ data: JSON.stringify({ type: 'log-entry', entry: {} }) });
+    const ws = getLatestWs();
+    if (ws.onmessage) ws.onmessage({ data: JSON.stringify({ type: 'log-entry', entry: {} }) });
     // Should not throw
   });
 
   it('handles onclose', () => {
-    if (mockWs.onclose) mockWs.onclose();
+    const ws = getLatestWs();
+    if (ws.onclose) ws.onclose();
     // Should restart polling
   });
 
   it('handles onerror', () => {
-    if (mockWs.onerror) mockWs.onerror();
+    const ws = getLatestWs();
+    if (ws.onerror) ws.onerror();
     // Should update connection status
   });
 });
