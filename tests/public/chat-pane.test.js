@@ -71,6 +71,12 @@ describe('openChatPane', () => {
     );
   });
 
+  it('throws if sessionKey is not canonical', () => {
+    expect(() => window.openChatPane('agent1', 'session123', 'my-label', 'not-canonical')).toThrow(
+      'openChatPane requires canonical sessionKey from /api/sessions'
+    );
+  });
+
   it('adds chat-open class and sets title', () => {
     mockWs();
     window.openChatPane('agent1', 'session123', 'my-label', 'agent:agent1:session123');
@@ -104,10 +110,60 @@ describe('openChatPane', () => {
     expect(document.querySelector('.chat-loading')).toBeNull();
   });
 
+  it('routes chat transport by canonical key even when sessionId is empty', () => {
+    const ws = mockWs();
+    window.openChatPane('agent1', '', 'main', 'agent:agent1:main');
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+    expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+  });
+
   it('shows loading spinner', () => {
     mockWs();
     window.openChatPane('a', 's', '', 'agent:a:s');
     expect(document.querySelector('.chat-loading')).not.toBeNull();
+  });
+
+  it('fails safe when history never arrives and clears loading state', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
+
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelector('.chat-loading')).toBeNull();
+    expect(document.querySelector('.chat-history-warning')).not.toBeNull();
+    expect(document.getElementById('chat-messages').dataset.ready).toBe('true');
+    vi.useRealTimers();
+  });
+
+  it('does not show history timeout warning after successful history result', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelector('.chat-history-warning')).toBeNull();
+    expect(document.querySelector('.chat-loading')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('allows retry by reopening chat after history timeout', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    vi.advanceTimersByTime(10001);
+    expect(document.querySelector('.chat-history-warning')).not.toBeNull();
+
+    window.closeChatPane();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    expect(document.querySelector('.chat-history-warning')).toBeNull();
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
+    vi.useRealTimers();
   });
 
   it('unsubscribes from previous session', () => {
@@ -123,6 +179,48 @@ describe('openChatPane', () => {
     mockWs();
     window.openChatPane('agent1', 'sess1', 'lbl', 'agent:agent1:sess1');
     expect(localStorage.setItem).toHaveBeenCalled();
+  });
+});
+
+describe('restoreSavedChatSession', () => {
+  beforeEach(resetState);
+
+  it('does not restore stale saved key and clears localStorage', () => {
+    store['hud-chat-session'] = JSON.stringify({
+      agentId: 'a',
+      sessionId: 'stale',
+      label: 'stale',
+      sessionKey: 'agent:a:stale',
+    });
+    const openSpy = vi.spyOn(window, 'openChatPane');
+
+    const restored = window.restoreSavedChatSession([
+      { agentId: 'a', sessionId: 'live', label: 'live', sessionKey: 'agent:a:live' },
+    ]);
+
+    expect(restored).toBe(false);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(localStorage.removeItem).toHaveBeenCalledWith('hud-chat-session');
+    openSpy.mockRestore();
+  });
+
+  it('restores valid saved key from fetched sessions payload', () => {
+    store['hud-chat-session'] = JSON.stringify({
+      agentId: 'a',
+      sessionId: 'live',
+      label: 'saved-label',
+      sessionKey: 'agent:a:live',
+    });
+    const openSpy = vi.spyOn(window, 'openChatPane');
+
+    const restored = window.restoreSavedChatSession([
+      { agentId: 'a', sessionId: 'live', label: 'live-label', sessionKey: 'agent:a:live' },
+    ]);
+
+    expect(restored).toBe(true);
+    expect(openSpy).toHaveBeenCalledWith('a', 'live', 'live-label', 'agent:a:live');
+    expect(localStorage.removeItem).not.toHaveBeenCalledWith('hud-chat-session');
+    openSpy.mockRestore();
   });
 });
 
