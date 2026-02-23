@@ -113,6 +113,23 @@ describe('chat-handlers', () => {
       expect(sent.models).toEqual(['gpt-4']);
     });
 
+    it('chat-send without sessionKey sends error', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      await mod.handleChatMessage(ws, { type: 'chat-send', message: 'hi', idempotencyKey: 'ik1' }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID');
+    });
+
+    it('chat-send without message sends error', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: '', idempotencyKey: 'ik1' }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+    });
+
     it('unknown type returns false', async () => {
       const ws = mockWs();
       const result = await mod.handleChatMessage(ws, { type: 'unknown' }, null);
