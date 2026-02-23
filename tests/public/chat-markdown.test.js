@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock marked and DOMPurify globally
 window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };
-window.DOMPurify = { sanitize: vi.fn(t => t) };
+window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 
 await import('../../public/chat-markdown.js');
@@ -136,5 +136,41 @@ describe('ChatMarkdown fallback', () => {
     warnSpy.mockRestore();
     window.marked = origMarked;
     window.DOMPurify = origPurify;
+  });
+});
+
+describe('ChatMarkdown code block copy button', () => {
+  it('exposes copyCodeToClipboard function', () => {
+    expect(typeof window.ChatMarkdown.copyCodeToClipboard).toBe('function');
+  });
+
+  it('code renderer uses custom wrapper with copy button', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    expect(useCall).toBeDefined();
+    expect(useCall.renderer).toBeDefined();
+    expect(useCall.renderer.code).toBeDefined();
+
+    const codeFn = useCall.renderer.code;
+    const result = codeFn({ text: 'console.log("hello")', lang: 'javascript' });
+    
+    expect(result).toContain('code-block-wrapper');
+    expect(result).toContain('code-copy-btn');
+    expect(result).toContain('data-code-id');
+    expect(result).toContain('console.log');
+    expect(result).toContain('language-javascript');
+  });
+
+  it('code renderer escapes HTML in code content', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    const codeFn = useCall.renderer.code;
+    const result = codeFn({ text: '<script>alert(1)</script>', lang: '' });
+    
+    expect(result).not.toContain('<script>');
+    expect(result).toContain('&lt;script&gt;');
+  });
+
+  it('copyCodeToClipboard returns false for unknown codeId', async () => {
+    const result = await window.ChatMarkdown.copyCodeToClipboard('unknown-id');
+    expect(result).toBe(false);
   });
 });

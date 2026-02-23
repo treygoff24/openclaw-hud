@@ -56,7 +56,18 @@
 .chat-msg-role.tool { color: var(--amber); }
 .chat-msg-role.system { color: var(--text-dim); }
 
-.chat-msg-time { float: right; font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); }
+.chat-msg-time { 
+  float: right; 
+  font-family: var(--font-mono); 
+  font-size: 9px; 
+  color: var(--text-dim);
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.chat-msg:hover .chat-msg-time {
+  opacity: 1;
+  color: var(--cyan);
+}
 
 .chat-msg-content {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-label);
@@ -222,6 +233,50 @@
 }
 .chat-msg-content pre code { background: none; padding: 0; color: var(--text-label); }
 
+/* Code block wrapper with copy button */
+.code-block-wrapper {
+  position: relative;
+  margin: 6px 0;
+}
+.code-block-wrapper pre {
+  margin: 0;
+  padding-top: 32px;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
+}
+.code-copy-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,229,255,0.1);
+}
+.code-copy-btn.copied {
+  border-color: var(--green);
+  color: var(--green);
+  background: rgba(57,255,20,0.1);
+}
+.code-copy-btn svg {
+  display: block;
+}
+
 /* Thinking blocks */
 .chat-thinking-block {
   opacity: 0.5; font-style: italic; font-size: 11px; font-family: var(--font-mono);
@@ -235,7 +290,9 @@
 .chat-tool-use-header {
   font-family: var(--font-mono); font-size: 11px; color: var(--amber);
   padding: 4px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 100%; text-align: left; background: none; border: 0;
 }
+.chat-tool-use-header:focus-visible { outline: 1px solid var(--amber); }
 .chat-tool-use-header:hover { background: rgba(255,171,0,0.08); }
 .chat-tool-use-body {
   display: none; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
@@ -263,7 +320,48 @@
 .chat-tool-group-header {
   font-family: var(--font-mono); font-size: 11px; color: var(--amber);
   cursor: pointer; padding: 4px 0;
+  width: 100%; text-align: left; background: none; border: 0;
 }
+.chat-tool-group-header:focus-visible { outline: 1px solid var(--amber); }
 .chat-tool-group-header:hover { color: var(--text-primary); }
 .chat-tool-group-body { padding-left: 4px; }
 .chat-tool-group.collapsed .chat-tool-group-body { display: none; }
+
+/* Progressive rendering progress indicator */
+.progress-indicator {
+  padding: 8px 12px; background: rgba(0,229,255,0.05);
+  border: 1px solid var(--border-dim); border-radius: 3px;
+  margin: 4px 0;
+}
+.progress-indicator.progress-cancelled {
+  opacity: 0.5; border-color: var(--text-dim);
+}
+.progress-label {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-dim); margin-bottom: 4px;
+}
+.progress-bar-container {
+  width: 100%; height: 4px;
+  background: var(--bg-card); border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%; background: var(--cyan);
+  transition: width 0.1s ease; border-radius: 2px;
+}
+.progress-stats {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--text-dim); margin-top: 4px;
+  text-align: right;
+}
+
+/* Virtual scrolling */
+.virtual-spacer-top, .virtual-spacer-bottom {
+  width: 100%;
+}
+.virtual-content {
+  will-change: transform;
+}
+.chat-messages .virtual-content .chat-msg {
+  contain: layout style paint;
+}

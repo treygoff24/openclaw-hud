@@ -9,20 +9,22 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "npx playwright test",
-    "test:e2e:ui": "npx playwright test --ui"
+    "test:e2e:ui": "npx playwright test --ui",
+    "vendor:sync": "node scripts/vendor-sync.js",
+    "bundle:analyze": "node scripts/bundle-analyze.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "json5": "^2.2.3",
-    "ws": "^8.16.0"
+    "express": "4.22.1",
+    "json5": "2.2.3",
+    "ws": "8.18.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
-    "@vitest/coverage-istanbul": "^4.0.18",
-    "@vitest/coverage-v8": "^4.0.18",
-    "jsdom": "^28.1.0",
-    "memfs": "^4.56.10",
-    "supertest": "^7.2.2",
-    "vitest": "^4.0.18"
+    "@playwright/test": "1.58.2",
+    "@vitest/coverage-istanbul": "4.0.18",
+    "@vitest/coverage-v8": "4.0.18",
+    "jsdom": "28.1.0",
+    "memfs": "4.56.10",
+    "supertest": "7.2.2",
+    "vitest": "4.0.18"
   }
 }

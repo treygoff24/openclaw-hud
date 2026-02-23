@@ -6,11 +6,13 @@ HUD.cron = (function() {
   let _cronData = null;
   let _editingJobId = null;
 
+  let _focusTrap = null;
+
   function render(data) {
     _cronData = data;
     const jobs = data.jobs || [];
     $('#cron-count').textContent = jobs.length;
-    $('#cron-list').innerHTML = jobs.map(j => {
+    $('#cron-list').innerHTML = jobs.map((j, index) => {
       let dotClass = 'status-dot-gray';
       if (j.enabled && j.state?.lastStatus === 'completed') dotClass = 'status-dot-green';
       else if (j.state?.lastStatus === 'error') dotClass = 'status-dot-red';
@@ -34,8 +36,10 @@ HUD.cron = (function() {
 
       const lastError = j.state?.lastError ? `<div style="color:var(--red);font-size:11px;margin-top:2px;">${escapeHtml(j.state.lastError)}</div>` : '';
 
-      return `<div class="cron-row-v2" data-cron-id="${escapeHtml(j.id)}">
-        <div class="${dotClass}"></div>
+      const enabledLabel = j.enabled ? 'enabled' : 'disabled';
+
+      return `<div class="cron-row-v2" data-cron-id="${escapeHtml(j.id)}" role="listitem" tabindex="0" aria-label="Cron job ${escapeHtml(j.name)}, ${enabledLabel}, last status ${statusText}, agent ${escapeHtml(j.agentId || 'none')}" data-index="${index}">
+        <div class="${dotClass}" aria-hidden="true"></div>
         <div class="cron-main">
           <div class="cron-name">${escapeHtml(j.name)}
             <span class="cron-agent-tag">${escapeHtml(j.agentId || '')}</span>
@@ -54,6 +58,11 @@ HUD.cron = (function() {
         </div>
       </div>`;
     }).join('');
+
+    // Add keyboard support to cron rows
+    document.querySelectorAll('.cron-row-v2').forEach(row => {
+      window.makeFocusable(row, () => openEditor(row.dataset.cronId));
+    });
   }
 
   function openEditor(jobId) {
@@ -100,9 +109,25 @@ HUD.cron = (function() {
     $('#cron-prompt').value = payload.message || payload.text || '';
 
     $('#cron-modal').classList.add('active');
+
+    // Activate focus trap
+    if (window.FocusTrap) {
+      _focusTrap = new window.FocusTrap($('#cron-modal'));
+      _focusTrap.activate();
+    }
+
+    // Announce to screen readers
+    if (window.A11yAnnouncer) {
+      window.A11yAnnouncer.announce('Cron job editor opened for ' + (job.name || jobId));
+    }
   }
 
   function closeModal() {
+    // Deactivate focus trap before closing
+    if (_focusTrap) {
+      _focusTrap.deactivate();
+      _focusTrap = null;
+    }
     $('#cron-modal').classList.remove('active');
     _editingJobId = null;
   }

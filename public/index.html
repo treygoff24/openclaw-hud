@@ -7,12 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/main.css">
+<link rel="stylesheet" href="styles/a11y.css">
 <link rel="stylesheet" href="chat-pane.css">
 </head>
 <body>
+<a href="#dashboard" class="skip-link">Skip to main content</a>
 <div class="hex-bg"></div>
 
-<header class="hud-header">
+<header class="hud-header" role="banner">
   <div>
     <div class="logo-glitch" data-text="OPENCLAW">OPENCLAW</div>
     <div class="hud-subtitle">KIMI K2.5 // COMMAND CENTER</div>
@@ -39,65 +41,65 @@
 </header>
 
 <div class="hud-layout">
-<main class="dashboard">
+<main class="dashboard" id="dashboard" role="main" aria-label="HUD Dashboard">
   <!-- Row 1: Overview panels -->
   <div class="row row-3">
-    <div class="panel" id="p-agents">
+    <section class="panel" id="p-agents" aria-labelledby="agents-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">AGENT FLEET <span class="count" id="agent-count">0</span></div>
+      <div class="panel-header" id="agents-heading">AGENT FLEET <span class="count" id="agent-count" aria-live="polite" aria-atomic="true">0</span></div>
       <div class="panel-body">
-        <input class="search-box" id="agent-search" placeholder="FILTER AGENTS...">
-        <div id="agents-list"></div>
+        <input class="search-box" id="agent-search" placeholder="FILTER AGENTS..." aria-label="Filter agents">
+        <div id="agents-list" role="list" aria-label="Agent list"></div>
       </div>
-    </div>
+    </section>
 
-    <div class="panel" id="p-cron">
+    <section class="panel" id="p-cron" aria-labelledby="cron-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">CRON CONTROL <span class="count" id="cron-count">0</span></div>
-      <div class="panel-body" id="cron-list"></div>
-    </div>
+      <div class="panel-header" id="cron-heading">CRON CONTROL <span class="count" id="cron-count" aria-live="polite" aria-atomic="true">0</span></div>
+      <div class="panel-body" id="cron-list" role="list" aria-label="Cron jobs"></div>
+    </section>
 
-    <div class="panel" id="p-system">
+    <section class="panel" id="p-system" aria-labelledby="system-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">SYSTEM STATUS</div>
-      <div class="panel-body" id="system-info"></div>
-    </div>
+      <div class="panel-header" id="system-heading">SYSTEM STATUS</div>
+      <div class="panel-body" id="system-info" role="region" aria-label="System information"></div>
+    </section>
   </div>
 
   <!-- Row 2: Session Tree + Model Usage -->
   <div class="row row-2-wide">
-    <div class="panel" id="p-tree">
+    <section class="panel" id="p-tree" aria-labelledby="tree-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header"><span>SESSION TREE</span> <div style="display:flex;align-items:center;gap:12px;"><button class="spawn-btn" id="open-spawn-btn">+ NEW</button><span class="count" id="tree-count">0</span></div></div>
-      <div class="panel-body" id="tree-body"></div>
-    </div>
+      <div class="panel-header" id="tree-heading"><span>SESSION TREE</span> <div style="display:flex;align-items:center;gap:12px;"><button class="spawn-btn" id="open-spawn-btn" aria-label="Launch new session">+ NEW</button><span class="count" id="tree-count" aria-live="polite" aria-atomic="true">0</span></div></div>
+      <div class="panel-body" id="tree-body" role="tree" aria-label="Session tree"></div>
+    </section>
 
-    <div class="panel" id="p-models">
+    <section class="panel" id="p-models" aria-labelledby="models-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">MODEL USAGE</div>
-      <div class="panel-body" id="model-usage"></div>
-    </div>
+      <div class="panel-header" id="models-heading">MODEL USAGE</div>
+      <div class="panel-body" id="model-usage" role="region" aria-label="Model usage statistics"></div>
+    </section>
   </div>
 
   <!-- Row 3: Active Sessions + Activity Feed -->
   <div class="row row-2">
-    <div class="panel" id="p-sessions">
+    <section class="panel" id="p-sessions" aria-labelledby="sessions-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">ACTIVE SESSIONS <span class="count" id="session-count">0</span></div>
-      <div class="panel-body" id="sessions-list"></div>
-    </div>
+      <div class="panel-header" id="sessions-heading">ACTIVE SESSIONS <span class="count" id="session-count" aria-live="polite" aria-atomic="true">0</span></div>
+      <div class="panel-body" id="sessions-list" role="list" aria-label="Active sessions"></div>
+    </section>
 
-    <div class="panel" id="p-activity">
+    <section class="panel" id="p-activity" aria-labelledby="activity-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header">ACTIVITY FEED <span class="count" id="activity-count">0</span></div>
-      <div class="panel-body" id="activity-feed"></div>
-    </div>
+      <div class="panel-header" id="activity-heading">ACTIVITY FEED <span class="count" id="activity-count" aria-live="polite" aria-atomic="true">0</span></div>
+      <div class="panel-body" id="activity-feed" role="log" aria-live="polite" aria-atomic="false" aria-relevant="additions" aria-label="Activity feed"></div>
+    </section>
   </div>
 </main>
 
-<aside class="chat-pane" id="chat-pane">
-  <div id="gateway-banner" class="gateway-banner" style="display:none">⚠ Gateway connection lost — reconnecting…</div>
-  <div class="chat-header">
+<aside class="chat-pane" id="chat-pane" role="complementary" aria-label="Chat Panel">
+  <div id="gateway-banner" class="gateway-banner" role="alert" aria-live="assertive" style="display:none">⚠ Gateway connection lost — reconnecting…</div>
+  <div class="chat-header" role="banner">
     <div class="chat-header-info">
       <span class="chat-status-dot"></span>
       <span class="chat-title" id="chat-title">Select a session</span>
@@ -106,24 +108,24 @@
     <button class="chat-new-btn" id="chat-new-btn">+ NEW</button>
     <button class="chat-close" id="chat-close" aria-label="Close chat pane">&times;</button>
   </div>
-  <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
-    <div class="chat-empty" id="chat-empty">Select a session from the tree</div>
+  <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-atomic="false" aria-relevant="additions text">
+    <div class="chat-empty" id="chat-empty" aria-live="off">Select a session from the tree</div>
   </div>
-  <div class="chat-input-area" id="chat-input-area">
-    <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1"></textarea>
-    <button id="chat-send-btn" class="chat-send-btn" title="Send">▶</button>
-    <button id="chat-stop-btn" class="chat-stop-btn" title="Stop" style="display:none">■</button>
+  <div class="chat-input-area" id="chat-input-area" role="form" aria-label="Message input">
+    <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1" aria-label="Message text"></textarea>
+    <button id="chat-send-btn" class="chat-send-btn" title="Send message (Enter)" aria-label="Send message">▶</button>
+    <button id="chat-stop-btn" class="chat-stop-btn" title="Stop generation" aria-label="Stop generation" style="display:none">■</button>
   </div>
   <div class="chat-new-pill" id="chat-new-pill" style="display:none">New messages ↓</div>
 </aside>
 </div>
 
 <!-- Cron Edit Modal -->
-<div class="modal-overlay" id="cron-modal">
+<div class="modal-overlay" id="cron-modal" role="dialog" aria-modal="true" aria-labelledby="cron-modal-title" aria-describedby="cron-edit-name">
   <div class="modal-content cron-edit-modal">
     <div class="modal-header">
-      <span>EDIT MISSION: <span id="cron-edit-name" style="color:var(--cyan)"></span></span>
-      <span class="modal-close" id="cron-modal-close">&times;</span>
+      <span id="cron-modal-title">EDIT MISSION: <span id="cron-edit-name" style="color:var(--cyan)"></span></span>
+      <button class="modal-close" id="cron-modal-close" aria-label="Close cron editor">&times;</button>
     </div>
     <div class="modal-body">
       <div class="form-grid cron-form-grid">
@@ -193,19 +195,19 @@
       </div>
 
       <div class="form-actions">
-        <button class="hud-btn hud-btn-cancel" onclick="closeCronModal()">CANCEL</button>
-        <button class="hud-btn hud-btn-save" onclick="saveCronJob()">SAVE</button>
+        <button class="hud-btn hud-btn-cancel" onclick="closeCronModal()" type="button">CANCEL</button>
+        <button class="hud-btn hud-btn-save" onclick="saveCronJob()" type="button">SAVE</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- Spawn Session Modal -->
-<div class="modal-overlay" id="spawn-modal">
+<div class="modal-overlay" id="spawn-modal" role="dialog" aria-modal="true" aria-labelledby="spawn-modal-title">
   <div class="modal-content spawn-modal-content">
     <div class="modal-header">
-      <span>LAUNCH NEW SESSION</span>
-      <span class="modal-close" id="spawn-modal-close">&times;</span>
+      <span id="spawn-modal-title">LAUNCH NEW SESSION</span>
+      <button class="modal-close" id="spawn-modal-close" aria-label="Close spawn dialog">&times;</button>
     </div>
     <div class="modal-body">
       <div id="spawn-error" class="spawn-error" style="display:none"></div>
@@ -255,10 +257,14 @@
 </div>
 
 <!-- Toast notification -->
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Utilities (must load first) -->
 <script src="utils.js"></script>
+
+<!-- Accessibility modules (load early for focus management) -->
+<script src="a11y/focus-trap.js"></script>
+<script src="a11y/announcer.js"></script>
 
 <!-- Panel modules (HUD namespace) -->
 <script src="panels/agents.js"></script>
@@ -270,19 +276,66 @@
 <script src="panels/session-tree.js"></script>
 <script src="panels/spawn.js"></script>
 
-<!-- Markdown + Sanitization -->
-<script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu" crossorigin="anonymous"></script>
+<!-- Markdown + Sanitization with local fallback -->
+<script>
+(function() {
+  // Check if a library loaded successfully
+  function libLoaded(name) {
+    return typeof window[name] !== 'undefined';
+  }
+  
+  // Load script with fallback
+  function loadWithFallback(primaryUrl, fallbackUrl, libName, onComplete) {
+    var script = document.createElement('script');
+    script.src = primaryUrl;
+    script.crossOrigin = 'anonymous';
+    
+    script.onerror = function() {
+      console.warn('CDN failed for ' + libName + ', loading local fallback...');
+      var fallback = document.createElement('script');
+      fallback.src = fallbackUrl;
+      fallback.onerror = function() {
+        console.error('Both CDN and local fallback failed for ' + libName);
+      };
+      document.head.appendChild(fallback);
+    };
+    
+    document.head.appendChild(script);
+  }
+  
+  // Load marked with fallback
+  loadWithFallback(
+    'https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js',
+    '/vendor/marked.min.js',
+    'marked'
+  );
+  
+  // Load DOMPurify with fallback  
+  loadWithFallback(
+    'https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js',
+    '/vendor/purify.min.js',
+    'DOMPurify'
+  );
+})();
+</script>
+<noscript>
+  <link rel="stylesheet" href="noscript.css">
+</noscript>
 
 <!-- Chat pane -->
+<script src="lazy-loader.js"></script>
 <script src="chat-markdown.js"></script>
+<script src="chat-ws-batcher.js"></script>
+<script src="chat-progressive-render.js"></script>
 <script src="chat-tool-blocks.js"></script>
 <script src="chat-message.js"></script>
+<script src="chat-messages.js"></script>
 <script src="chat-input.js"></script>
 <script src="chat-ws-handler.js"></script>
-<script src="chat-pane.js"></script>
-
-<!-- Main entry point (must load last) -->
+<!-- Main entry point - load before chat-pane.js so its Escape handler runs first -->
 <script src="app.js"></script>
+
+<script src="keyboard-shortcuts.js"></script>
+<script src="chat-pane.js"></script>
 </body>
 </html>

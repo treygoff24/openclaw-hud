@@ -3,8 +3,13 @@ HUD.spawn = (function() {
   'use strict';
   const $ = s => document.querySelector(s);
 
+  let _focusTrap = null;
+  let _triggerElement = null;
+
   function open() {
+    _triggerElement = document.activeElement;
     $('#spawn-error').style.display = 'none';
+    $('#spawn-error').setAttribute('role', 'alert');
     $('#spawn-label').value = '';
     $('#spawn-mode').value = 'run';
     $('#spawn-timeout').value = '300';
@@ -26,10 +31,31 @@ HUD.spawn = (function() {
 
     $('#spawn-modal').classList.add('active');
     $('#spawn-prompt').focus();
+
+    // Activate focus trap
+    if (window.FocusTrap) {
+      _focusTrap = new window.FocusTrap($('#spawn-modal'));
+      _focusTrap.activate();
+    }
+
+    // Announce to screen readers
+    if (window.A11yAnnouncer) {
+      window.A11yAnnouncer.announce('Spawn session dialog opened');
+    }
   }
 
   function close() {
+    // Deactivate focus trap before closing
+    if (_focusTrap) {
+      _focusTrap.deactivate();
+      _focusTrap = null;
+    }
     $('#spawn-modal').classList.remove('active');
+    // Restore focus to trigger element
+    if (_triggerElement && _triggerElement.focus) {
+      _triggerElement.focus();
+      _triggerElement = null;
+    }
   }
 
   async function launch() {

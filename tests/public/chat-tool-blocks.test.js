@@ -35,18 +35,23 @@ describe('ChatToolBlocks', () => {
   describe('createToolUseBlock', () => {
     it('creates element with correct structure', () => {
       const el = window.ChatToolBlocks.createToolUseBlock({ id: 't1', name: 'exec', input: { command: 'ls' } });
-      expect(el.className).toBe('chat-tool-use');
+      expect(el.className).toContain('chat-tool-use');
+      expect(el.classList.contains('expanded')).toBe(true);
       expect(el.dataset.toolUseId).toBe('t1');
       expect(el.querySelector('.chat-tool-use-header').textContent).toContain('exec');
       expect(el.querySelector('.chat-tool-use-header').textContent).toContain('⚡');
+      expect(el.querySelector('.chat-tool-use-header').getAttribute('aria-expanded')).toBe('true');
     });
 
     it('toggles expanded class on click', () => {
       const el = window.ChatToolBlocks.createToolUseBlock({ id: 't1', name: 'exec', input: {} });
-      el.querySelector('.chat-tool-use-header').click();
-      expect(el.classList.contains('expanded')).toBe(true);
-      el.querySelector('.chat-tool-use-header').click();
+      const header = el.querySelector('.chat-tool-use-header');
+      header.click();
       expect(el.classList.contains('expanded')).toBe(false);
+      expect(header.getAttribute('aria-expanded')).toBe('false');
+      header.click();
+      expect(el.classList.contains('expanded')).toBe(true);
+      expect(header.getAttribute('aria-expanded')).toBe('true');
     });
   });
 
@@ -83,18 +88,21 @@ describe('ChatToolBlocks', () => {
     it('groups 3+ blocks under collapsible header', () => {
       const blocks = [1, 2, 3].map(() => document.createElement('div'));
       const el = window.ChatToolBlocks.createToolGroup(blocks);
+      const header = el.querySelector('.chat-tool-group-header');
       expect(el.className).toContain('chat-tool-group');
-      expect(el.querySelector('.chat-tool-group-header').textContent).toContain('3 tool calls');
+      expect(header.textContent).toContain('3 tool calls');
+      expect(header.getAttribute('aria-expanded')).toBe('false');
       expect(el.classList.contains('collapsed')).toBe(true);
-      el.querySelector('.chat-tool-group-header').click();
+      header.click();
       expect(el.classList.contains('collapsed')).toBe(false);
+      expect(header.getAttribute('aria-expanded')).toBe('true');
     });
   });
 
   describe('edge cases - malformed/empty blocks', () => {
     it('createToolUseBlock({}) does not crash', () => {
       const el = window.ChatToolBlocks.createToolUseBlock({});
-      expect(el.className).toBe('chat-tool-use');
+      expect(el.className).toContain('chat-tool-use');
       expect(el.dataset.toolUseId).toBe('');
     });
 
