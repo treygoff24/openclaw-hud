@@ -256,36 +256,79 @@ describe('chat restore integration', () => {
 
 describe('WebSocket lifecycle', () => {
   it('reconnects after pre-open failure and flushes queued chat messages', () => {
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const firstWs = getLatestWs();
-    const timeoutsBefore = setTimeoutSpy.mock.calls.length;
+    const socketsBeforeQueue = createdSockets.length;
 
+    // Queue a message while WS is not open
     window._hudWs = null;
     window.ChatState.sendWs({ type: 'chat-history', sessionKey: 'agent:a:s' });
 
-    firstWs.readyState = window.WebSocket.CONNECTING;
-    if (firstWs.onerror) firstWs.onerror(new Error('connect failed'));
-    if (firstWs.onclose) firstWs.onclose();
-
-    const timeoutsAfter = setTimeoutSpy.mock.calls.length;
-    expect(timeoutsAfter - timeoutsBefore).toBe(1);
-    const reconnectTimer = setTimeoutSpy.mock.calls[timeoutsAfter - 1];
-    reconnectTimer[0]();
-
+    // sendWs should have triggered connectWs, creating a new WS
+    expect(createdSockets.length).toBeGreaterThan(socketsBeforeQueue);
     const reconnectWs = getLatestWs();
     expect(reconnectWs).not.toBe(firstWs);
+
+    // Open the new WS — should flush queued messages
     reconnectWs.readyState = window.WebSocket.OPEN;
     if (reconnectWs.onopen) reconnectWs.onopen();
 
-    expect(reconnectWs.send).toHaveBeenCalledWith(JSON.stringify({ type: 'chat-history', sessionKey: 'agent:a:s' }));
+    expect(reconnectWs.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'chat-history', sessionKey: 'agent:a:s' })
+    );
+  });
+
+  it('reconnects after a successful connection drops', () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    // Get the latest WS and open it successfully
+    const firstWs = getLatestWs();
+    firstWs.readyState = window.WebSocket.OPEN;
+    if (firstWs.onopen) firstWs.onopen();
+
+    // Simulate the connection dropping (code 1006 — network change)
+    const timeoutsBefore = setTimeoutSpy.mock.calls.length;
+    firstWs.readyState = 3; // CLOSED
+    if (firstWs.onclose) firstWs.onclose({ code: 1006, reason: '', wasClean: false });
+
+    // A reconnect timer should have been scheduled (even though WS was previously open)
+    const timeoutsAfter = setTimeoutSpy.mock.calls.length;
+    expect(timeoutsAfter).toBeGreaterThan(timeoutsBefore);
+
+    // Fire the reconnect timer
+    const reconnectTimer = setTimeoutSpy.mock.calls[timeoutsAfter - 1];
+    reconnectTimer[0]();
+
+    // Verify a new WS was created
+    const reconnectWs = getLatestWs();
+    expect(reconnectWs).not.toBe(firstWs);
+
     setTimeoutSpy.mockRestore();
+  });
+
+  it('sendWs triggers immediate reconnect when WS is dead', () => {
+    // Ensure WS is fully dead (null)
+    window._hudWs = null;
+    const socketsBefore = createdSockets.length;
+
+    // sendWs should call connectWs directly, creating a new WS immediately
+    window.ChatState.sendWs({ type: 'chat-subscribe', sessionKey: 'agent:x:y' });
+
+    expect(createdSockets.length).toBeGreaterThan(socketsBefore);
+
+    // Open the new WS — queued message should flush
+    const newWs = getLatestWs();
+    newWs.readyState = window.WebSocket.OPEN;
+    if (newWs.onopen) newWs.onopen();
+
+    expect(newWs.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'chat-subscribe', sessionKey: 'agent:x:y' })
+    );
   });
 
   it('handles onopen', () => {
     const ws = getLatestWs();
     ws.readyState = window.WebSocket.OPEN;
     if (ws.onopen) ws.onopen();
-    // Should flush WS queue
   });
 
   it('handles tick message', () => {
@@ -298,18 +341,15 @@ describe('WebSocket lifecycle', () => {
   it('handles log-entry message', () => {
     const ws = getLatestWs();
     if (ws.onmessage) ws.onmessage({ data: JSON.stringify({ type: 'log-entry', entry: {} }) });
-    // Should not throw
   });
 
   it('handles onclose', () => {
     const ws = getLatestWs();
     if (ws.onclose) ws.onclose();
-    // Should restart polling
   });
 
   it('handles onerror', () => {
     const ws = getLatestWs();
     if (ws.onerror) ws.onerror();
-    // Should update connection status
   });
 });

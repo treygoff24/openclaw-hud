@@ -95,6 +95,9 @@
         hudDiagLog(CHAT_LOG_PREFIX, 'queue_enqueue', payload);
       }
       hudDiagLog(CHAT_LOG_PREFIX, 'send_deferred', payload);
+      if (typeof window._connectWs === 'function') {
+        window._connectWs();
+      }
     }
   }
 

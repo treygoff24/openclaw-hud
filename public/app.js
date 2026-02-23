@@ -207,7 +207,7 @@
   }
 
   function scheduleWsReconnect(trigger) {
-    if (wsEverOpened || wsReconnectTimer) return;
+    if (wsReconnectTimer) return;
     const exp = Math.min(wsReconnectAttempts, 6);
     const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
     const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
@@ -291,7 +291,7 @@
         wasClean: evt && typeof evt.wasClean === 'boolean' ? evt.wasClean : '',
         opened: opened
       });
-      if (!opened) scheduleWsReconnect('close_before_open');
+      scheduleWsReconnect(opened ? 'close_after_open' : 'close_before_open');
     };
     ws.onerror = () => {
       setConnectionStatus(false);
@@ -304,5 +304,6 @@
     };
   }
 
+  window._connectWs = connectWs;
   connectWs();
 })();
