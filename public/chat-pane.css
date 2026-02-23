@@ -383,7 +383,7 @@
 }
 .chat-msg.streaming { border-left-color: var(--cyan); animation: streamPulse 1.5s ease-in-out infinite; }
 @keyframes streamPulse { 0%, 100% { border-left-color: var(--cyan); } 50% { border-left-color: rgba(0,229,255,0.3); } }
-.chat-msg.error { border-left-color: #ff4444; }
+.chat-msg.error { border-left-color: #ff1744; color: #ff1744; }
 .chat-msg.aborted { border-left-color: var(--amber); }
 .chat-aborted-badge {
   display: inline-block; background: rgba(255,183,77,0.15); border: 1px solid var(--amber);
