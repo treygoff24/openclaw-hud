@@ -96,16 +96,23 @@
 </main>
 
 <aside class="chat-pane" id="chat-pane">
+  <div id="gateway-banner" class="gateway-banner" style="display:none">⚠ Gateway connection lost — reconnecting…</div>
   <div class="chat-header">
     <div class="chat-header-info">
       <span class="chat-status-dot"></span>
       <span class="chat-title" id="chat-title">Select a session</span>
       <span class="chat-live" id="chat-live">LIVE</span>
     </div>
+    <button class="chat-new-btn" id="chat-new-btn">+ NEW</button>
     <button class="chat-close" id="chat-close" aria-label="Close chat pane">&times;</button>
   </div>
   <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
     <div class="chat-empty" id="chat-empty">Select a session from the tree</div>
+  </div>
+  <div class="chat-input-area" id="chat-input-area">
+    <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1"></textarea>
+    <button id="chat-send-btn" class="chat-send-btn" title="Send">▶</button>
+    <button id="chat-stop-btn" class="chat-stop-btn" title="Stop" style="display:none">■</button>
   </div>
   <div class="chat-new-pill" id="chat-new-pill" style="display:none">New messages ↓</div>
 </aside>
