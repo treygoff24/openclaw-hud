@@ -271,3 +271,42 @@
 .chat-tool-group-header:hover { color: var(--text-primary); }
 .chat-tool-group-body { padding-left: 4px; }
 .chat-tool-group.collapsed .chat-tool-group-body { display: none; }
+
+/* Progressive rendering progress indicator */
+.progress-indicator {
+  padding: 8px 12px; background: rgba(0,229,255,0.05);
+  border: 1px solid var(--border-dim); border-radius: 3px;
+  margin: 4px 0;
+}
+.progress-indicator.progress-cancelled {
+  opacity: 0.5; border-color: var(--text-dim);
+}
+.progress-label {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-dim); margin-bottom: 4px;
+}
+.progress-bar-container {
+  width: 100%; height: 4px;
+  background: var(--bg-card); border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%; background: var(--cyan);
+  transition: width 0.1s ease; border-radius: 2px;
+}
+.progress-stats {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--text-dim); margin-top: 4px;
+  text-align: right;
+}
+
+/* Virtual scrolling */
+.virtual-spacer-top, .virtual-spacer-bottom {
+  width: 100%;
+}
+.virtual-content {
+  will-change: transform;
+}
+.chat-messages .virtual-content .chat-msg {
+  contain: layout style paint;
+}

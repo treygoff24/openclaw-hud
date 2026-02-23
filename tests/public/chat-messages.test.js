@@ -1,6 +1,26 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
+// Mock IntersectionObserver for jsdom
+global.IntersectionObserver = class IntersectionObserver {
+  constructor(callback) {
+    this.callback = callback;
+    this.elements = new Set();
+  }
+  observe(element) {
+    this.elements.add(element);
+  }
+  unobserve(element) {
+    this.elements.delete(element);
+  }
+  disconnect() {
+    this.elements.clear();
+  }
+  trigger(entries) {
+    this.callback(entries, this);
+  }
+};
+
 // Mock dependencies
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };

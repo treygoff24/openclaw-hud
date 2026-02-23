@@ -17,8 +17,6 @@ vi.mock('fs', async () => {
 });
 
 function createApp() {
-  // Clear cache to get fresh startTime
-  delete require.cache[require.resolve('../../routes/health')];
   const router = require('../../routes/health');
   const app = express();
   app.use(router);

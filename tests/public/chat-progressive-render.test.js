@@ -29,8 +29,8 @@ describe('ProgressiveToolRenderer', () => {
       const renderer = window.ProgressiveToolRenderer;
       
       expect(renderer.calculateChunkSize(100)).toBe(100); // Small content, single chunk
-      expect(renderer.calculateChunkSize(50000)).toBe(10000); // Medium content
-      expect(renderer.calculateChunkSize(200000)).toBe(20000); // Large content
+      expect(renderer.calculateChunkSize(50000)).toBe(10000); // Medium content (50000/5)
+      expect(renderer.calculateChunkSize(200000)).toBe(40000); // Large content (200000/5)
     });
     
     it('respects min and max chunk boundaries', () => {

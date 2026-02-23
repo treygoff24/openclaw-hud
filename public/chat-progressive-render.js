@@ -236,6 +236,11 @@
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Expose constants for testing
+  ProgressiveToolRenderer.prototype.CHUNK_THRESHOLD = CHUNK_THRESHOLD;
+  ProgressiveToolRenderer.prototype.MIN_CHUNK_SIZE = MIN_CHUNK_SIZE;
+  ProgressiveToolRenderer.prototype.MAX_CHUNK_SIZE = MAX_CHUNK_SIZE;
+
   // Export
   window.ProgressiveToolRenderer = new ProgressiveToolRenderer();
 })();
