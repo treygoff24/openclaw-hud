@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock marked and DOMPurify globally
-window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn() };
+window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };
 window.DOMPurify = { sanitize: vi.fn(t => t) };
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 
@@ -43,5 +43,36 @@ describe('ChatMarkdown', () => {
   it('initMarked calls marked.setOptions', () => {
     window.ChatMarkdown.initMarked();
     expect(window.marked.setOptions).toHaveBeenCalledWith({ gfm: true, breaks: true });
+  });
+});
+
+describe('ChatMarkdown fallback', () => {
+  it('falls back to escapeHtml when marked is unavailable', async () => {
+    const origMarked = window.marked;
+    const origPurify = window.DOMPurify;
+    delete window.marked;
+    delete window.DOMPurify;
+    delete window.ChatMarkdown;
+    await import('../../public/chat-markdown.js?nomarked');
+    const result = window.ChatMarkdown.renderMarkdown('<b>test</b>');
+    expect(result).toContain('&lt;b&gt;');
+    window.marked = origMarked;
+    window.DOMPurify = origPurify;
+  });
+
+  it('warns and falls back when DOMPurify missing but marked present', async () => {
+    const origMarked = window.marked;
+    const origPurify = window.DOMPurify;
+    window.marked = { parse: (t) => '<p>' + t + '</p>', setOptions: () => {}, use: () => {} };
+    delete window.DOMPurify;
+    delete window.ChatMarkdown;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await import('../../public/chat-markdown.js?nopurify');
+    const result = window.ChatMarkdown.renderMarkdown('test');
+    expect(result).toContain('test');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('DOMPurify not loaded'));
+    warnSpy.mockRestore();
+    window.marked = origMarked;
+    window.DOMPurify = origPurify;
   });
 });

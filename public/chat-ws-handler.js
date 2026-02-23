@@ -82,7 +82,14 @@
       if (p.seq) run.lastSeq = p.seq;
       if (p.message) {
         const contentEl = run.el.querySelector('.chat-msg-content');
-        if (contentEl) contentEl.textContent = window.ChatMessage.extractText(p.message);
+        if (contentEl) {
+          const text = window.ChatMessage.extractText(p.message);
+          if (p.state === 'final' && window.ChatMarkdown) {
+            contentEl.innerHTML = window.ChatMarkdown.renderMarkdown(text);
+          } else {
+            contentEl.textContent = text;
+          }
+        }
       }
       if (p.state === 'final') {
         run.el.classList.remove('streaming');

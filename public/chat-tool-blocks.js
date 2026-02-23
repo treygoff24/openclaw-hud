@@ -13,9 +13,7 @@
 
   function getArgPreview(input) {
     if (!input || typeof input !== 'object') return '';
-    var vals = Object.values(input);
-    if (vals.length === 0) return '';
-    var first = String(vals[0]);
+    var first = String(input.command || input.query || input.path || input.url || input.file_path || Object.values(input)[0] || '');
     return first.length > 60 ? first.slice(0, 57) + '...' : first;
   }
 
@@ -48,7 +46,7 @@
     wrapper.className = 'chat-tool-result';
     wrapper.dataset.toolUseId = block.tool_use_id || '';
 
-    var raw = typeof block.content === 'string' ? block.content : JSON.stringify(block.content, null, 2);
+    var raw = typeof block.content === 'string' ? block.content : (block.content != null ? JSON.stringify(block.content, null, 2) : '');
     var truncated = raw.length > 1000;
     var preview = truncated ? raw.slice(0, 1000) : raw;
 
@@ -61,14 +59,11 @@
       var more = document.createElement('button');
       more.className = 'chat-tool-result-more';
       more.textContent = 'Show more...';
+      var expanded = false;
       more.onclick = function() {
-        if (contentEl.textContent.length < raw.length) {
-          contentEl.textContent = raw;
-          more.textContent = 'Show less';
-        } else {
-          contentEl.textContent = preview;
-          more.textContent = 'Show more...';
-        }
+        expanded = !expanded;
+        contentEl.textContent = expanded ? raw : preview;
+        more.textContent = expanded ? 'Show less' : 'Show more...';
       };
       wrapper.appendChild(more);
     }
