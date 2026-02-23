@@ -1,7 +1,7 @@
 {
   meta: { version: "1.0.0" },
   gateway: {
-    port: 3779,
+    port: 18789,
     mode: "local",
     bind: "127.0.0.1",
   },
