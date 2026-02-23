@@ -204,17 +204,11 @@
     state.currentSession = null;
     state.activeRuns.clear();
     
-    // Clean up virtual scroller and other resources
-    if (window.VirtualScroller) {
-      window.VirtualScroller.destroy();
-    }
-    if (window.ProgressiveToolRenderer) {
-      window.ProgressiveToolRenderer.destroy();
-    }
-    if (window.WebSocketMessageBatcher) {
-      window.WebSocketMessageBatcher.destroy();
-    }
-    
+    // Clean up virtual scroller and other resources (guard against null)
+    try { if (window.VirtualScroller) window.VirtualScroller.destroy(); } catch(e) {}
+    try { if (window.ProgressiveToolRenderer) window.ProgressiveToolRenderer.destroy(); } catch(e) {}
+    try { if (window.WebSocketMessageBatcher) window.WebSocketMessageBatcher.destroy(); } catch(e) {}
+
     if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
     localStorage.removeItem('hud-chat-session');
   };
@@ -304,12 +298,12 @@
     }
   });
 
-  // Escape key
+  // Escape key — only close if chat pane is actually open
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       if (e.defaultPrevented) return;
       const activeModal = document.querySelector('.modal-overlay.active');
-      if (!activeModal) window.closeChatPane();
+      if (!activeModal && window.ChatState.subscribedKey) window.closeChatPane();
     }
   });
 })();

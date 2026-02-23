@@ -209,7 +209,7 @@
       }
     });
     this.renderedElements.clear();
-    this.contentContainer.innerHTML = '';
+    if (this.contentContainer) this.contentContainer.innerHTML = '';
   };
 
   VirtualScroller.prototype.handleScroll = function() {
