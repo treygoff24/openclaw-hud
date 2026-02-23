@@ -607,6 +607,8 @@ test.describe('Chat Rich Content & Security', () => {
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
         while (container.firstChild) container.removeChild(container.firstChild);
+        // Remove data-ready to prevent race conditions with pending renders
+        delete container.dataset.ready;
 
         const msg = window.ChatMessage.renderHistoryMessage({
           role: 'assistant',
@@ -615,9 +617,13 @@ test.describe('Chat Rich Content & Security', () => {
           ]
         });
         container.appendChild(msg);
+        // Mark as ready since we've injected our content
+        container.dataset.ready = 'true';
       });
 
-      const header = page.locator('.chat-tool-use-header');
+      // Use specific selector for the injected tool use block
+      const toolUse = page.locator('.chat-tool-use[data-tool-use-id="t1"]');
+      const header = toolUse.locator('.chat-tool-use-header');
 
       // Focus the tool block header and verify keyboard operation
       await header.focus();
@@ -625,7 +631,6 @@ test.describe('Chat Rich Content & Security', () => {
 
       // Press Enter to toggle from expanded -> collapsed
       await page.keyboard.press('Enter');
-      const toolUse = page.locator('.chat-tool-use');
       await expect(toolUse).not.toHaveClass(/expanded/);
 
       // Press Space to toggle back collapsed -> expanded
@@ -640,6 +645,8 @@ test.describe('Chat Rich Content & Security', () => {
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
         while (container.firstChild) container.removeChild(container.firstChild);
+        // Remove data-ready to prevent race conditions with pending renders
+        delete container.dataset.ready;
 
         const msg = window.ChatMessage.renderHistoryMessage({
           role: 'assistant',
@@ -650,6 +657,8 @@ test.describe('Chat Rich Content & Security', () => {
           ]
         });
         container.appendChild(msg);
+        // Mark as ready since we've injected our content
+        container.dataset.ready = 'true';
       });
 
       const groupHeader = page.locator('.chat-tool-group-header');
@@ -669,6 +678,8 @@ test.describe('Chat Rich Content & Security', () => {
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
         while (container.firstChild) container.removeChild(container.firstChild);
+        // Remove data-ready to prevent race conditions with pending renders
+        delete container.dataset.ready;
 
         const msg = window.ChatMessage.renderHistoryMessage({
           role: 'assistant',
@@ -677,9 +688,12 @@ test.describe('Chat Rich Content & Security', () => {
           ]
         });
         container.appendChild(msg);
+        // Mark as ready since we've injected our content
+        container.dataset.ready = 'true';
       });
 
-      const header = page.locator('.chat-tool-use-header');
+      // Use specific selector for the injected tool use block
+      const header = page.locator('.chat-tool-use[data-tool-use-id="t1"] .chat-tool-use-header');
 
       // Initial state is expanded
       await expect(header).toHaveAttribute('aria-expanded', 'true');
