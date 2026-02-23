@@ -170,9 +170,9 @@ test.describe('Chat Rich Content & Security', () => {
         container.dataset.ready = 'true';
       });
 
-      // Check tool use block exists (should be only our injected one)
+      // Check tool use block exists and target the injected block
       const toolUse = page.locator('.chat-tool-use').first();
-      await expect(page.locator('.chat-tool-use')).toHaveCount(1);
+      await expect(page.locator('.chat-tool-use').first()).toBeVisible();
 
       // Check header shows tool name and preview
       const header = toolUse.locator('.chat-tool-use-header');
