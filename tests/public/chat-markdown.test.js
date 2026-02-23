@@ -138,3 +138,39 @@ describe('ChatMarkdown fallback', () => {
     window.DOMPurify = origPurify;
   });
 });
+
+describe('ChatMarkdown code block copy button', () => {
+  it('exposes copyCodeToClipboard function', () => {
+    expect(typeof window.ChatMarkdown.copyCodeToClipboard).toBe('function');
+  });
+
+  it('code renderer uses custom wrapper with copy button', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    expect(useCall).toBeDefined();
+    expect(useCall.renderer).toBeDefined();
+    expect(useCall.renderer.code).toBeDefined();
+
+    const codeFn = useCall.renderer.code;
+    const result = codeFn({ text: 'console.log("hello")', lang: 'javascript' });
+    
+    expect(result).toContain('code-block-wrapper');
+    expect(result).toContain('code-copy-btn');
+    expect(result).toContain('data-code-id');
+    expect(result).toContain('console.log');
+    expect(result).toContain('language-javascript');
+  });
+
+  it('code renderer escapes HTML in code content', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    const codeFn = useCall.renderer.code;
+    const result = codeFn({ text: '<script>alert(1)</script>', lang: '' });
+    
+    expect(result).not.toContain('<script>');
+    expect(result).toContain('&lt;script&gt;');
+  });
+
+  it('copyCodeToClipboard returns false for unknown codeId', async () => {
+    const result = await window.ChatMarkdown.copyCodeToClipboard('unknown-id');
+    expect(result).toBe(false);
+  });
+});

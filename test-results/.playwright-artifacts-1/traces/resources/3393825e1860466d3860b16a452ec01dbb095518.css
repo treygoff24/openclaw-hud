@@ -1,0 +1,52 @@
+/* Cron Rows */
+.cron-row-v2 {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(26,30,53,0.5);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cron-row-v2:hover { background: rgba(0,229,255,0.04); }
+.cron-main { flex: 1; }
+.cron-name {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.cron-agent-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--magenta);
+  margin-left: 8px;
+  opacity: 0.7;
+}
+.cron-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cron-schedule {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.cron-model-info {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.cron-status-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Cron Edit Form */
+.cron-edit-modal { max-width: 700px; }
+.cron-form-grid { gap: 0 20px; }

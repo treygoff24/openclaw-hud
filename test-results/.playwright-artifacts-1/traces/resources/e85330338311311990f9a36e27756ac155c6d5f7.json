@@ -1,0 +1,1 @@
+{"anthropic/claude-sonnet-4":{"inputTokens":900,"outputTokens":145,"cacheReadTokens":300,"cacheWriteTokens":100,"totalTokens":1445,"totalCost":0.014699999999999998,"agents":{"test-agent":{"inputTokens":900,"outputTokens":145,"totalTokens":1445}}}}

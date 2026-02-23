@@ -1,0 +1,208 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#dashboard"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: OPENCLAW OPENCLAW OPENCLAW
+      - generic [ref=e6]: KIMI K2.5 // COMMAND CENTER
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: AGENTS
+        - text: "1"
+      - generic [ref=e10]:
+        - generic [ref=e11]: ACTIVE
+        - text: "1"
+      - generic [ref=e12]:
+        - generic [ref=e13]: UPTIME
+        - text: 00:00:29
+      - generic [ref=e15]:
+        - generic [ref=e16]: 02/22/2026, 23:51:45
+        - generic [ref=e18]: "MODEL: anthropic/claude-sonnet-4"
+  - generic [ref=e19]:
+    - main "HUD Dashboard" [ref=e20]:
+      - generic [ref=e21]:
+        - region "AGENT FLEET 1" [ref=e22]:
+          - generic [ref=e27]:
+            - text: AGENT FLEET
+            - generic [ref=e28]: "1"
+          - generic [ref=e29]:
+            - textbox "Filter agents" [ref=e30]:
+              - /placeholder: FILTER AGENTS...
+            - list "Agent list" [ref=e31]:
+              - listitem "Agent test-agent, Active, 2 sessions" [ref=e32] [cursor=pointer]:
+                - generic [ref=e34]: test-agent2 live
+                - generic [ref=e35]: 2 sess
+        - region "CRON CONTROL 3" [ref=e36]:
+          - generic [ref=e41]:
+            - text: CRON CONTROL
+            - generic [ref=e42]: "3"
+          - list "Cron jobs" [ref=e43]:
+            - listitem "Cron job Morning Briefing, enabled, last status completed, agent test-agent" [ref=e44] [cursor=pointer]:
+              - generic [ref=e46]:
+                - generic [ref=e47]: Morning Briefing test-agent
+                - generic [ref=e48]:
+                  - generic [ref=e49]: 0 8 * * * (America/Chicago)
+                  - generic [ref=e50]: default model
+                - generic [ref=e51]:
+                  - generic [ref=e52]: COMPLETED
+                  - generic [ref=e53]: "last: 831d ago"
+                  - generic [ref=e54]: "next: —"
+            - listitem "Cron job Weekly Summary, disabled, last status skipped, agent test-agent" [ref=e55] [cursor=pointer]:
+              - generic [ref=e57]:
+                - generic [ref=e58]: Weekly Summary test-agent
+                - generic [ref=e59]:
+                  - generic [ref=e60]: 0 17 * * 5 (America/Chicago)
+                  - generic [ref=e61]: anthropic/claude-sonnet-4
+                - generic [ref=e62]:
+                  - generic [ref=e63]: SKIPPED
+                  - generic [ref=e64]: "last: never"
+                  - generic [ref=e65]: "next: —"
+            - listitem "Cron job Health Check, enabled, last status completed, agent test-agent" [ref=e66] [cursor=pointer]:
+              - generic [ref=e68]:
+                - generic [ref=e69]: Health Check test-agent
+                - generic [ref=e70]:
+                  - generic [ref=e71]: "*/30 * * * * (America/Chicago)"
+                  - generic [ref=e72]: default model
+                - generic [ref=e73]:
+                  - generic [ref=e74]: COMPLETED
+                  - generic [ref=e75]: "last: 831d ago"
+                  - generic [ref=e76]: "next: —"
+        - region "SYSTEM STATUS" [ref=e77]:
+          - generic [ref=e82]: SYSTEM STATUS
+          - region "System information" [ref=e83]:
+            - generic [ref=e84]:
+              - generic [ref=e85]: DEFAULT MODEL
+              - generic [ref=e86]: anthropic/claude-sonnet-4
+            - generic [ref=e87]:
+              - generic [ref=e88]: GATEWAY PORT
+              - generic [ref=e89]: "18789"
+            - generic [ref=e90]:
+              - generic [ref=e91]: GATEWAY MODE
+              - generic [ref=e92]: local
+            - generic [ref=e93]:
+              - generic [ref=e94]: GATEWAY BIND
+              - generic [ref=e95]: 127.0.0.1
+            - generic [ref=e96]:
+              - generic [ref=e97]: MAX CONCURRENT
+              - generic [ref=e98]: "3"
+            - generic [ref=e99]:
+              - generic [ref=e100]: SPAWN DEPTH
+              - generic [ref=e101]: "3"
+            - generic [ref=e102]:
+              - generic [ref=e103]: MAX CHILDREN
+              - generic [ref=e104]: "10"
+            - generic [ref=e105]:
+              - generic [ref=e106]: CHANNELS
+              - generic [ref=e107]: discord, telegram
+            - generic [ref=e108]:
+              - generic [ref=e109]: PROVIDERS
+              - generic [ref=e110]: anthropic, openai
+            - generic [ref=e112]: MODEL ALIASES
+            - generic [ref=e113]:
+              - generic [ref=e114]: sonnet
+              - generic [ref=e115]: anthropic/claude-sonnet-4
+            - generic [ref=e116]:
+              - generic [ref=e117]: haiku
+              - generic [ref=e118]: anthropic/claude-haiku-4
+            - generic [ref=e119]:
+              - generic [ref=e120]: gpt4o
+              - generic [ref=e121]: openai/gpt-4o
+      - generic [ref=e122]:
+        - region "SESSION TREE Launch new session 2" [ref=e123]:
+          - generic [ref=e128]:
+            - generic [ref=e129]: SESSION TREE
+            - generic [ref=e130]:
+              - button "Launch new session" [ref=e131] [cursor=pointer]: + NEW
+              - generic [ref=e132]: "2"
+          - tree "Session tree" [ref=e133]:
+            - tree [ref=e134]:
+              - treeitem "Session main, warm, agent test-agent" [expanded] [level=1] [ref=e135]:
+                - button "Collapse main test-agent" [ref=e136] [cursor=pointer]:
+                  - generic [ref=e137]: └─
+                  - button "Collapse" [pressed] [ref=e138]: ▾
+                  - generic [ref=e140]: main
+                  - generic [ref=e141]: test-agent
+                  - generic [ref=e142]: 5m ago
+                - group [ref=e143]:
+                  - treeitem "Session research-task, completed, agent test-agent" [level=2] [ref=e144]:
+                    - button "Collapse research-task test-agent" [ref=e145] [cursor=pointer]:
+                      - generic [ref=e146]: └─ └─
+                      - button "Collapse" [pressed]
+                      - generic: research-task
+                      - generic [ref=e148]: test-agent
+                      - generic [ref=e149]: 10m ago
+        - region "MODEL USAGE" [ref=e150]:
+          - generic [ref=e155]: MODEL USAGE
+          - region "Model usage statistics" [ref=e156]:
+            - generic [ref=e157]:
+              - generic [ref=e158]:
+                - generic [ref=e159]: claude-sonnet-4
+                - generic [ref=e160]: 1.4K tokens
+              - generic [ref=e163]: "IN: 900 · OUT: 145 · CACHE: 300 · $0.01"
+              - generic [ref=e164]: test-agent:1.4K
+      - generic [ref=e165]:
+        - region "ACTIVE SESSIONS 2" [ref=e166]:
+          - generic [ref=e171]:
+            - text: ACTIVE SESSIONS
+            - generic [ref=e172]: "2"
+          - list "Active sessions" [ref=e173]:
+            - listitem "Session main by test-agent, status warm" [ref=e174] [cursor=pointer]:
+              - generic [ref=e176]: test-agent
+              - generic [ref=e177]: main
+              - generic [ref=e178]: 5m ago
+            - listitem "Session research-task by test-agent, status completed" [ref=e179] [cursor=pointer]:
+              - generic [ref=e181]: test-agent
+              - generic [ref=e182]: research-taskdepth:1
+              - generic [ref=e183]: 10m ago
+        - region "ACTIVITY FEED 7" [ref=e184]:
+          - generic [ref=e189]:
+            - text: ACTIVITY FEED
+            - generic [ref=e190]: "7"
+          - log "Activity feed" [ref=e191]:
+            - listitem "message from test-agent at 23:43" [ref=e192]:
+              - generic [ref=e193]: 23:43
+              - generic [ref=e194]: message
+              - generic [ref=e195]: test-agent
+            - listitem "message from test-agent at 23:42" [ref=e196]:
+              - generic [ref=e197]: 23:42
+              - generic [ref=e198]: message
+              - generic [ref=e199]: test-agent
+            - listitem "message from test-agent at 23:42" [ref=e200]:
+              - generic [ref=e201]: 23:42
+              - generic [ref=e202]: message
+              - generic [ref=e203]: test-agent
+            - listitem "message from test-agent at 23:42" [ref=e204]:
+              - generic [ref=e205]: 23:42
+              - generic [ref=e206]: message
+              - generic [ref=e207]: test-agent
+            - listitem "message from test-agent at 23:42" [ref=e208]:
+              - generic [ref=e209]: 23:42
+              - generic [ref=e210]: message
+              - generic [ref=e211]: test-agent
+            - listitem "tool_result from test-agent at 23:42" [ref=e212]:
+              - generic [ref=e213]: 23:42
+              - generic [ref=e214]: tool_result
+              - generic [ref=e215]: test-agent
+            - listitem "tool_use from test-agent at 23:42" [ref=e216]:
+              - generic [ref=e217]: 23:42
+              - generic [ref=e218]: tool_use
+              - generic [ref=e219]: test-agent
+    - complementary "Chat Panel" [ref=e220]:
+      - banner [ref=e221]:
+        - generic [ref=e222]:
+          - generic [ref=e224]: test-agent // main
+          - generic [ref=e225]: LIVE
+        - button "+ NEW" [ref=e226] [cursor=pointer]
+        - button "Close chat pane" [ref=e227] [cursor=pointer]: ×
+      - log [ref=e228]:
+        - generic [ref=e229]: Loading...
+      - form "Message input" [ref=e230]:
+        - textbox "Message text" [ref=e231]:
+          - /placeholder: Type a message...
+        - button "Send message" [ref=e232] [cursor=pointer]: ▶
+  - status
+  - generic [ref=e233]: "test-agent: I'll research the latest quantum computing advances for you."
+```

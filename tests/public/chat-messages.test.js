@@ -286,3 +286,103 @@ describe('Memory Leak Prevention', () => {
     });
   });
 });
+
+describe('Message Timestamps (D2.4)', () => {
+  let container;
+  
+  beforeEach(() => {
+    container = document.createElement('div');
+    container.id = 'chat-messages';
+    document.body.appendChild(container);
+  });
+  
+  afterEach(() => {
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+    vi.clearAllMocks();
+  });
+
+  it('renders timestamp when provided in message', () => {
+    const msg = {
+      role: 'user',
+      timestamp: Date.now(),
+      content: [{ type: 'text', text: 'Hello' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    const timeEl = el.querySelector('.chat-msg-time');
+    
+    expect(timeEl).toBeTruthy();
+    expect(timeEl.textContent).toMatch(/(just now|\d+[mhd] ago)/);
+  });
+
+  it('renders absolute time in title attribute', () => {
+    const timestamp = Date.now() - 60000; // 1 minute ago
+    const msg = {
+      role: 'assistant',
+      timestamp: timestamp,
+      content: [{ type: 'text', text: 'Response' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    const timeEl = el.querySelector('.chat-msg-time');
+    
+    expect(timeEl).toBeTruthy();
+    expect(timeEl.title).toBeTruthy();
+    expect(timeEl.title).toContain(','); // Date format with comma
+  });
+
+  it('stores timestamp in data attribute', () => {
+    const timestamp = Date.now();
+    const msg = {
+      role: 'user',
+      timestamp: timestamp,
+      content: [{ type: 'text', text: 'Test' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    expect(el.dataset.timestamp).toBe(String(timestamp));
+  });
+
+  it('does not render timestamp when not provided', () => {
+    const msg = {
+      role: 'user',
+      content: [{ type: 'text', text: 'No timestamp' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    const timeEl = el.querySelector('.chat-msg-time');
+    
+    expect(timeEl).toBeFalsy();
+  });
+
+  it('shows day format for old messages', () => {
+    const timestamp = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days ago
+    const msg = {
+      role: 'assistant',
+      timestamp: timestamp,
+      content: [{ type: 'text', text: 'Old message' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    const timeEl = el.querySelector('.chat-msg-time');
+    
+    expect(timeEl).toBeTruthy();
+    // Old messages show absolute date
+    expect(timeEl.textContent).toMatch(/[A-Z][a-z]{2}/); // Month abbreviation
+  });
+
+  it('system messages do not show timestamp', () => {
+    const msg = {
+      role: 'system',
+      timestamp: Date.now(),
+      content: [{ type: 'text', text: 'System notification' }]
+    };
+    
+    const el = window.ChatMessage.renderHistoryMessage(msg);
+    const timeEl = el.querySelector('.chat-msg-time');
+    
+    expect(timeEl).toBeFalsy();
+  });
+});
