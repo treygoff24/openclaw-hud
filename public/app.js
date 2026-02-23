@@ -161,7 +161,7 @@
 
   // WebSocket for ticks
   try {
-    const ws = new WebSocket(`ws://${location.host}`);
+    const ws = new WebSocket(HUD.utils.wsUrl(location));
     window._hudWs = ws;
     ws.onopen = () => {
       stopPolling();
