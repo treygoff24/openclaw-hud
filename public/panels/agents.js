@@ -11,18 +11,25 @@ HUD.agents = (function() {
     $('#agent-count').textContent = filtered.length;
     const now = Date.now();
     let activeCount = 0;
-    $('#agents-list').innerHTML = filtered.map(a => {
+    $('#agents-list').innerHTML = filtered.map((a, index) => {
       const recent = a.sessions[0]?.updatedAt;
       const isActive = recent && (now - recent < 600000);
       if (isActive) activeCount++;
       const dotClass = isActive ? 'status-dot-green' : 'status-dot-gray';
       const activeBadge = (a.activeSessions > 0) ? `<span style="color:var(--green);font-size:11px;margin-left:6px;">${a.activeSessions} live</span>` : '';
-      return `<div class="agent-card" data-agent-id="${escapeHtml(a.id)}">
-        <div class="${dotClass}"></div>
+      const statusLabel = isActive ? 'Active' : 'Inactive';
+      return `<div class="agent-card" data-agent-id="${escapeHtml(a.id)}" role="listitem" tabindex="0" aria-label="Agent ${escapeHtml(a.id)}, ${statusLabel}, ${a.sessionCount} sessions" data-index="${index}">
+        <div class="${dotClass}" aria-hidden="true"></div>
         <div class="agent-id">${escapeHtml(a.id)}${activeBadge}</div>
         <div class="agent-sessions-count">${a.sessionCount} sess</div>
       </div>`;
     }).join('');
+
+    // Add keyboard support to agent cards
+    document.querySelectorAll('.agent-card').forEach(card => {
+      window.makeFocusable(card, () => showAgentSessions(card.dataset.agentId));
+    });
+
     const statAgents = document.getElementById('stat-agents');
     const statActive = document.getElementById('stat-active');
     if (statAgents) statAgents.textContent = agents.length;
@@ -33,6 +40,15 @@ HUD.agents = (function() {
     $('#agent-search').addEventListener('input', e => {
       agentFilter = e.target.value.toLowerCase();
       render(window._agents || []);
+    });
+
+    // Add keyboard navigation for search
+    $('#agent-search').addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.target.value = '';
+        agentFilter = '';
+        render(window._agents || []);
+      }
     });
   }
 

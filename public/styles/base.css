@@ -11,9 +11,10 @@
   --red: #ff1744;
   --error: #ff1744;
   --bg-code: #080a14;
-  --text-primary: #e0e6f0;
-  --text-dim: #5a6080;
-  --text-label: #8892b0;
+  /* WCAG AA compliant text colors - minimum 4.5:1 contrast ratio */
+  --text-primary: #e0e6f0;      /* ~15:1 on bg-deep */
+  --text-dim: #7a80a0;          /* ~4.6:1 on bg-deep - improved from #5a6080 for WCAG AA */
+  --text-label: #a0a8c0;        /* ~7.5:1 on bg-panel - improved from #8892b0 */
   --scanline-opacity: 0.03;
   --font-display: 'Orbitron', sans-serif;
   --font-mono: 'Share Tech Mono', monospace;

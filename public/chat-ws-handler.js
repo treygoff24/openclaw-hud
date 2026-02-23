@@ -55,12 +55,20 @@
       errDiv.className = 'chat-loading';
       errDiv.textContent = 'Error loading history: ' + (data.error.message || data.error);
       container.appendChild(errDiv);
+      // Announce error to screen readers
+      if (window.A11yAnnouncer) {
+        window.A11yAnnouncer.announceAssertive('Error loading chat history: ' + (data.error.message || data.error));
+      }
       return;
     }
     (data.messages || []).forEach(function(msg) {
       container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     });
     container.scrollTop = container.scrollHeight;
+    // Announce loaded message
+    if (window.A11yAnnouncer) {
+      window.A11yAnnouncer.announce('Chat history loaded, ' + (data.messages || []).length + ' messages');
+    }
   }
 
   function handleChatEvent(data) {
@@ -138,6 +146,10 @@
       ack.el.classList.remove('pending');
       ack.el.classList.add('failed');
       ack.el.appendChild(createRetryBtn(s.currentSession ? s.currentSession.sessionKey : '', ack.message || '', ack.el));
+      // Announce error to screen readers
+      if (window.A11yAnnouncer) {
+        window.A11yAnnouncer.announceAssertive('Message failed to send. Retry button available.');
+      }
     }
   }
 
@@ -180,6 +192,7 @@
     const fragment = document.createDocumentFragment();
     let needsScroll = false;
     let hasNewContent = false;
+    let assistantMessageCount = 0;
     
     batch.forEach(function(data) {
       if (data.type !== 'chat-event') return;
@@ -214,6 +227,7 @@
           run.el.classList.remove('streaming');
           run.el.classList.add('final');
           s.activeRuns.delete(p.runId);
+          assistantMessageCount++;
         }
         needsScroll = true;
       }
@@ -222,6 +236,15 @@
     // Append all new elements in one DOM operation
     if (fragment.childNodes.length > 0) {
       container.appendChild(fragment);
+    }
+    
+    // Announce new assistant messages to screen readers (debounced)
+    if (assistantMessageCount > 0 && window.A11yAnnouncer) {
+      window.A11yAnnouncer.announce(
+        assistantMessageCount + ' new assistant message' + (assistantMessageCount > 1 ? 's' : ''),
+        'chat-messages',
+        500
+      );
     }
     
     // Single scroll update

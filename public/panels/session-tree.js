@@ -23,7 +23,7 @@ HUD.sessionTree = (function() {
     for (const k in children) children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     roots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    function renderNode(node, prefix, isLast) {
+    function renderNode(node, prefix, isLast, level = 0) {
       const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
       const dotClass = statusMap[node.status] || 'status-dot-gray';
       const label = node.label || node.key;
@@ -31,26 +31,28 @@ HUD.sessionTree = (function() {
       const hasKids = kids.length > 0;
       const collapsed = collapseState[node.key] === true;
       const toggleChar = hasKids ? (collapsed ? '▸' : '▾') : ' ';
-      const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count">${kids.length}</span>` : '';
+      const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>` : '';
+      const ariaExpanded = hasKids ? (collapsed ? 'false' : 'true') : undefined;
+      const statusLabel = node.status || 'unknown';
 
-      let html = `<div class="tree-node">
-        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-label="${escapeHtml(label)}">
-          <span class="tree-indent">${escapeHtml(prefix)}</span>
-          <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}">${toggleChar}</span>
-          <div class="${dotClass}"></div>
+      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}" aria-label="Session ${escapeHtml(label)}, ${statusLabel}, agent ${escapeHtml(node.agentId || 'unknown')}">
+        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-label="${escapeHtml(label)}" tabindex="0" role="button">
+          <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
+          <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
+          <div class="${dotClass}" aria-hidden="true"></div>
           <span class="tree-label">${escapeHtml(label)}</span>
           <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
           ${countBadge}
-          <span class="tree-age">${HUD.utils.timeAgo(node.updatedAt)}</span>
+          <span class="tree-age" aria-hidden="true">${HUD.utils.timeAgo(node.updatedAt)}</span>
         </div>`;
 
       if (hasKids) {
-        html += `<div class="tree-children${collapsed ? ' collapsed' : ''}">`;
+        html += `<div class="tree-children${collapsed ? ' collapsed' : ''}" role="group">`;
         kids.forEach((kid, i) => {
           const kidIsLast = i === kids.length - 1;
           const childPrefix = prefix + (isLast ? '   ' : '│  ');
           const connector = kidIsLast ? '└─ ' : '├─ ';
-          html += renderNode(kid, childPrefix + connector, kidIsLast);
+          html += renderNode(kid, childPrefix + connector, kidIsLast, level + 1);
         });
         html += '</div>';
       }
@@ -58,19 +60,127 @@ HUD.sessionTree = (function() {
       return html;
     }
 
-    let html = '<div class="tree-root">';
+    let html = '<div class="tree-root" role="tree">';
     roots.forEach((r, i) => {
       const connector = i === roots.length - 1 ? '└─ ' : '├─ ';
-      html += renderNode(r, connector, i === roots.length - 1);
+      html += renderNode(r, connector, i === roots.length - 1, 0);
     });
     html += '</div>';
 
     $('#tree-body').innerHTML = html;
+
+    // Add keyboard support after rendering
+    addTreeKeyboardSupport();
   }
 
   function toggleNode(key) {
     collapseState[key] = !collapseState[key];
     if (window._treeData) render(window._treeData);
+  }
+
+  function addTreeKeyboardSupport() {
+    // Make tree nodes focusable and clickable via keyboard
+    document.querySelectorAll('.tree-node-content').forEach(node => {
+      window.makeFocusable(node, () => {
+        const agent = node.dataset.agent;
+        const session = node.dataset.session;
+        if (agent && session) {
+          openChatPane(agent, session, node.dataset.label || '');
+        }
+      });
+    });
+
+    // Make toggles keyboard accessible
+    document.querySelectorAll('.tree-toggle').forEach(toggle => {
+      if (toggle.textContent.trim() === '') return; // Skip empty toggles
+
+      toggle.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          const key = this.dataset.toggleKey;
+          if (key) toggleNode(key);
+        }
+      });
+
+      toggle.addEventListener('focus', function() {
+        this.classList.add('focus-visible');
+      });
+
+      toggle.addEventListener('blur', function() {
+        this.classList.remove('focus-visible');
+      });
+    });
+
+    // Add arrow key navigation for tree
+    document.querySelectorAll('.tree-node-content').forEach(node => {
+      node.addEventListener('keydown', function(e) {
+        const treeNode = this.closest('.tree-node');
+        if (!treeNode) return;
+
+        switch (e.key) {
+          case 'ArrowRight':
+            e.preventDefault();
+            // Expand if collapsed and has children
+            const toggle = treeNode.querySelector('.tree-toggle');
+            if (toggle && toggle.textContent.includes('▸')) {
+              const key = toggle.dataset.toggleKey;
+              if (key) toggleNode(key);
+            } else {
+              // Move to first child
+              const firstChild = treeNode.querySelector('.tree-children > .tree-node > .tree-node-content');
+              if (firstChild) firstChild.focus();
+            }
+            break;
+          case 'ArrowLeft':
+            e.preventDefault();
+            // Collapse if expanded
+            const toggleLeft = treeNode.querySelector('.tree-toggle');
+            if (toggleLeft && toggleLeft.textContent.includes('▾')) {
+              const key = toggleLeft.dataset.toggleKey;
+              if (key) toggleNode(key);
+            } else {
+              // Move to parent
+              const parent = treeNode.closest('.tree-children')?.closest('.tree-node');
+              if (parent) {
+                const parentContent = parent.querySelector('.tree-node-content');
+                if (parentContent) parentContent.focus();
+              }
+            }
+            break;
+          case 'ArrowDown':
+            e.preventDefault();
+            // Move to next visible node
+            const allNodes = Array.from(document.querySelectorAll('.tree-node-content'));
+            const currentIndex = allNodes.indexOf(this);
+            if (currentIndex < allNodes.length - 1) {
+              allNodes[currentIndex + 1].focus();
+            }
+            break;
+          case 'ArrowUp':
+            e.preventDefault();
+            // Move to previous visible node
+            const allNodesUp = Array.from(document.querySelectorAll('.tree-node-content'));
+            const currentIndexUp = allNodesUp.indexOf(this);
+            if (currentIndexUp > 0) {
+              allNodesUp[currentIndexUp - 1].focus();
+            }
+            break;
+          case 'Home':
+            e.preventDefault();
+            const first = document.querySelector('.tree-root > .tree-node > .tree-node-content');
+            if (first) first.focus();
+            break;
+          case 'End':
+            e.preventDefault();
+            const allNodesEnd = document.querySelectorAll('.tree-node-content');
+            if (allNodesEnd.length > 0) {
+              allNodesEnd[allNodesEnd.length - 1].focus();
+            }
+            break;
+        }
+      });
+    });
   }
 
   return { render, toggleNode };

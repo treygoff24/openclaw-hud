@@ -13,9 +13,20 @@
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.15s;
+  outline: none;
 }
 .tree-node-content:hover {
   background: rgba(0,229,255,0.06);
+}
+.tree-node-content:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+  background: rgba(0,229,255,0.1);
+}
+.tree-node-content.focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+  background: rgba(0,229,255,0.1);
 }
 .tree-indent {
   font-family: var(--font-mono);
@@ -34,8 +45,18 @@
   text-align: center;
   flex-shrink: 0;
   transition: color 0.2s;
+  border-radius: 2px;
+  outline: none;
 }
 .tree-toggle:hover { color: var(--cyan); }
+.tree-toggle:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.tree-toggle.focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
 .tree-label {
   font-family: var(--font-mono);
   font-size: 14px;
