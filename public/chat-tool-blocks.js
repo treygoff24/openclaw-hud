@@ -53,6 +53,15 @@
     wrapper.dataset.toolUseId = block.tool_use_id || '';
 
     var raw = typeof block.content === 'string' ? block.content : (block.content != null ? JSON.stringify(block.content, null, 2) : '');
+    
+    // Use progressive rendering for large content (>10KB)
+    const PROGRESSIVE_THRESHOLD = 10000;
+    if (raw.length > PROGRESSIVE_THRESHOLD && window.ProgressiveToolRenderer) {
+      window.ProgressiveToolRenderer.render(wrapper, raw);
+      return wrapper;
+    }
+    
+    // Standard rendering for smaller content
     var truncated = raw.length > 1000;
     var preview = truncated ? raw.slice(0, 1000) : raw;
 
