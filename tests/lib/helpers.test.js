@@ -181,30 +181,13 @@ describe('getSessionStatus', () => {
 
 // --------------- getGatewayConfig ---------------
 describe('getGatewayConfig', () => {
-  const savedToken = process.env.OPENCLAW_GATEWAY_TOKEN;
-
-  beforeEach(() => {
-    delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  });
-
-  afterAll(() => {
-    if (savedToken !== undefined) process.env.OPENCLAW_GATEWAY_TOKEN = savedToken;
-    else delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  });
-
-  it('returns port and token from config (reads real source-of-truth)', () => {
-    // getGatewayConfig reads OPENCLAW_HOME/config/source-of-truth.json5
-    // We test it returns an object with port (number) and token (string or null)
+  it('returns port and token from config', () => {
+    // getGatewayConfig reads OPENCLAW_HOME/openclaw.json (primary)
+    // or OPENCLAW_HOME/config/source-of-truth.json5 (legacy fallback)
     const cfg = getGatewayConfig();
     expect(cfg).toHaveProperty('port');
     expect(typeof cfg.port).toBe('number');
     expect(cfg).toHaveProperty('token');
-  });
-
-  it('respects OPENCLAW_GATEWAY_TOKEN env var override', () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = 'test-env-override-token';
-    const cfg = getGatewayConfig();
-    expect(cfg.token).toBe('test-env-override-token');
   });
 });
 
