@@ -270,9 +270,51 @@
 <script src="panels/session-tree.js"></script>
 <script src="panels/spawn.js"></script>
 
-<!-- Markdown + Sanitization -->
-<script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu" crossorigin="anonymous"></script>
+<!-- Markdown + Sanitization with local fallback -->
+<script>
+(function() {
+  // Check if a library loaded successfully
+  function libLoaded(name) {
+    return typeof window[name] !== 'undefined';
+  }
+  
+  // Load script with fallback
+  function loadWithFallback(primaryUrl, fallbackUrl, libName, onComplete) {
+    var script = document.createElement('script');
+    script.src = primaryUrl;
+    script.crossOrigin = 'anonymous';
+    
+    script.onerror = function() {
+      console.warn('CDN failed for ' + libName + ', loading local fallback...');
+      var fallback = document.createElement('script');
+      fallback.src = fallbackUrl;
+      fallback.onerror = function() {
+        console.error('Both CDN and local fallback failed for ' + libName);
+      };
+      document.head.appendChild(fallback);
+    };
+    
+    document.head.appendChild(script);
+  }
+  
+  // Load marked with fallback
+  loadWithFallback(
+    'https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js',
+    '/vendor/marked.min.js',
+    'marked'
+  );
+  
+  // Load DOMPurify with fallback  
+  loadWithFallback(
+    'https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js',
+    '/vendor/purify.min.js',
+    'DOMPurify'
+  );
+})();
+</script>
+<noscript>
+  <link rel="stylesheet" href="noscript.css">
+</noscript>
 
 <!-- Chat pane -->
 <script src="chat-markdown.js"></script>
