@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
-    "vendor:sync": "node scripts/vendor-sync.js"
+    "vendor:sync": "node scripts/vendor-sync.js",
+    "bundle:analyze": "node scripts/bundle-analyze.js"
   },
   "dependencies": {
     "express": "4.22.1",

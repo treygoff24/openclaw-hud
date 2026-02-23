@@ -91,6 +91,18 @@
     }
     state.currentSession = null;
     state.activeRuns.clear();
+    
+    // Clean up virtual scroller and other resources
+    if (window.VirtualScroller) {
+      window.VirtualScroller.destroy();
+    }
+    if (window.ProgressiveToolRenderer) {
+      window.ProgressiveToolRenderer.destroy();
+    }
+    if (window.WebSocketMessageBatcher) {
+      window.WebSocketMessageBatcher.destroy();
+    }
+    
     if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
     localStorage.removeItem('hud-chat-session');
   };
