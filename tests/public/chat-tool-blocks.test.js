@@ -91,6 +91,37 @@ describe('ChatToolBlocks', () => {
     });
   });
 
+  describe('edge cases - malformed/empty blocks', () => {
+    it('createToolUseBlock({}) does not crash', () => {
+      const el = window.ChatToolBlocks.createToolUseBlock({});
+      expect(el.className).toBe('chat-tool-use');
+      expect(el.dataset.toolUseId).toBe('');
+    });
+
+    it('createToolResultBlock({}) does not crash', () => {
+      const el = window.ChatToolBlocks.createToolResultBlock({});
+      expect(el.className).toBe('chat-tool-result');
+    });
+
+    it('createThinkingBlock({}) does not crash', () => {
+      const el = window.ChatToolBlocks.createThinkingBlock({});
+      expect(el.className).toBe('chat-thinking-block');
+      expect(el.textContent).toBe('');
+    });
+  });
+
+  describe('getArgPreview prefers meaningful keys', () => {
+    it('prefers command over other keys', () => {
+      expect(window.ChatToolBlocks.getArgPreview({ foo: 'bar', command: 'ls -la' })).toBe('ls -la');
+    });
+    it('prefers query', () => {
+      expect(window.ChatToolBlocks.getArgPreview({ query: 'search term' })).toBe('search term');
+    });
+    it('prefers url', () => {
+      expect(window.ChatToolBlocks.getArgPreview({ url: 'https://example.com' })).toBe('https://example.com');
+    });
+  });
+
   describe('createThinkingBlock', () => {
     it('renders thinking text', () => {
       const el = window.ChatToolBlocks.createThinkingBlock({ thinking: 'Let me think...' });

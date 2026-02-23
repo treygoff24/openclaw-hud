@@ -53,6 +53,14 @@
       thinkDiv.textContent = block.thinking || '';
       return thinkDiv;
     }
+    // Unknown block type
+    if (block.type !== 'text') {
+      var unknownDiv = document.createElement('div');
+      unknownDiv.className = 'chat-msg-content';
+      unknownDiv.style.opacity = '0.4';
+      unknownDiv.textContent = 'unsupported block type: ' + block.type;
+      return unknownDiv;
+    }
     // Text block
     var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
