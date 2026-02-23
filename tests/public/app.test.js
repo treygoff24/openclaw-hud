@@ -28,6 +28,16 @@ document.body.innerHTML = `
 `;
 
 window.HUD = window.HUD || {};
+// Mock makeFocusable for keyboard accessibility
+window.makeFocusable = function(el, handler) {
+  el.tabIndex = 0;
+  el.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  });
+};
 window.escapeHtml = function(s) {
   if (s == null) return '';
   const d = document.createElement('div');

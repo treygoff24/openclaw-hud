@@ -12,6 +12,16 @@ window.escapeHtml = function(s) {
   d.textContent = String(s);
   return d.innerHTML;
 };
+// Mock makeFocusable for keyboard accessibility
+window.makeFocusable = function(el, handler) {
+  el.tabIndex = 0;
+  el.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  });
+};
 
 await import('../../../public/utils.js');
 await import('../../../public/panels/session-tree.js');

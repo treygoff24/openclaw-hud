@@ -56,7 +56,18 @@
 .chat-msg-role.tool { color: var(--amber); }
 .chat-msg-role.system { color: var(--text-dim); }
 
-.chat-msg-time { float: right; font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); }
+.chat-msg-time { 
+  float: right; 
+  font-family: var(--font-mono); 
+  font-size: 9px; 
+  color: var(--text-dim);
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.chat-msg:hover .chat-msg-time {
+  opacity: 1;
+  color: var(--cyan);
+}
 
 .chat-msg-content {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-label);
@@ -221,6 +232,50 @@
   padding: 1px 4px; border-radius: 3px; color: var(--amber);
 }
 .chat-msg-content pre code { background: none; padding: 0; color: var(--text-label); }
+
+/* Code block wrapper with copy button */
+.code-block-wrapper {
+  position: relative;
+  margin: 6px 0;
+}
+.code-block-wrapper pre {
+  margin: 0;
+  padding-top: 32px;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
+}
+.code-copy-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,229,255,0.1);
+}
+.code-copy-btn.copied {
+  border-color: var(--green);
+  color: var(--green);
+  background: rgba(57,255,20,0.1);
+}
+.code-copy-btn svg {
+  display: block;
+}
 
 /* Thinking blocks */
 .chat-thinking-block {
