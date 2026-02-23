@@ -14,79 +14,113 @@
     return String(message || '');
   }
 
+  // Legacy wrappers for backward compat (tests reference these)
   function createToolBlock(name, content) {
-    const wrapper = document.createElement('div');
+    if (window.ChatToolBlocks) {
+      return window.ChatToolBlocks.createToolUseBlock({ name: name, input: content, id: '' });
+    }
+    var wrapper = document.createElement('div');
     wrapper.className = 'chat-tool-block collapsed';
-    const header = document.createElement('div');
-    header.className = 'chat-tool-block-header';
-    header.textContent = '\u25B6 Tool: ' + name;
-    header.onclick = function() {
-      wrapper.classList.toggle('collapsed');
-      header.textContent = wrapper.classList.contains('collapsed')
-        ? '\u25B6 Tool: ' + name : '\u25BC Tool: ' + name;
-    };
-    const body = document.createElement('div');
-    body.className = 'tool-block-body';
-    body.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-    wrapper.appendChild(header);
-    wrapper.appendChild(body);
+    wrapper.textContent = 'Tool: ' + name;
     return wrapper;
   }
 
   function createResultBlock(content) {
-    const wrapper = document.createElement('div');
+    if (window.ChatToolBlocks) {
+      return window.ChatToolBlocks.createToolResultBlock({ content: content, tool_use_id: '' });
+    }
+    var wrapper = document.createElement('div');
     wrapper.className = 'chat-tool-block collapsed';
-    const header = document.createElement('div');
-    header.className = 'chat-tool-block-header';
-    header.textContent = '\u25B6 Result';
-    header.onclick = function() {
-      wrapper.classList.toggle('collapsed');
-      header.textContent = wrapper.classList.contains('collapsed')
-        ? '\u25B6 Result' : '\u25BC Result';
-    };
-    const body = document.createElement('div');
-    body.className = 'tool-block-body';
-    body.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-    wrapper.appendChild(header);
-    wrapper.appendChild(body);
+    wrapper.textContent = 'Result';
     return wrapper;
   }
 
+  function renderContentBlock(block, role) {
+    if (block.type === 'tool_use') {
+      return window.ChatToolBlocks
+        ? window.ChatToolBlocks.createToolUseBlock(block)
+        : createToolBlock(block.name, block.input);
+    }
+    if (block.type === 'tool_result') {
+      return window.ChatToolBlocks
+        ? window.ChatToolBlocks.createToolResultBlock(block)
+        : createResultBlock(block.content);
+    }
+    if (block.type === 'thinking') {
+      if (window.ChatToolBlocks) return window.ChatToolBlocks.createThinkingBlock(block);
+      var thinkDiv = document.createElement('div');
+      thinkDiv.className = 'chat-thinking-block';
+      thinkDiv.textContent = block.thinking || '';
+      return thinkDiv;
+    }
+    // Text block
+    var contentDiv = document.createElement('div');
+    contentDiv.className = 'chat-msg-content';
+    var text = block.text || '';
+    if (role === 'assistant' && window.ChatMarkdown) {
+      contentDiv.innerHTML = window.ChatMarkdown.renderMarkdown(text);
+    } else {
+      contentDiv.textContent = text;
+    }
+    return contentDiv;
+  }
+
   function renderHistoryMessage(msg) {
-    const div = document.createElement('div');
-    const role = msg.role || 'system';
-    const roleClass = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'tool' ? 'tool' : 'system';
+    var div = document.createElement('div');
+    var role = msg.role || 'system';
+    var roleClass = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'tool' ? 'tool' : 'system';
     div.className = 'chat-msg ' + roleClass;
 
-    const roleSpan = document.createElement('span');
+    // System messages get special styling
+    if (role === 'system') {
+      div.className = 'chat-msg system';
+      var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+      blocks.forEach(function(block) {
+        div.appendChild(renderContentBlock(block, role));
+      });
+      return div;
+    }
+
+    var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
     roleSpan.textContent = role;
     div.appendChild(roleSpan);
 
-    const blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+    var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+
+    // Collect tool_use blocks for potential grouping
+    var toolUseEls = [];
+    var otherEls = [];
     blocks.forEach(function(block) {
+      var el = renderContentBlock(block, role);
       if (block.type === 'tool_use') {
-        div.appendChild(createToolBlock(block.name, block.input));
-      } else if (block.type === 'tool_result') {
-        div.appendChild(createResultBlock(block.content));
+        toolUseEls.push(el);
       } else {
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'chat-msg-content';
-        contentDiv.textContent = block.text || '';
-        div.appendChild(contentDiv);
+        otherEls.push(el);
       }
     });
+
+    // Append non-tool elements first
+    otherEls.forEach(function(el) { div.appendChild(el); });
+
+    // Group tool calls if 3+
+    if (toolUseEls.length >= 3 && window.ChatToolBlocks) {
+      div.appendChild(window.ChatToolBlocks.createToolGroup(toolUseEls));
+    } else {
+      toolUseEls.forEach(function(el) { div.appendChild(el); });
+    }
+
     return div;
   }
 
   function createAssistantStreamEl() {
-    const div = document.createElement('div');
+    var div = document.createElement('div');
     div.className = 'chat-msg assistant streaming';
-    const roleSpan = document.createElement('span');
+    var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role assistant';
     roleSpan.textContent = 'assistant';
     div.appendChild(roleSpan);
-    const contentDiv = document.createElement('div');
+    var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
     div.appendChild(contentDiv);
     return div;
@@ -98,5 +132,6 @@
     createResultBlock: createResultBlock,
     renderHistoryMessage: renderHistoryMessage,
     createAssistantStreamEl: createAssistantStreamEl,
+    renderContentBlock: renderContentBlock,
   };
 })();
