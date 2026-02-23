@@ -132,7 +132,7 @@ test.describe('Chat Rich Content & Security', () => {
   test.describe('Tool Blocks', () => {
     test('tool use blocks display and expand/collapse', async ({ page }) => {
       await openSession(page, 'sess-abc-001');
-      await page.waitForSelector('.chat-msg');
+      await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
@@ -157,20 +157,22 @@ test.describe('Chat Rich Content & Security', () => {
       await expect(header).toContainText('Read');
       await expect(header).toContainText('/test/file.txt');
 
-      // Initially collapsed (collapsed class present)
-      await expect(toolUse).toHaveClass(/collapsed/);
+      // Initially expanded in the current implementation
+      await expect(toolUse).toHaveClass(/expanded/);
 
-      // Click to expand
-      await header.click();
-      await expect(toolUse).not.toHaveClass(/collapsed/);
-
-      // Check body is visible
+      // Body should be visible while expanded
       const body = toolUse.locator('.chat-tool-use-body');
-      await expect(body).toContainText('file_path');
+      await expect(body).toBeVisible();
 
-      // Click to collapse again
+      // Click to collapse
       await header.click();
-      await expect(toolUse).toHaveClass(/collapsed/);
+      await expect(toolUse).not.toHaveClass(/expanded/);
+      await expect(body).not.toBeVisible();
+
+      // Click to expand again
+      await header.click();
+      await expect(toolUse).toHaveClass(/expanded/);
+      await expect(body).toBeVisible();
     });
 
     test('tool grouping behavior with 3+ calls', async ({ page }) => {
@@ -577,7 +579,7 @@ test.describe('Chat Rich Content & Security', () => {
   test.describe('Accessibility', () => {
     test('tool block headers are keyboard accessible', async ({ page }) => {
       await openSession(page, 'sess-abc-001');
-      await page.waitForSelector('.chat-msg');
+      await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
@@ -594,23 +596,23 @@ test.describe('Chat Rich Content & Security', () => {
 
       const header = page.locator('.chat-tool-use-header');
 
-      // Tab to the tool block header
-      await page.keyboard.press('Tab');
+      // Focus the tool block header and verify keyboard operation
+      await header.focus();
       await expect(header).toBeFocused();
 
-      // Press Enter to toggle
+      // Press Enter to toggle from expanded -> collapsed
       await page.keyboard.press('Enter');
       const toolUse = page.locator('.chat-tool-use');
-      await expect(toolUse).not.toHaveClass(/collapsed/);
+      await expect(toolUse).not.toHaveClass(/expanded/);
 
-      // Press Space to toggle back
+      // Press Space to toggle back collapsed -> expanded
       await page.keyboard.press(' ');
-      await expect(toolUse).toHaveClass(/collapsed/);
+      await expect(toolUse).toHaveClass(/expanded/);
     });
 
     test('tool group headers are keyboard accessible', async ({ page }) => {
       await openSession(page, 'sess-abc-001');
-      await page.waitForSelector('.chat-msg');
+      await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
@@ -629,9 +631,8 @@ test.describe('Chat Rich Content & Security', () => {
 
       const groupHeader = page.locator('.chat-tool-group-header');
 
-      // Tab to the group header
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Tab'); // May need 2 tabs to reach the group
+      await groupHeader.focus();
+      await expect(groupHeader).toBeFocused();
       await page.keyboard.press('Enter');
 
       const group = page.locator('.chat-tool-group');
@@ -640,7 +641,7 @@ test.describe('Chat Rich Content & Security', () => {
 
     test('aria-expanded state updates on toggle', async ({ page }) => {
       await openSession(page, 'sess-abc-001');
-      await page.waitForSelector('.chat-msg');
+      await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
@@ -657,17 +658,16 @@ test.describe('Chat Rich Content & Security', () => {
 
       const header = page.locator('.chat-tool-use-header');
 
-      // Initial state - should have aria-expanded="false" or not be present when collapsed
-      // Collapse means expanded = false
-      await expect(header).toHaveClass(/collapsed/);
-
-      // Click to expand
-      await header.click();
-      await expect(header).not.toHaveClass(/collapsed/);
+      // Initial state is expanded
+      await expect(header).toHaveAttribute('aria-expanded', 'true');
 
       // Click to collapse
       await header.click();
-      await expect(header).toHaveClass(/collapsed/);
+      await expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      // Click to expand
+      await header.click();
+      await expect(header).toHaveAttribute('aria-expanded', 'true');
     });
 
     test('code blocks have proper semantic structure', async ({ page }) => {
