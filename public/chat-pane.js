@@ -1,68 +1,14 @@
-// Chat Pane Module
+// Chat Pane Module — streaming chat with gateway WebSocket
 (function() {
   'use strict';
 
   let currentSession = null;
   let subscribedKey = null;
+  const activeRuns = new Map();
+  const pendingAcks = new Map();
+  let cachedModels = null;
   const _wsQueue = [];
-  // I3: Generation counter to discard stale fetch responses
-  let _openGeneration = 0;
 
-  function createMessageEl(entry) {
-    // M7: removed dead `esc` variable (getEscape() call that was never used)
-    const role = entry.role || entry.type || 'system';
-    let roleClass = 'system';
-    if (role === 'user') roleClass = 'user';
-    else if (role === 'assistant') roleClass = 'assistant';
-    else if (entry.type === 'tool_use' || entry.type === 'tool_result') roleClass = 'tool';
-
-    let content = '';
-    if (typeof entry.content === 'string') {
-      content = entry.content;
-    } else if (Array.isArray(entry.content)) {
-      content = entry.content.map(c => typeof c === 'string' ? c : (c.text || JSON.stringify(c).slice(0, 200))).join('\n');
-    }
-    if (entry.name) content = '[' + entry.name + '] ' + content;
-    if (!content && entry.type) content = entry.type;
-
-    // M2: Truncation indicator
-    const MAX_CONTENT = 2000;
-    let truncated = false;
-    if (content.length > MAX_CONTENT) {
-      content = content.slice(0, MAX_CONTENT);
-      truncated = true;
-    }
-
-    const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
-
-    const div = document.createElement('div');
-    div.className = 'chat-msg ' + roleClass;
-
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'chat-msg-time';
-    timeSpan.textContent = time;
-    div.appendChild(timeSpan);
-
-    const roleSpan = document.createElement('span');
-    roleSpan.className = 'chat-msg-role ' + roleClass;
-    roleSpan.textContent = role;
-    div.appendChild(roleSpan);
-
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'chat-msg-content';
-    contentDiv.textContent = content;
-    if (truncated) {
-      const indicator = document.createElement('span');
-      indicator.className = 'chat-truncated';
-      indicator.textContent = ' … [truncated]';
-      contentDiv.appendChild(indicator);
-    }
-    div.appendChild(contentDiv);
-
-    return div;
-  }
-
-  // I1: Safe WS send with pending-message queue
   function sendWs(msg) {
     if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
       window._hudWs.send(JSON.stringify(msg));
@@ -77,161 +23,462 @@
       if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
         window._hudWs.send(JSON.stringify(msg));
       } else {
-        // WS not ready yet, put it back
         _wsQueue.unshift(msg);
         break;
       }
     }
   };
 
+  function updateButtons() {
+    const sendBtn = document.getElementById('chat-send-btn');
+    const stopBtn = document.getElementById('chat-stop-btn');
+    if (!sendBtn || !stopBtn) return;
+    if (activeRuns.size > 0) {
+      sendBtn.style.display = 'none';
+      stopBtn.style.display = '';
+    } else {
+      sendBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    }
+  }
+
+  function extractText(message) {
+    if (typeof message === 'string') return message;
+    if (message && Array.isArray(message.content)) {
+      return message.content
+        .filter(function(b) { return b.type === 'text'; })
+        .map(function(b) { return b.text; })
+        .join('\n');
+    }
+    if (message && typeof message.content === 'string') return message.content;
+    return String(message || '');
+  }
+
+  function createToolBlock(name, content) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-tool-block collapsed';
+    var header = document.createElement('div');
+    header.className = 'chat-tool-block-header';
+    header.textContent = '\u25B6 Tool: ' + name;
+    header.onclick = function() {
+      wrapper.classList.toggle('collapsed');
+      header.textContent = wrapper.classList.contains('collapsed')
+        ? '\u25B6 Tool: ' + name : '\u25BC Tool: ' + name;
+    };
+    var body = document.createElement('div');
+    body.className = 'tool-block-body';
+    body.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+    wrapper.appendChild(header);
+    wrapper.appendChild(body);
+    return wrapper;
+  }
+
+  function createResultBlock(content) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-tool-block collapsed';
+    var header = document.createElement('div');
+    header.className = 'chat-tool-block-header';
+    header.textContent = '\u25B6 Result';
+    header.onclick = function() {
+      wrapper.classList.toggle('collapsed');
+      header.textContent = wrapper.classList.contains('collapsed')
+        ? '\u25B6 Result' : '\u25BC Result';
+    };
+    var body = document.createElement('div');
+    body.className = 'tool-block-body';
+    body.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+    wrapper.appendChild(header);
+    wrapper.appendChild(body);
+    return wrapper;
+  }
+
+  function renderHistoryMessage(msg) {
+    var div = document.createElement('div');
+    var role = msg.role || 'system';
+    var roleClass = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'tool' ? 'tool' : 'system';
+    div.className = 'chat-msg ' + roleClass;
+
+    var roleSpan = document.createElement('span');
+    roleSpan.className = 'chat-msg-role ' + roleClass;
+    roleSpan.textContent = role;
+    div.appendChild(roleSpan);
+
+    var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+    blocks.forEach(function(block) {
+      if (block.type === 'tool_use') {
+        div.appendChild(createToolBlock(block.name, block.input));
+      } else if (block.type === 'tool_result') {
+        div.appendChild(createResultBlock(block.content));
+      } else {
+        var contentDiv = document.createElement('div');
+        contentDiv.className = 'chat-msg-content';
+        contentDiv.textContent = block.text || '';
+        div.appendChild(contentDiv);
+      }
+    });
+    return div;
+  }
+
+  function createAssistantStreamEl() {
+    var div = document.createElement('div');
+    div.className = 'chat-msg assistant streaming';
+    var roleSpan = document.createElement('span');
+    roleSpan.className = 'chat-msg-role assistant';
+    roleSpan.textContent = 'assistant';
+    div.appendChild(roleSpan);
+    var contentDiv = document.createElement('div');
+    contentDiv.className = 'chat-msg-content';
+    div.appendChild(contentDiv);
+    return div;
+  }
+
+  function sendMessage() {
+    if (!currentSession) return;
+    var input = document.getElementById('chat-input');
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text) return;
+
+    var idempotencyKey = crypto.randomUUID();
+    var div = document.createElement('div');
+    div.className = 'chat-msg user pending';
+    var roleSpan = document.createElement('span');
+    roleSpan.className = 'chat-msg-role user';
+    roleSpan.textContent = 'user';
+    div.appendChild(roleSpan);
+    var contentDiv = document.createElement('div');
+    contentDiv.className = 'chat-msg-content';
+    contentDiv.textContent = text;
+    div.appendChild(contentDiv);
+
+    var container = document.getElementById('chat-messages');
+    if (container) container.appendChild(div);
+
+    pendingAcks.set(idempotencyKey, { el: div });
+    input.value = '';
+    input.disabled = true;
+
+    sendWs({ type: 'chat-send', sessionKey: currentSession.sessionKey, message: text, idempotencyKey: idempotencyKey });
+  }
+
   window.openChatPane = function(agentId, sessionId, label) {
     if (!agentId || !sessionId) return;
 
-    // I3: Increment generation so in-flight fetches become stale
-    const gen = ++_openGeneration;
+    var sessionKey = 'agent:' + agentId + ':' + sessionId;
+    if (subscribedKey === sessionKey) return;
 
-    const layout = document.querySelector('.hud-layout');
+    var layout = document.querySelector('.hud-layout');
     if (layout) layout.classList.add('chat-open');
 
-    const titleEl = document.getElementById('chat-title');
+    var titleEl = document.getElementById('chat-title');
     if (titleEl) titleEl.textContent = agentId + ' // ' + (label || sessionId.slice(0, 8));
 
-    // Hide LIVE indicator until subscription confirmed
-    const liveEl = document.getElementById('chat-live');
+    var liveEl = document.getElementById('chat-live');
     if (liveEl) liveEl.classList.remove('visible');
 
     // Unsubscribe previous
-    if (subscribedKey && subscribedKey !== agentId + '/' + sessionId) {
-      const parts = subscribedKey.split('/');
-      sendWs({ type: 'unsubscribe-log', agentId: parts[0], sessionId: parts[1] });
+    if (subscribedKey) {
+      sendWs({ type: 'chat-unsubscribe', sessionKey: subscribedKey });
+      // backward compat
+      if (currentSession) {
+        sendWs({ type: 'unsubscribe-log', sessionId: currentSession.sessionId });
+      }
     }
 
-    currentSession = { agentId, sessionId, label };
-    subscribedKey = agentId + '/' + sessionId;
+    currentSession = { agentId: agentId, sessionId: sessionId, label: label, sessionKey: sessionKey };
+    subscribedKey = sessionKey;
     localStorage.setItem('hud-chat-session', JSON.stringify(currentSession));
 
-    const messagesEl = document.getElementById('chat-messages');
-
-    // Clear messages
-    while (messagesEl.firstChild) {
-      messagesEl.removeChild(messagesEl.firstChild);
+    // Clear and show loading
+    var messagesEl = document.getElementById('chat-messages');
+    if (messagesEl) {
+      messagesEl.innerHTML = '';
+      var loading = document.createElement('div');
+      loading.className = 'chat-loading';
+      loading.textContent = 'Loading...';
+      messagesEl.appendChild(loading);
     }
-    // Add loading indicator
-    const loadingDiv = document.createElement('div');
-    loadingDiv.className = 'chat-loading';
-    loadingDiv.id = 'chat-empty';
-    loadingDiv.textContent = 'Loading...';
-    messagesEl.appendChild(loadingDiv);
 
-    // Fetch log
-    fetch('/api/session-log/' + encodeURIComponent(agentId) + '/' + encodeURIComponent(sessionId) + '?limit=100')
-      .then(r => r.json())
-      .then(entries => {
-        // I3: Discard if a newer openChatPane call has occurred
-        if (gen !== _openGeneration) return;
+    activeRuns.clear();
+    updateButtons();
 
-        const empty = document.getElementById('chat-empty');
-        if (!entries.length) {
-          if (empty) empty.textContent = 'No log entries';
-          return;
-        }
-        if (empty) empty.remove();
-        const container = document.getElementById('chat-messages');
-        entries.forEach(e => container.appendChild(createMessageEl(e)));
-        container.scrollTop = container.scrollHeight;
-      })
-      .catch(err => {
-        if (gen !== _openGeneration) return;
-        const empty = document.getElementById('chat-empty');
-        if (empty) empty.textContent = 'Error: ' + err.message;
-      });
-
-    // Subscribe via WS
-    sendWs({ type: 'subscribe-log', agentId, sessionId });
+    sendWs({ type: 'chat-subscribe', sessionKey: sessionKey });
+    sendWs({ type: 'chat-history', sessionKey: sessionKey });
   };
 
   window.closeChatPane = function() {
-    const layout = document.querySelector('.hud-layout');
+    var layout = document.querySelector('.hud-layout');
     if (layout) layout.classList.remove('chat-open');
 
     if (subscribedKey) {
-      const parts = subscribedKey.split('/');
-      sendWs({ type: 'unsubscribe-log', agentId: parts[0], sessionId: parts[1] });
+      sendWs({ type: 'chat-unsubscribe', sessionKey: subscribedKey });
+      if (currentSession) {
+        sendWs({ type: 'unsubscribe-log', sessionId: currentSession.sessionId });
+      }
       subscribedKey = null;
     }
-
     currentSession = null;
+    activeRuns.clear();
+    updateButtons();
     localStorage.removeItem('hud-chat-session');
   };
 
-  // WS message handler - called from app.js
   window.handleChatWsMessage = function(data) {
-    // M4: Handle subscribed confirmation — show LIVE indicator
+    if (!data || !data.type) return;
+
+    // Backward compat: subscribed
     if (data.type === 'subscribed') {
       if (currentSession && data.sessionId === currentSession.sessionId) {
-        const liveEl = document.getElementById('chat-live');
+        var liveEl = document.getElementById('chat-live');
         if (liveEl) liveEl.classList.add('visible');
       }
       return;
     }
 
-    if (data.type !== 'log-entry') return;
-    if (!currentSession) return;
-    if (data.agentId !== currentSession.agentId || data.sessionId !== currentSession.sessionId) return;
+    if (data.type === 'chat-subscribe-ack') {
+      if (currentSession && data.sessionKey === currentSession.sessionKey) {
+        var liveEl2 = document.getElementById('chat-live');
+        if (liveEl2) liveEl2.classList.add('visible');
+      }
+      return;
+    }
 
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
-
-    // Remove empty placeholder if present
-    const empty = document.getElementById('chat-empty');
-    if (empty) empty.remove();
-
-    const nearBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) < 100;
-
-    container.appendChild(createMessageEl(data.entry || data));
-
-    if (nearBottom) {
+    if (data.type === 'chat-history-result') {
+      if (!currentSession || data.sessionKey !== currentSession.sessionKey) return;
+      var container = document.getElementById('chat-messages');
+      if (!container) return;
+      // Remove loading
+      var loading = container.querySelector('.chat-loading');
+      if (loading) loading.remove();
+      (data.messages || []).forEach(function(msg) {
+        container.appendChild(renderHistoryMessage(msg));
+      });
       container.scrollTop = container.scrollHeight;
-    } else {
-      // M5: Toggle pill visibility via CSS class instead of inline style
-      const pill = document.getElementById('chat-new-pill');
-      if (pill) pill.classList.add('visible');
+      return;
+    }
+
+    if (data.type === 'chat-event') {
+      var p = data.payload;
+      if (!p || !currentSession || p.sessionKey !== currentSession.sessionKey) return;
+      var container2 = document.getElementById('chat-messages');
+      if (!container2) return;
+
+      if (p.state === 'delta' || p.state === 'final') {
+        var run = activeRuns.get(p.runId);
+        if (!run) {
+          var el = createAssistantStreamEl();
+          container2.appendChild(el);
+          run = { el: el, lastSeq: 0 };
+          activeRuns.set(p.runId, run);
+        }
+        if (p.seq && p.seq > run.lastSeq + 1 && run.lastSeq > 0) {
+          console.warn('Gap detected: expected seq ' + (run.lastSeq + 1) + ' got ' + p.seq);
+        }
+        if (p.seq) run.lastSeq = p.seq;
+        if (p.message) {
+          var text = extractText(p.message);
+          var contentEl = run.el.querySelector('.chat-msg-content');
+          if (contentEl) contentEl.textContent = text;
+        }
+        if (p.state === 'final') {
+          run.el.classList.remove('streaming');
+          run.el.classList.add('final');
+          activeRuns.delete(p.runId);
+        }
+        updateButtons();
+        container2.scrollTop = container2.scrollHeight;
+        return;
+      }
+
+      if (p.state === 'error') {
+        var errEl = document.createElement('div');
+        errEl.className = 'chat-msg error';
+        errEl.textContent = p.errorMessage || 'Unknown error';
+        var retryBtn = document.createElement('button');
+        retryBtn.className = 'retry-btn';
+        retryBtn.textContent = 'Retry';
+        errEl.appendChild(retryBtn);
+        container2.appendChild(errEl);
+        activeRuns.delete(p.runId);
+        updateButtons();
+        return;
+      }
+
+      if (p.state === 'aborted') {
+        var run2 = activeRuns.get(p.runId);
+        if (run2) {
+          run2.el.classList.remove('streaming');
+          run2.el.classList.add('aborted');
+          var badge = document.createElement('span');
+          badge.className = 'chat-aborted-badge';
+          badge.textContent = 'Aborted: ' + (p.stopReason || 'unknown');
+          run2.el.appendChild(badge);
+          activeRuns.delete(p.runId);
+        }
+        updateButtons();
+        return;
+      }
+      return;
+    }
+
+    if (data.type === 'chat-send-ack') {
+      var ack = pendingAcks.get(data.idempotencyKey);
+      if (!ack) return;
+      pendingAcks.delete(data.idempotencyKey);
+      var input = document.getElementById('chat-input');
+      if (input) input.disabled = false;
+      if (data.ok) {
+        ack.el.classList.remove('pending');
+      } else {
+        ack.el.classList.remove('pending');
+        ack.el.classList.add('failed');
+        var retryBtn2 = document.createElement('button');
+        retryBtn2.className = 'retry-btn';
+        retryBtn2.textContent = 'Retry';
+        ack.el.appendChild(retryBtn2);
+      }
+      return;
+    }
+
+    if (data.type === 'gateway-status') {
+      var banner = document.getElementById('gateway-banner');
+      if (!banner) return;
+      if (data.status === 'disconnected') {
+        banner.style.display = 'block';
+      } else if (data.status === 'connected') {
+        banner.style.display = 'none';
+        if (currentSession) {
+          sendWs({ type: 'chat-subscribe', sessionKey: currentSession.sessionKey });
+          sendWs({ type: 'chat-history', sessionKey: currentSession.sessionKey });
+        }
+      }
+      return;
+    }
+
+    if (data.type === 'models-list-result') {
+      cachedModels = data.models;
+      renderModelPicker(data.models);
+      return;
+    }
+
+    if (data.type === 'chat-new-result') {
+      if (data.ok && data.sessionKey) {
+        var parts = data.sessionKey.split(':');
+        if (parts.length >= 3) {
+          window.openChatPane(parts[1], parts.slice(2).join(':'), '');
+        }
+      }
+      return;
+    }
+
+    // Backward compat: log-entry
+    if (data.type === 'log-entry') {
+      if (!currentSession) return;
+      if (data.agentId !== currentSession.agentId || data.sessionId !== currentSession.sessionId) return;
+      var container3 = document.getElementById('chat-messages');
+      if (!container3) return;
+      var entry = data.entry || data;
+      container3.appendChild(renderHistoryMessage({
+        role: entry.role || 'system',
+        content: typeof entry.content === 'string' ? [{ type: 'text', text: entry.content }] : entry.content || []
+      }));
+      container3.scrollTop = container3.scrollHeight;
+      return;
     }
   };
 
-  // Pill click
+  function renderModelPicker(models) {
+    var existing = document.querySelector('.model-picker');
+    if (existing) existing.remove();
+    if (!models || !models.length) return;
+    var picker = document.createElement('div');
+    picker.className = 'model-picker';
+    models.forEach(function(m) {
+      var item = document.createElement('div');
+      item.className = 'model-picker-item';
+      item.textContent = m;
+      item.onclick = function() {
+        sendWs({ type: 'chat-new', model: m });
+        picker.remove();
+      };
+      picker.appendChild(item);
+    });
+    var header = document.querySelector('.chat-header');
+    if (header) {
+      header.style.position = 'relative';
+      header.appendChild(picker);
+    }
+  }
+
+  // Input events
+  document.addEventListener('keydown', function(e) {
+    if (e.target.id === 'chat-input') {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+  });
+
+  // Auto-grow textarea
+  document.addEventListener('input', function(e) {
+    if (e.target.id === 'chat-input') {
+      e.target.style.height = 'auto';
+      e.target.style.height = e.target.scrollHeight + 'px';
+    }
+  });
+
+  // Send button
   document.addEventListener('click', function(e) {
-    if (e.target.id === 'chat-new-pill') {
-      const container = document.getElementById('chat-messages');
-      if (container) container.scrollTop = container.scrollHeight;
-      // M5: Use CSS class
-      e.target.classList.remove('visible');
+    if (e.target.id === 'chat-send-btn') sendMessage();
+  });
+
+  // Stop button
+  document.addEventListener('click', function(e) {
+    if (e.target.id === 'chat-stop-btn') {
+      if (currentSession) sendWs({ type: 'chat-abort', sessionKey: currentSession.sessionKey });
     }
   });
 
   // Close button
   document.addEventListener('click', function(e) {
-    if (e.target.id === 'chat-close') {
-      window.closeChatPane();
-    }
+    if (e.target.id === 'chat-close') window.closeChatPane();
   });
 
-  // Escape key (only if no modal is open)
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      const activeModal = document.querySelector('.modal-overlay.active');
-      if (!activeModal) {
-        window.closeChatPane();
+  // New chat button
+  document.addEventListener('click', function(e) {
+    if (e.target.id === 'chat-new-btn') {
+      if (cachedModels) {
+        renderModelPicker(cachedModels);
+      } else {
+        sendWs({ type: 'models-list' });
       }
     }
   });
 
-  // Restore from localStorage on load
+  // Pill click
+  document.addEventListener('click', function(e) {
+    if (e.target.id === 'chat-new-pill') {
+      var container = document.getElementById('chat-messages');
+      if (container) container.scrollTop = container.scrollHeight;
+      e.target.classList.remove('visible');
+    }
+  });
+
+  // Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var activeModal = document.querySelector('.modal-overlay.active');
+      if (!activeModal) window.closeChatPane();
+    }
+  });
+
+  // Restore from localStorage
   document.addEventListener('DOMContentLoaded', function() {
     try {
-      const saved = localStorage.getItem('hud-chat-session');
+      var saved = localStorage.getItem('hud-chat-session');
       if (saved) {
-        const s = JSON.parse(saved);
+        var s = JSON.parse(saved);
         if (s.agentId && s.sessionId) {
           window.openChatPane(s.agentId, s.sessionId, s.label || '');
         }

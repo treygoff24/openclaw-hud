@@ -159,9 +159,7 @@
     ws.onmessage = e => {
       const data = JSON.parse(e.data);
       if (data.type === 'tick') fetchAll();
-      if (data.type === 'subscribed' || data.type === 'log-entry') {
-        if (window.handleChatWsMessage) window.handleChatWsMessage(data);
-      }
+      if (window.handleChatWsMessage) window.handleChatWsMessage(data);
     };
     ws.onclose = () => {
       startPolling();
