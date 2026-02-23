@@ -11,9 +11,10 @@ window.escapeHtml = escapeHtml;
 
 window.HUD = window.HUD || {};
 HUD.utils = {
-  wsUrl: function(opts) {
-    var p = opts.protocol || 'wss:';
-    return p + '//' + opts.host;
+  wsUrl: function(loc) {
+    const l = loc || window.location;
+    const protocol = l.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${l.host}`;
   },
   timeAgo: function(ms) {
     if (!ms) return '—';
@@ -22,10 +23,5 @@ HUD.utils = {
     if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
     return `${Math.floor(diff/86400000)}d ago`;
-  },
-  wsUrl: function(loc) {
-    const l = loc || window.location;
-    const protocol = l.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${l.host}`;
   }
 };

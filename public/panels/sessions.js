@@ -4,6 +4,9 @@ HUD.sessions = (function() {
   const $ = s => document.querySelector(s);
 
   function render(sessions) {
+    for (const s of sessions) {
+      if (!s.sessionKey) throw new Error('sessions.render requires canonical sessionKey for each session');
+    }
     $('#session-count').textContent = sessions.length;
     $('#sessions-list').innerHTML = sessions.slice(0, 40).map((s, index) => {
       const label = s.label || s.key || s.sessionId?.slice(0,8);

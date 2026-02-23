@@ -5,6 +5,9 @@ HUD.sessionTree = (function() {
   const collapseState = {};
 
   function render(sessions) {
+    for (const s of sessions) {
+      if (!s.sessionKey) throw new Error('sessionTree.render requires canonical sessionKey for each node');
+    }
     window._treeData = sessions;
     $('#tree-count').textContent = sessions.length;
 

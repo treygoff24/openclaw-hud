@@ -199,8 +199,6 @@
   let wsReconnectTimer = null;
   let wsEverOpened = false;
   let wsConnectAttempt = 0;
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-
   function clearWsReconnectTimer() {
     if (wsReconnectTimer) {
       clearTimeout(wsReconnectTimer);
@@ -239,7 +237,7 @@
     }
 
     const attempt = ++wsConnectAttempt;
-    const wsUrl = HUD.utils.wsUrl({ protocol, host: location.host, pathname: location.pathname, hash: location.hash, search: location.search });
+    const wsUrl = HUD.utils.wsUrl();
     hudDiagLog(WS_LOG_PREFIX, 'connect_attempt', {
       attempt: attempt,
       url: wsUrl
