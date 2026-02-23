@@ -28,6 +28,16 @@ document.body.innerHTML = `
 `;
 window.HUD = window.HUD || {};
 window._agents = [{ id: 'bot1' }, { id: 'bot2' }];
+// Mock makeFocusable for keyboard accessibility
+window.makeFocusable = function(el, handler) {
+  el.tabIndex = 0;
+  el.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  });
+};
 window._modelAliases = [{ alias: 'gpt4', fullId: 'openai/gpt-4' }];
 window.escapeHtml = function(s) {
   if (s == null) return '';

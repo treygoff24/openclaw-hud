@@ -28,6 +28,16 @@ document.body.innerHTML = `
 `;
 
 window.HUD = window.HUD || {};
+// Mock makeFocusable for keyboard accessibility
+window.makeFocusable = function(el, handler) {
+  el.tabIndex = 0;
+  el.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  });
+};
 window.escapeHtml = function(s) {
   if (s == null) return '';
   const d = document.createElement('div');
@@ -45,8 +55,18 @@ const mockWs = {
 };
 window.WebSocket = vi.fn(() => mockWs);
 
+// Mock localStorage
+const localStorageMock = {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+
 // Load all panels first, then app.js
 await import('../../public/utils.js');
+await import('../../public/chat-pane.js');
 await import('../../public/panels/activity.js');
 await import('../../public/panels/sessions.js');
 await import('../../public/panels/agents.js');

@@ -1,0 +1,242 @@
+/* Accessibility styles — focus indicators, reduced motion, screen reader utilities */
+
+/* ============================================
+   FOCUS INDICATORS
+   ============================================ */
+
+/* Default focus visible style for all interactive elements */
+*:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* Remove default outline for mouse users, show for keyboard */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Custom focus styles for specific elements */
+button:focus-visible,
+.hud-btn:focus-visible,
+.chat-send-btn:focus-visible,
+.chat-stop-btn:focus-visible,
+.chat-new-btn:focus-visible,
+.chat-new-pill:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+
+/* Focus style for cards and rows that are clickable */
+.agent-card:focus-visible,
+.session-row:focus-visible,
+.cron-row-v2:focus-visible,
+[data-agent-id]:focus-visible,
+[data-cron-id]:focus-visible,
+[data-tree-key]:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.15);
+  border-color: var(--cyan);
+}
+
+/* Input focus already defined in panels.css, but ensure consistency */
+.hud-input:focus-visible,
+.hud-select:focus-visible,
+.hud-textarea:focus-visible,
+.chat-input:focus-visible,
+.search-box:focus-visible {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+/* Modal close button focus */
+.modal-close:focus-visible,
+.chat-close:focus-visible {
+  outline: 2px solid var(--magenta);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Disable all animations and transitions */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Panel entrance animation */
+  .panel {
+    animation: none !important;
+  }
+
+  /* Modal entrance animation */
+  .modal-content {
+    animation: none !important;
+  }
+
+  /* Toast animation */
+  .toast {
+    transition: none !important;
+  }
+
+  /* Chat pane slide */
+  .hud-layout .chat-pane,
+  .hud-layout .dashboard {
+    transition: none !important;
+  }
+
+  /* Pulsing dots */
+  .status-dot-green,
+  .status-dot-amber {
+    animation: none !important;
+  }
+
+  /* Streaming message pulse */
+  .chat-msg.streaming {
+    animation: none !important;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    transition: none !important;
+  }
+
+  /* Blinking red dot */
+  .status-dot-red {
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   SCREEN READER UTILITIES
+   ============================================ */
+
+/* Visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Show on focus (skip links) */
+.sr-only-focusable:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sr-only-focusable:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* ============================================
+   SKIP LINK
+   ============================================ */
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--cyan);
+  color: var(--bg-deep);
+  padding: 8px 16px;
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 10000;
+  border-radius: 0 0 4px 0;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ============================================
+   HIGH CONTRAST MODE SUPPORT
+   ============================================ */
+
+@media (prefers-contrast: more) {
+  /* Increase contrast for all borders */
+  .panel,
+  .hud-input,
+  .hud-select,
+  .hud-textarea,
+  .chat-input,
+  .chat-msg,
+  .modal-content {
+    border-width: 2px;
+  }
+
+  /* Stronger focus indicators */
+  *:focus-visible {
+    outline-width: 3px;
+    outline-offset: 3px;
+  }
+
+  /* Ensure text is fully opaque */
+  .chat-msg-content,
+  .activity-content,
+  .session-label,
+  .cron-name {
+    opacity: 1 !important;
+  }
+}
+
+/* ============================================
+   KEYBOARD NAVIGATION HELPERS
+   ============================================ */
+
+/* Show focus visible indicator class for programmatic focus */
+.focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* Ensure clickable elements have pointer cursor */
+[role="button"],
+[tabindex]:not([tabindex="-1"]) {
+  cursor: pointer;
+}
+
+/* Active state for keyboard-activated elements */
+[role="button"]:active,
+[tabindex]:not([tabindex="-1"]):active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [role="button"]:active,
+  [tabindex]:not([tabindex="-1"]):active {
+    transform: none;
+  }
+}

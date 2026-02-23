@@ -86,7 +86,19 @@
       }
     }
   }
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const modals = ['#spawn-modal', '#cron-modal'];
+      for (const id of modals) {
+        if ($(id).classList.contains('active')) {
+          e.preventDefault();
+          $(id).classList.remove('active');
+          e.stopImmediatePropagation();
+          return;
+        }
+      }
+    }
+  });
 
   // Toast
   function showToast(message, isError = false) {

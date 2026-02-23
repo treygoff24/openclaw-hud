@@ -24,6 +24,7 @@ const gatewayWS = new GatewayWS({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Routes
+app.use(require('./routes/health'));
 app.use(require('./routes/config'));
 app.use(require('./routes/agents'));
 app.use(require('./routes/sessions'));

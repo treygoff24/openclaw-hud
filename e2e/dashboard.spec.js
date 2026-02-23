@@ -46,7 +46,7 @@ test.describe('Dashboard Panels', () => {
   test('system status shows default model and gateway port', async ({ page }) => {
     const statusPanel = page.locator('#p-system');
     await expect(statusPanel).toContainText('claude-sonnet-4');
-    await expect(statusPanel).toContainText('3779');
+    await expect(statusPanel).toContainText('18789');
   });
 
   test('model usage shows token bars for claude-sonnet-4', async ({ page }) => {

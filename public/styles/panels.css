@@ -20,7 +20,7 @@
   container-name: dashboard;
 }
 .hud-layout.chat-open .dashboard {
-  flex: 1 1 40%;
+  flex: 1 1 55%;
 }
 .chat-pane {
   flex: 0 0 0;
@@ -29,7 +29,7 @@
   border-left: 1px solid var(--border-dim);
 }
 .hud-layout.chat-open .chat-pane {
-  flex: 0 0 60%;
+  flex: 0 0 45%;
 }
 
 @container dashboard (max-width: 900px) {
