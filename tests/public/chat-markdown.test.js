@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock marked and DOMPurify globally
 window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };
-window.DOMPurify = { sanitize: vi.fn(t => t) };
+window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 
 await import('../../public/chat-markdown.js');

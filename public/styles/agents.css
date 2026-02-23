@@ -49,4 +49,21 @@
   border-color: var(--cyan);
   box-shadow: 0 0 8px rgba(0,229,255,0.1);
 }
-.search-box::placeholder { color: var(--text-dim); }
+.search-box::placeholder { color: rgba(201, 212, 223, 0.72); }
+
+@container dashboard (max-width: 900px) {
+  .agent-card {
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .agent-id {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-sessions-count {
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+}

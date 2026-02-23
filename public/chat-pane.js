@@ -64,6 +64,8 @@
     const messagesEl = document.getElementById('chat-messages');
     if (messagesEl) {
       while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+      // Clear ready state so tests can wait for fresh content
+      delete messagesEl.dataset.ready;
       const loading = document.createElement('div');
       loading.className = 'chat-loading';
       loading.textContent = 'Loading...';
@@ -128,6 +130,7 @@
   // Escape key
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+      if (e.defaultPrevented) return;
       const activeModal = document.querySelector('.modal-overlay.active');
       if (!activeModal) window.closeChatPane();
     }

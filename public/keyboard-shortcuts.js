@@ -161,6 +161,7 @@
       var modal = document.querySelector('.modal-overlay.active');
       if (modal) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         modal.classList.remove('active');
         if (modal.classList.contains('keyboard-shortcuts-overlay')) {
           modal.remove();

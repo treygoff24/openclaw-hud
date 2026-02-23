@@ -10,28 +10,40 @@ global.document = global.document || {
 global.window = global.window || {};
 
 // Mock document and window for testing
-const createMockElement = (overrides = {}) => ({
-  tagName: 'DIV',
-  classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) },
-  style: {},
-  dataset: {},
-  getAttribute: vi.fn(() => null),
-  setAttribute: vi.fn(),
-  hasAttribute: vi.fn(() => false),
-  removeAttribute: vi.fn(),
-  querySelector: vi.fn(() => null),
-  querySelectorAll: vi.fn(() => []),
-  appendChild: vi.fn(),
-  removeChild: vi.fn(),
-  focus: vi.fn(),
-  click: vi.fn(),
-  offsetParent: { nodeType: 1 },
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  closest: vi.fn(() => null),
-  contains: vi.fn(() => true),
-  ...overrides
-});
+const FOCUSABLE_TAGS = ['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'];
+const createMockElement = (overrides = {}) => {
+  const el = {
+    tagName: 'DIV',
+    classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) },
+    style: {},
+    dataset: {},
+    getAttribute: vi.fn(() => null),
+    setAttribute: vi.fn(),
+    hasAttribute: vi.fn(() => false),
+    removeAttribute: vi.fn(),
+    querySelector: vi.fn(() => null),
+    querySelectorAll: vi.fn(() => []),
+    appendChild: vi.fn(),
+    removeChild: vi.fn(),
+    focus: vi.fn(),
+    click: vi.fn(),
+    offsetParent: { nodeType: 1 },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    closest: vi.fn(() => null),
+    contains: vi.fn(() => true),
+    ...overrides
+  };
+  // Add matches() that checks tag names against the selector
+  el.matches = el.matches || vi.fn((selector) => {
+    const tag = el.tagName.toUpperCase();
+    if (FOCUSABLE_TAGS.includes(tag) && selector.toLowerCase().includes(tag.toLowerCase())) return true;
+    if (tag === 'A' && el.href && selector.includes('a[href]')) return true;
+    if (el.getAttribute('tabindex') !== null && selector.includes('[tabindex]')) return true;
+    return false;
+  });
+  return el;
+};
 
 describe('FocusTrap', () => {
   let FocusTrap;

@@ -1,11 +1,17 @@
 /**
  * Accessibility Test Suite Index
  * 
- * Run all a11y tests with: npm test -- tests/a11y/
+ * This file exists only as documentation. Individual test files are discovered
+ * automatically by vitest. Do NOT re-import them here — that causes duplicate
+ * test execution in the same process and shared-mock collisions.
+ *
+ * Run all a11y tests with: npx vitest run tests/a11y/
  */
 
-import './focus-trap.test.js';
-import './announcer.test.js';
-import './color-contrast.test.js';
-import './reduced-motion.test.js';
-import './keyboard-navigation.test.js';
+import { describe, it, expect } from 'vitest';
+
+describe('a11y test suite', () => {
+  it('suite index placeholder', () => {
+    expect(true).toBe(true);
+  });
+});

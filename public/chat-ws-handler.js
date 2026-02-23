@@ -50,21 +50,31 @@
     if (!container) return;
     const loading = container.querySelector('.chat-loading');
     if (loading) loading.remove();
-    if (data.error) {
+    
+    // Handle error case only if we have no messages to display
+    if (data.error && !(data.messages && data.messages.length > 0)) {
       const errDiv = document.createElement('div');
       errDiv.className = 'chat-loading';
       errDiv.textContent = 'Error loading history: ' + (data.error.message || data.error);
       container.appendChild(errDiv);
+      // Signal ready state even on error so tests don't hang
+      container.dataset.ready = 'true';
       // Announce error to screen readers
       if (window.A11yAnnouncer) {
         window.A11yAnnouncer.announceAssertive('Error loading chat history: ' + (data.error.message || data.error));
       }
       return;
     }
+    
+    // Render messages
     (data.messages || []).forEach(function(msg) {
       container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     });
     container.scrollTop = container.scrollHeight;
+    
+    // Signal that messages are ready for E2E tests
+    container.dataset.ready = 'true';
+    
     // Announce loaded message
     if (window.A11yAnnouncer) {
       window.A11yAnnouncer.announce('Chat history loaded, ' + (data.messages || []).length + ' messages');
