@@ -45,8 +45,18 @@ const mockWs = {
 };
 window.WebSocket = vi.fn(() => mockWs);
 
+// Mock localStorage
+const localStorageMock = {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+
 // Load all panels first, then app.js
 await import('../../public/utils.js');
+await import('../../public/chat-pane.js');
 await import('../../public/panels/activity.js');
 await import('../../public/panels/sessions.js');
 await import('../../public/panels/agents.js');
