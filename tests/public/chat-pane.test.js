@@ -65,6 +65,14 @@ describe('openChatPane', () => {
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
 
+  it('logs warning and returns early for empty string sessionId', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    window.openChatPane('agent1', '', 'label');
+    expect(spy).toHaveBeenCalledWith('[HUD-CHAT] openChatPane aborted: missing', { agentId: 'agent1', sessionId: '' });
+    expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+    spy.mockRestore();
+  });
+
   it('adds chat-open class and sets title', () => {
     mockWs();
     window.openChatPane('agent1', 'session123', 'my-label');

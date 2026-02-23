@@ -25,6 +25,21 @@ document.body.innerHTML = `
   <select id="cron-model"></select><input id="cron-timeout" /><textarea id="cron-prompt"></textarea>
   <div id="cron-model-group"></div><div id="cron-timeout-group"></div><span id="cron-prompt-label"></span>
   <div id="cron-expr-group"></div><div id="cron-tz-group"></div><div id="cron-at-group"></div>
+  <div class="hud-layout">
+    <div id="chat-title"></div>
+    <div id="chat-live"></div>
+    <div id="chat-messages"></div>
+    <div id="chat-new-pill"></div>
+    <button id="chat-close"></button>
+    <button id="chat-new-chat-btn"></button>
+    <div id="chat-model-picker" style="display:none"></div>
+    <div id="gateway-banner" class="gateway-banner" style="display:none">Gateway connection lost</div>
+    <div class="chat-input-area" id="chat-input-area">
+      <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1"></textarea>
+      <button id="chat-send-btn" class="chat-send-btn" title="Send">&#9654;</button>
+      <button id="chat-stop-btn" class="chat-stop-btn" title="Stop" style="display:none">&#9632;</button>
+    </div>
+  </div>
 `;
 
 window.HUD = window.HUD || {};
@@ -48,12 +63,29 @@ window.escapeHtml = function(s) {
 // Mock fetch for all API calls
 window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
 
-// Mock WebSocket
+// Mock WebSocket (with static OPEN property that chat-pane.js needs)
 const mockWs = {
   onopen: null, onmessage: null, onclose: null, onerror: null,
   send: vi.fn(), close: vi.fn(), readyState: 1,
 };
-window.WebSocket = vi.fn(() => mockWs);
+const MockWebSocket = vi.fn(() => mockWs);
+MockWebSocket.OPEN = 1;
+window.WebSocket = MockWebSocket;
+
+// crypto.randomUUID required by chat-pane.js
+let uuidCounter = 0;
+if (!globalThis.crypto) globalThis.crypto = {};
+if (!globalThis.crypto.randomUUID) globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
+
+// Mock localStorage (required by chat-pane.js)
+const _store = {};
+if (!window.localStorage || typeof window.localStorage.setItem !== 'function') {
+  vi.stubGlobal('localStorage', {
+    getItem: vi.fn(k => _store[k] || null),
+    setItem: vi.fn((k, v) => { _store[k] = v; }),
+    removeItem: vi.fn(k => { delete _store[k]; }),
+  });
+}
 
 // Mock localStorage
 const localStorageMock = {
@@ -75,6 +107,10 @@ await import('../../public/panels/models.js');
 await import('../../public/panels/session-tree.js');
 await import('../../public/panels/system.js');
 await import('../../public/panels/spawn.js');
+await import('../../public/chat-message.js');
+await import('../../public/chat-input.js');
+await import('../../public/chat-ws-handler.js');
+await import('../../public/chat-pane.js');
 await import('../../public/app.js');
 
 describe('app.js initialization', () => {

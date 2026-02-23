@@ -35,7 +35,10 @@
   };
 
   window.openChatPane = function(agentId, sessionId, label) {
-    if (!agentId || !sessionId) return;
+    if (!agentId || !sessionId) {
+      console.warn('[HUD-CHAT] openChatPane aborted: missing', { agentId, sessionId });
+      return;
+    }
     const state = window.ChatState;
 
     const sessionKey = 'agent:' + agentId + ':' + sessionId;

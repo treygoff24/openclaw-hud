@@ -15,6 +15,9 @@ router.get('/api/sessions', (req, res) => {
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
       const s = { agentId, key, ...val };
+      if (!s.sessionId && key.startsWith('agent:')) {
+        s.sessionId = key.split(':').slice(2).join(':');
+      }
       s.status = getSessionStatus(s);
       all.push(s);
     }
@@ -50,7 +53,11 @@ router.get('/api/session-tree', (req, res) => {
     const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
-      allSessions[key] = { key, agentId, ...val };
+      const s = { key, agentId, ...val };
+      if (!s.sessionId && key.startsWith('agent:')) {
+        s.sessionId = key.split(':').slice(2).join(':');
+      }
+      allSessions[key] = s;
     }
   }
 

@@ -64,6 +64,36 @@ describe('GET /api/sessions', () => {
     expect(res.body).toHaveLength(100);
   });
 
+  it('derives sessionId from canonical key when not in raw data', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'agent:a1:abc123': { updatedAt: now, label: 'test' },
+    });
+    const res = await request(createApp()).get('/api/sessions');
+    expect(res.body[0].sessionId).toBe('abc123');
+  });
+
+  it('preserves sessionId from raw data when present', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'agent:a1:abc123': { sessionId: 'explicit-id', updatedAt: now },
+    });
+    const res = await request(createApp()).get('/api/sessions');
+    expect(res.body[0].sessionId).toBe('explicit-id');
+  });
+
+  it('handles sessionId with colons in key', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'agent:a1:uuid:with:colons': { updatedAt: now },
+    });
+    const res = await request(createApp()).get('/api/sessions');
+    expect(res.body[0].sessionId).toBe('uuid:with:colons');
+  });
+
   it('includes status from getSessionStatus', async () => {
     const now = Date.now();
     helpers.safeReaddir.mockReturnValue(['a1']);
@@ -136,6 +166,16 @@ describe('GET /api/session-tree', () => {
     const child = res.body.find(s => s.key === 'child1');
     expect(child.spawnedBy).toBe('parent');
     expect(child.childCount).toBe(0);
+  });
+
+  it('derives sessionId from canonical key in tree when not in raw data', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'agent:a1:tree-sess': { updatedAt: now, spawnDepth: 0 },
+    });
+    const res = await request(createApp()).get('/api/session-tree');
+    expect(res.body[0].sessionId).toBe('tree-sess');
   });
 
   it('nullifies spawnedBy when parent session does not exist', async () => {

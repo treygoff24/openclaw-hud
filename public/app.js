@@ -161,7 +161,8 @@
 
   // WebSocket for ticks
   try {
-    const ws = new WebSocket(`ws://${location.host}`);
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}`);
     window._hudWs = ws;
     ws.onopen = () => {
       stopPolling();
