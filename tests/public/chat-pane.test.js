@@ -40,8 +40,6 @@ globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
 await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');
-await import('../../public/chat-message.js');
-await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
 await import('../../public/chat-pane.js');
 

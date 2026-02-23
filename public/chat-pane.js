@@ -34,20 +34,6 @@
     }
   };
 
-  function updateButtons() {
-    const sendBtn = document.getElementById('chat-send-btn');
-    const stopBtn = document.getElementById('chat-stop-btn');
-    if (!sendBtn || !stopBtn) return;
-    const state = window.ChatState;
-    if (state.activeRuns.size > 0) {
-      sendBtn.style.display = 'none';
-      stopBtn.style.display = '';
-    } else {
-      sendBtn.style.display = '';
-      stopBtn.style.display = 'none';
-    }
-  }
-
   window.openChatPane = function(agentId, sessionId, label) {
     if (!agentId || !sessionId) return;
     const state = window.ChatState;
@@ -64,7 +50,6 @@
     const liveEl = document.getElementById('chat-live');
     if (liveEl) liveEl.classList.remove('visible');
 
-    // Unsubscribe previous
     if (state.subscribedKey) {
       sendWs({ type: 'chat-unsubscribe', sessionKey: state.subscribedKey });
       if (state.currentSession) {
@@ -72,11 +57,10 @@
       }
     }
 
-    state.currentSession = { agentId: agentId, sessionId: sessionId, label: label, sessionKey: sessionKey };
+    state.currentSession = { agentId, sessionId, label, sessionKey };
     state.subscribedKey = sessionKey;
     localStorage.setItem('hud-chat-session', JSON.stringify(state.currentSession));
 
-    // Clear and show loading (I-3: no innerHTML)
     const messagesEl = document.getElementById('chat-messages');
     if (messagesEl) {
       while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
@@ -87,10 +71,10 @@
     }
 
     state.activeRuns.clear();
-    updateButtons();
+    if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
 
-    sendWs({ type: 'chat-subscribe', sessionKey: sessionKey });
-    sendWs({ type: 'chat-history', sessionKey: sessionKey });
+    sendWs({ type: 'chat-subscribe', sessionKey });
+    sendWs({ type: 'chat-history', sessionKey });
   };
 
   window.closeChatPane = function() {
@@ -107,12 +91,12 @@
     }
     state.currentSession = null;
     state.activeRuns.clear();
-    updateButtons();
+    if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
     localStorage.removeItem('hud-chat-session');
   };
 
   window.handleChatWsMessage = function(data) {
-    window.ChatWsHandler.handle(data, updateButtons);
+    if (window.ChatWsHandler) window.ChatWsHandler.handle(data);
   };
 
   // Close button
