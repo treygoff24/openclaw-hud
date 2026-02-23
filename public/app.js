@@ -52,7 +52,7 @@
     }
     const row = e.target.closest('[data-agent][data-session]');
     if (row) {
-      openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '');
+      openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '', row.dataset.sessionKey);
     }
     const card = e.target.closest('[data-agent-id]');
     if (card && !row) {
@@ -72,7 +72,7 @@
     if (treeNode && !e.target.closest('[data-toggle-key]')) {
       const agent = treeNode.dataset.agent;
       const session = treeNode.dataset.session;
-      if (agent && session) openChatPane(agent, session, treeNode.dataset.label || '');
+      if (agent && session) openChatPane(agent, session, treeNode.dataset.label || '', treeNode.dataset.sessionKey);
     }
   });
 

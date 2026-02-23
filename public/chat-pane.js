@@ -34,11 +34,13 @@
     }
   };
 
-  window.openChatPane = function(agentId, sessionId, label) {
+  window.openChatPane = function(agentId, sessionId, label, sessionKey) {
     if (!agentId || !sessionId) return;
+    if (!sessionKey || typeof sessionKey !== 'string') {
+      throw new Error('openChatPane requires canonical sessionKey from /api/sessions');
+    }
     const state = window.ChatState;
 
-    const sessionKey = 'agent:' + agentId + ':' + sessionId;
     if (state.subscribedKey === sessionKey) return;
 
     const layout = document.querySelector('.hud-layout');
@@ -142,8 +144,8 @@
       const saved = localStorage.getItem('hud-chat-session');
       if (saved) {
         const s = JSON.parse(saved);
-        if (s.agentId && s.sessionId) {
-          window.openChatPane(s.agentId, s.sessionId, s.label || '');
+        if (s.agentId && s.sessionId && s.sessionKey) {
+          window.openChatPane(s.agentId, s.sessionId, s.label || '', s.sessionKey);
         }
       }
     } catch(e) { /* ignore */ }
