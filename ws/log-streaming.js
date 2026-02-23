@@ -105,7 +105,7 @@ function setupWebSocket(wss, gatewayWS) {
       if (!msg || !msg.type) return;
 
       if (isChatMessage(msg.type)) {
-        await handleChatMessage(ws, msg, gatewayWS);
+        try { await handleChatMessage(ws, msg, gatewayWS); } catch(err) { console.error('chat handler error:', err); }
         return;
       }
 

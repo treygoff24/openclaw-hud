@@ -342,6 +342,22 @@ describe('WebSocket log-streaming', () => {
     // No error means cleanup worked
   });
 
+  it('should route chat-event from gateway to subscribed browser client', async () => {
+    const ws = await createClient(port());
+    const ackP = waitForMessage(ws, m => m.type === 'chat-subscribe-ack');
+    sendJSON(ws, { type: 'chat-subscribe', sessionKey: 'agent:test:main' });
+    await ackP;
+
+    const chatEventHandler = mockGateway.on.mock.calls.find(c => c[0] === 'chat-event');
+    expect(chatEventHandler).toBeTruthy();
+
+    const eventP = waitForMessage(ws, m => m.type === 'chat-event');
+    chatEventHandler[1]({ sessionKey: 'agent:test:main', runId: 'r1', state: 'delta', seq: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] } });
+    const msg = await eventP;
+    expect(msg.type).toBe('chat-event');
+    expect(msg.payload.runId).toBe('r1');
+  });
+
   it('should auto-unsubscribe previous session when subscribing to new one', async () => {
     const dirA = makeSessionDir('agent1');
     const fileA = join(dirA, 'sessA.jsonl');

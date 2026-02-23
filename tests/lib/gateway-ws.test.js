@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketServer } from 'ws';
-const { GatewayWS } = require('../../lib/gateway-ws');
+import { GatewayWS } from '../../lib/gateway-ws.js';
 
 /** Create a mock gateway WS server that does the challenge/auth handshake. */
 function createMockServer(opts = {}) {

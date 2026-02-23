@@ -25,6 +25,14 @@ async function handleChatMessage(ws, msg, gatewayWS) {
     }
     case 'chat-send': {
       const { sessionKey, message, idempotencyKey } = msg;
+      if (!sessionKey || typeof sessionKey !== 'string') {
+        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'sessionKey required' } }));
+        break;
+      }
+      if (typeof message !== 'string' || !message.trim()) {
+        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'message required' } }));
+        break;
+      }
       if (!gatewayWS || !gatewayWS.connected) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
         break;
@@ -68,9 +76,10 @@ async function handleChatMessage(ws, msg, gatewayWS) {
         const gwRes = await fetch(`http://127.0.0.1:${gwConfig.port}/tools/invoke`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gwConfig.token}` },
+          signal: AbortSignal.timeout(15000),
           body: JSON.stringify({
             tool: 'sessions_spawn',
-            args: { agentId: agentId || undefined, model: model || undefined, mode: 'session', label: `hud-${Date.now()}` }
+            args: { task: 'New chat session from HUD', agentId: agentId || undefined, model: model || undefined, mode: 'session', label: `hud-${Date.now()}` }
           })
         });
         const body = await gwRes.json();
