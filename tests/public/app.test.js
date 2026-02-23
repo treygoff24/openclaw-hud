@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Set up the full DOM that app.js expects
 document.body.innerHTML = `
@@ -124,6 +124,16 @@ describe('clock and uptime', () => {
 });
 
 describe('event delegation', () => {
+  let openChatSpy;
+
+  beforeEach(() => {
+    openChatSpy = vi.spyOn(window, 'openChatPane');
+  });
+
+  afterEach(() => {
+    openChatSpy.mockRestore();
+  });
+
   it('opens cron editor on cron row click', () => {
     // Render a cron job first
     HUD.cron.render({ jobs: [{
@@ -153,7 +163,18 @@ describe('event delegation', () => {
     const treeNode = document.querySelector('[data-tree-key]');
     expect(treeNode).not.toBeNull();
     treeNode.click();
-    expect(window.fetch).toHaveBeenCalled();
+    expect(openChatSpy).toHaveBeenCalledWith('a', 's1', 'test', 'k1');
+  });
+
+  it('forwards canonical session key when clicking session row', () => {
+    const now = Date.now();
+    HUD.sessions.render([
+      { key: 'agent:a:main', agentId: 'a', sessionId: 'internal-session-1', status: 'active', updatedAt: now, label: 'main' }
+    ]);
+    const row = document.querySelector('.session-row');
+    expect(row).not.toBeNull();
+    row.click();
+    expect(openChatSpy).toHaveBeenCalledWith('a', 'internal-session-1', 'main', 'agent:a:main');
   });
 
   it('handles tree toggle click', () => {

@@ -11,7 +11,7 @@ HUD.sessions = (function() {
       const dotClass = statusMap[s.status] || 'status-dot-gray';
       const depthTag = s.spawnDepth > 0 ? `<span style="color:var(--text-dim);font-size:11px;margin-left:4px;">depth:${s.spawnDepth}</span>` : '';
       const statusLabel = s.status || 'unknown';
-      return `<div class="session-row" data-agent="${escapeHtml(s.agentId || '')}" data-session="${escapeHtml(s.sessionId || '')}" data-label="${escapeHtml(label || '')}" role="listitem" tabindex="0" aria-label="Session ${escapeHtml(label || s.sessionId?.slice(0,8) || 'unknown')} by ${escapeHtml(s.agentId || '?')}, status ${statusLabel}" data-index="${index}">
+      return `<div class="session-row" data-agent="${escapeHtml(s.agentId || '')}" data-session="${escapeHtml(s.sessionId || '')}" data-session-key="${escapeHtml(s.key || '')}" data-label="${escapeHtml(label || '')}" role="listitem" tabindex="0" aria-label="Session ${escapeHtml(label || s.sessionId?.slice(0,8) || 'unknown')} by ${escapeHtml(s.agentId || '?')}, status ${statusLabel}" data-index="${index}">
         <div class="${dotClass}" aria-hidden="true"></div>
         <div class="session-agent">${escapeHtml(s.agentId || '?')}</div>
         <div class="session-label">${escapeHtml(label)}${depthTag}</div>
@@ -23,7 +23,7 @@ HUD.sessions = (function() {
     document.querySelectorAll('.session-row').forEach(row => {
       window.makeFocusable(row, () => {
         if (row.dataset.agent && row.dataset.session) {
-          openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '');
+          openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '', row.dataset.sessionKey);
         }
       });
     });
