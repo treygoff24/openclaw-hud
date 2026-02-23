@@ -46,8 +46,16 @@ function mockWs() {
   return ws;
 }
 
+function resetState() {
+  window._hudWs = null;
+  try { window.closeChatPane(); } catch(e) {}
+  setupDOM();
+  vi.clearAllMocks();
+  uuidCounter = 0;
+}
+
 describe('openChatPane', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('returns early if no agentId or sessionId', () => {
     window.openChatPane(null, null);
@@ -98,7 +106,7 @@ describe('openChatPane', () => {
 });
 
 describe('closeChatPane', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('removes chat-open class and clears localStorage', () => {
     mockWs();
@@ -110,7 +118,7 @@ describe('closeChatPane', () => {
 });
 
 describe('handleChatWsMessage — chat-history-result', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('renders history messages and removes spinner', () => {
     mockWs();
@@ -152,7 +160,7 @@ describe('handleChatWsMessage — chat-history-result', () => {
 });
 
 describe('handleChatWsMessage — chat-event deltas', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('creates assistant message on delta and replaces text', () => {
     mockWs();
@@ -207,7 +215,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 });
 
 describe('handleChatWsMessage — chat-send-ack', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('removes pending class on success ack', () => {
     const ws = mockWs();
@@ -238,7 +246,7 @@ describe('handleChatWsMessage — chat-send-ack', () => {
 });
 
 describe('handleChatWsMessage — gateway-status', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('shows banner on disconnect', () => {
     window.handleChatWsMessage({ type: 'gateway-status', status: 'disconnected' });
@@ -255,7 +263,7 @@ describe('handleChatWsMessage — gateway-status', () => {
 });
 
 describe('message input', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('Enter sends message, Shift+Enter does not', () => {
     const ws = mockWs();
@@ -291,7 +299,7 @@ describe('message input', () => {
 });
 
 describe('abort button', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('sends chat-abort on click', () => {
     const ws = mockWs();
@@ -306,7 +314,7 @@ describe('abort button', () => {
 });
 
 describe('multiple concurrent runs', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('tracks multiple runs independently', () => {
     mockWs();
@@ -319,7 +327,7 @@ describe('multiple concurrent runs', () => {
 });
 
 describe('WS queue', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('queues and flushes messages', () => {
     window._hudWs = null;
@@ -331,7 +339,7 @@ describe('WS queue', () => {
 });
 
 describe('backward compatibility', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('handles subscribed message for LIVE indicator', () => {
     mockWs();
@@ -350,7 +358,7 @@ describe('backward compatibility', () => {
 });
 
 describe('keyboard and UI events', () => {
-  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+  beforeEach(resetState);
 
   it('closes chat pane on Escape key', () => {
     mockWs();
