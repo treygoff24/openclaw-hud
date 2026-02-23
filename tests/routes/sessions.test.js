@@ -40,6 +40,7 @@ describe('GET /api/sessions', () => {
     expect(res.body).toHaveLength(2);
     expect(res.body[0].key).toBe('k2');
     expect(res.body[0].agentId).toBe('a2');
+    expect(res.body[0].sessionKey).toBe('agent:a2:k2');
   });
 
   it('filters out sessions older than 24 hours', async () => {
@@ -101,6 +102,25 @@ describe('GET /api/sessions', () => {
     helpers.getSessionStatus.mockReturnValue('warm');
     const res = await request(createApp()).get('/api/sessions');
     expect(res.body[0].status).toBe('warm');
+  });
+
+  it('canonicalizes main session key as agent:<agentId>:main', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['agentA']);
+    helpers.safeJSON.mockReturnValue({ 'main': { sessionId: 'internal-main-session', updatedAt: now } });
+    const res = await request(createApp()).get('/api/sessions');
+    expect(res.status).toBe(200);
+    expect(res.body[0].sessionKey).toBe('agent:agentA:main');
+  });
+
+  it('returns explicit error for invalid stored session keys', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({ 'bad key': { sessionId: 's1', updatedAt: now } });
+    const res = await request(createApp()).get('/api/sessions');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Invalid session keys in sessions.json');
+    expect(res.body.invalid[0].key).toBe('bad key');
   });
 });
 
@@ -198,5 +218,28 @@ describe('GET /api/session-tree', () => {
     const res = await request(createApp()).get('/api/session-tree');
     expect(res.body).toHaveLength(1);
     expect(res.body[0].key).toBe('recent');
+  });
+
+  it('includes canonical sessionKey for tree nodes', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'main': { sessionId: 'internal-main-id', updatedAt: now },
+    });
+    const res = await request(createApp()).get('/api/session-tree');
+    expect(res.status).toBe(200);
+    expect(res.body[0].sessionKey).toBe('agent:a1:main');
+  });
+
+  it('returns explicit error for invalid tree session keys', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'bad key': { sessionId: 'x', updatedAt: now },
+    });
+    const res = await request(createApp()).get('/api/session-tree');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Invalid session keys in sessions.json');
+    expect(res.body.invalid[0].key).toBe('bad key');
   });
 });

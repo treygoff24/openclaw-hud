@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let mod;
+const MAIN_KEY = 'agent:agent1:main';
+const OTHER_KEY = 'agent:agent1:thread-2';
 beforeEach(() => {
   // Clear cache to get fresh Maps each time
   const keys = Object.keys(require.cache).filter(k => k.includes('chat-handlers'));
@@ -20,30 +22,40 @@ describe('chat-handlers', () => {
   describe('handleChatMessage', () => {
     it('chat-subscribe adds to maps and sends ack', async () => {
       const ws = mockWs();
-      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: 'sk1' }, null);
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'chat-subscribe-ack', sessionKey: 'sk1' }));
-      expect(mod.chatSubscriptions.get('sk1').has(ws)).toBe(true);
-      expect(mod.clientChatSubs.get(ws).has('sk1')).toBe(true);
+      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'chat-subscribe-ack', sessionKey: MAIN_KEY }));
+      expect(mod.chatSubscriptions.get(MAIN_KEY).has(ws)).toBe(true);
+      expect(mod.clientChatSubs.get(ws).has(MAIN_KEY)).toBe(true);
     });
 
-    it('chat-subscribe without sessionKey does nothing', async () => {
+    it('chat-subscribe without sessionKey sends explicit error', async () => {
       const ws = mockWs();
       await mod.handleChatMessage(ws, { type: 'chat-subscribe' }, null);
-      expect(ws.send).not.toHaveBeenCalled();
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('error');
+      expect(sent.error.code).toBe('INVALID_SESSION_KEY');
+    });
+
+    it('chat-subscribe with non-canonical sessionKey sends explicit error', async () => {
+      const ws = mockWs();
+      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: 'sk1' }, null);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('error');
+      expect(sent.error.code).toBe('INVALID_SESSION_KEY');
     });
 
     it('chat-unsubscribe removes from maps', async () => {
       const ws = mockWs();
-      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: 'sk1' }, null);
-      await mod.handleChatMessage(ws, { type: 'chat-unsubscribe', sessionKey: 'sk1' }, null);
-      expect(mod.chatSubscriptions.get('sk1').has(ws)).toBe(false);
+      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      await mod.handleChatMessage(ws, { type: 'chat-unsubscribe', sessionKey: MAIN_KEY }, null);
+      expect(mod.chatSubscriptions.get(MAIN_KEY).has(ws)).toBe(false);
     });
 
     it('chat-send with connected gateway sends ok ack', async () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
-      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: 'hi', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(true);
       expect(sent.runId).toBe('r1');
@@ -52,7 +64,7 @@ describe('chat-handlers', () => {
     it('chat-send with disconnected gateway sends error', async () => {
       const ws = mockWs();
       const gw = mockGateway(false);
-      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: 'hi', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
       expect(sent.error.code).toBe('UNAVAILABLE');
@@ -60,7 +72,7 @@ describe('chat-handlers', () => {
 
     it('chat-send with null gateway sends error', async () => {
       const ws = mockWs();
-      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' }, null);
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: 'hi', idempotencyKey: 'ik1' }, null);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
     });
@@ -69,7 +81,7 @@ describe('chat-handlers', () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockRejectedValue(new Error('boom'));
-      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: 'hi', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
       expect(sent.error.message).toBe('boom');
@@ -79,7 +91,7 @@ describe('chat-handlers', () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }] });
-      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: 'sk1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.messages).toHaveLength(1);
     });
@@ -88,17 +100,37 @@ describe('chat-handlers', () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockRejectedValue(new Error('fail'));
-      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: 'sk1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.messages).toEqual([]);
       expect(sent.error.message).toBe('fail');
+    });
+
+    it('chat-history with disconnected gateway returns explicit unavailable error', async () => {
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.messages).toEqual([]);
+      expect(sent.error.code).toBe('UNAVAILABLE');
+    });
+
+    it('chat-history maps unknown session errors explicitly', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      const err = new Error('Session not found');
+      err.code = 'SESSION_NOT_FOUND';
+      gw.request.mockRejectedValue(err);
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error.code).toBe('UNKNOWN_SESSION_KEY');
     });
 
     it('chat-abort returns result', async () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockResolvedValue({ aborted: true, runIds: ['r1'] });
-      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: 'sk1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: MAIN_KEY }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(true);
       expect(sent.aborted).toBe(true);
@@ -119,13 +151,13 @@ describe('chat-handlers', () => {
       await mod.handleChatMessage(ws, { type: 'chat-send', message: 'hi', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
-      expect(sent.error.code).toBe('INVALID');
+      expect(sent.error.code).toBe('INVALID_SESSION_KEY');
     });
 
     it('chat-send without message sends error', async () => {
       const ws = mockWs();
       const gw = mockGateway();
-      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: 'sk1', message: '', idempotencyKey: 'ik1' }, gw);
+      await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: '', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
     });
@@ -163,11 +195,11 @@ describe('chat-handlers', () => {
   describe('cleanupChatSubscriptions', () => {
     it('removes ws from all subscriptions', async () => {
       const ws = mockWs();
-      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: 'sk1' }, null);
-      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: 'sk2' }, null);
+      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      await mod.handleChatMessage(ws, { type: 'chat-subscribe', sessionKey: OTHER_KEY }, null);
       mod.cleanupChatSubscriptions(ws);
-      expect(mod.chatSubscriptions.get('sk1').has(ws)).toBe(false);
-      expect(mod.chatSubscriptions.get('sk2').has(ws)).toBe(false);
+      expect(mod.chatSubscriptions.get(MAIN_KEY).has(ws)).toBe(false);
+      expect(mod.chatSubscriptions.get(OTHER_KEY).has(ws)).toBe(false);
       expect(mod.clientChatSubs.has(ws)).toBe(false);
     });
   });

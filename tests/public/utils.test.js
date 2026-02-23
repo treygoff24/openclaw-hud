@@ -53,3 +53,13 @@ describe('HUD.utils.timeAgo', () => {
     expect(HUD.utils.timeAgo(Date.now() - 60000)).toBe('1m ago');
   });
 });
+
+describe('HUD.utils.wsUrl', () => {
+  it('uses ws for http pages', () => {
+    expect(HUD.utils.wsUrl({ protocol: 'http:', host: 'example.com' })).toBe('ws://example.com');
+  });
+
+  it('uses wss for https pages', () => {
+    expect(HUD.utils.wsUrl({ protocol: 'https:', host: 'example.com' })).toBe('wss://example.com');
+  });
+});

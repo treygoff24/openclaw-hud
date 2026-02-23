@@ -35,7 +35,7 @@ describe('sessionTree.render', () => {
   it('renders tree count', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'test' }
+      { key: 'k1', sessionKey: 'agent:a:k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'test' }
     ]);
     expect(document.getElementById('tree-count').textContent).toBe('1');
   });
@@ -43,7 +43,7 @@ describe('sessionTree.render', () => {
   it('renders tree nodes with labels', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'my-session' }
+      { key: 'k1', sessionKey: 'agent:a:k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'my-session' }
     ]);
     expect(document.querySelector('.tree-label').textContent).toBe('my-session');
     expect(document.querySelector('.tree-agent').textContent).toBe('a');
@@ -52,8 +52,8 @@ describe('sessionTree.render', () => {
   it('renders parent-child relationships', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'Parent' },
-      { key: 'child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'Child', spawnedBy: 'parent' },
+      { key: 'parent', sessionKey: 'agent:a:parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'Parent' },
+      { key: 'child', sessionKey: 'agent:a:child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'Child', spawnedBy: 'parent' },
     ]);
     expect(document.querySelectorAll('.tree-node').length).toBe(2);
     const children = document.querySelectorAll('.tree-children .tree-node');
@@ -68,9 +68,18 @@ describe('sessionTree.render', () => {
   it('uses correct status dot classes', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'k1', agentId: 'a', sessionId: 's', status: 'active', updatedAt: now }
+      { key: 'k1', sessionKey: 'agent:a:k1', agentId: 'a', sessionId: 's', status: 'active', updatedAt: now }
     ]);
     expect(document.querySelector('.status-dot-green')).not.toBeNull();
+  });
+
+  it('throws explicitly when sessionKey is missing', () => {
+    const now = Date.now();
+    expect(() => {
+      HUD.sessionTree.render([
+        { key: 'k1', agentId: 'a', sessionId: 's', status: 'active', updatedAt: now }
+      ]);
+    }).toThrow('sessionTree.render requires canonical sessionKey for each node');
   });
 });
 
@@ -78,8 +87,8 @@ describe('sessionTree.toggleNode', () => {
   it('collapses and expands nodes', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'Parent' },
-      { key: 'child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'Child', spawnedBy: 'parent' },
+      { key: 'parent', sessionKey: 'agent:a:parent', agentId: 'a', sessionId: 'p', status: 'active', updatedAt: now, label: 'Parent' },
+      { key: 'child', sessionKey: 'agent:a:child', agentId: 'a', sessionId: 'c', status: 'active', updatedAt: now, label: 'Child', spawnedBy: 'parent' },
     ]);
     // Toggle collapse
     HUD.sessionTree.toggleNode('parent');

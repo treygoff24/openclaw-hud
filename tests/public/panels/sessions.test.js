@@ -32,14 +32,14 @@ describe('sessions.render', () => {
 
   it('renders session count', () => {
     HUD.sessions.render([
-      { agentId: 'a', sessionId: 's1', status: 'active', updatedAt: Date.now() }
+      { agentId: 'a', sessionId: 's1', sessionKey: 'agent:a:s1', status: 'active', updatedAt: Date.now() }
     ]);
     expect(document.getElementById('session-count').textContent).toBe('1');
   });
 
   it('renders session rows with correct structure', () => {
     HUD.sessions.render([
-      { agentId: 'bot', sessionId: 'abc12345xyz', label: 'my-session', status: 'active', updatedAt: Date.now() - 5000 }
+      { agentId: 'bot', sessionId: 'abc12345xyz', sessionKey: 'agent:bot:abc12345xyz', label: 'my-session', status: 'active', updatedAt: Date.now() - 5000 }
     ]);
     const rows = document.querySelectorAll('.session-row');
     expect(rows.length).toBe(1);
@@ -57,21 +57,21 @@ describe('sessions.render', () => {
       { status: 'unknown', expected: 'status-dot-gray' }
     ];
     statuses.forEach(({ status, expected }) => {
-      HUD.sessions.render([{ agentId: 'a', sessionId: 's', status, updatedAt: Date.now() }]);
+      HUD.sessions.render([{ agentId: 'a', sessionId: 's', sessionKey: `agent:a:s-${status}`, status, updatedAt: Date.now() }]);
       expect(document.querySelector(`.${expected}`)).not.toBeNull();
     });
   });
 
   it('shows depth tag for subagents', () => {
     HUD.sessions.render([
-      { agentId: 'a', sessionId: 's', status: 'active', spawnDepth: 2, updatedAt: Date.now() }
+      { agentId: 'a', sessionId: 's', sessionKey: 'agent:a:s', status: 'active', spawnDepth: 2, updatedAt: Date.now() }
     ]);
     expect(document.querySelector('.session-label').innerHTML).toContain('depth:2');
   });
 
   it('does not show depth tag when spawnDepth is 0', () => {
     HUD.sessions.render([
-      { agentId: 'a', sessionId: 's', status: 'active', spawnDepth: 0, updatedAt: Date.now() }
+      { agentId: 'a', sessionId: 's', sessionKey: 'agent:a:s', status: 'active', spawnDepth: 0, updatedAt: Date.now() }
     ]);
     expect(document.querySelector('.session-label').innerHTML).not.toContain('depth');
   });
@@ -83,7 +83,7 @@ describe('sessions.render', () => {
 
   it('caps at 40 rows', () => {
     const sessions = Array.from({ length: 50 }, (_, i) => ({
-      agentId: 'a', sessionId: `s${i}`, status: 'active', updatedAt: Date.now()
+      agentId: 'a', sessionId: `s${i}`, sessionKey: `agent:a:s${i}`, status: 'active', updatedAt: Date.now()
     }));
     HUD.sessions.render(sessions);
     expect(document.getElementById('session-count').textContent).toBe('50');
@@ -92,10 +92,19 @@ describe('sessions.render', () => {
 
   it('sets data attributes on session rows', () => {
     HUD.sessions.render([
-      { agentId: 'bot', sessionId: 'xyz', label: 'lbl', status: 'active', updatedAt: Date.now() }
+      { agentId: 'bot', sessionId: 'xyz', sessionKey: 'agent:bot:xyz', label: 'lbl', status: 'active', updatedAt: Date.now() }
     ]);
     const row = document.querySelector('.session-row');
     expect(row.dataset.agent).toBe('bot');
     expect(row.dataset.session).toBe('xyz');
+    expect(row.dataset.sessionKey).toBe('agent:bot:xyz');
+  });
+
+  it('throws explicitly when sessionKey is missing', () => {
+    expect(() => {
+      HUD.sessions.render([
+        { agentId: 'bot', sessionId: 'xyz', label: 'lbl', status: 'active', updatedAt: Date.now() }
+      ]);
+    }).toThrow('sessions.render requires canonical sessionKey for each session');
   });
 });

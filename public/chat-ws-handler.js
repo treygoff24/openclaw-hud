@@ -1,6 +1,32 @@
 // Chat WS Handler — processes incoming WebSocket messages
 (function() {
   'use strict';
+  const CHAT_LOG_PREFIX = '[HUD-CHAT]';
+
+  if (!window.__hudDiagLog) {
+    window.__hudDiagLog = function(prefix, event, fields) {
+      const now = new Date().toISOString();
+      const diag = window.__HUD_DIAG__ || (window.__HUD_DIAG__ = { maxEvents: 200, events: [], seq: 0 });
+      if (!Array.isArray(diag.events)) diag.events = [];
+      if (!diag.maxEvents || diag.maxEvents < 1) diag.maxEvents = 200;
+      if (typeof diag.seq !== 'number') diag.seq = 0;
+      const payload = fields || {};
+      const entry = Object.assign({ seq: ++diag.seq, ts: now, prefix: prefix, event: event }, payload);
+      diag.events.push(entry);
+      if (diag.events.length > diag.maxEvents) {
+        diag.events.splice(0, diag.events.length - diag.maxEvents);
+      }
+      const parts = [];
+      for (const key in payload) {
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+        const value = payload[key];
+        if (value === undefined) continue;
+        parts.push(key + '=' + (typeof value === 'string' ? JSON.stringify(value) : String(value)));
+      }
+      console.log((prefix + ' ' + event + ' ts=' + now + (parts.length ? ' ' + parts.join(' ') : '')).trim());
+    };
+  }
+  const hudDiagLog = window.__hudDiagLog;
 
   function updateButtons() {
     const sendBtn = document.getElementById('chat-send-btn');
@@ -49,6 +75,7 @@
     const container = document.getElementById('chat-messages');
     if (!container) return;
     const loading = container.querySelector('.chat-loading');
+    const hadLoading = !!loading;
     if (loading) loading.remove();
     
     // Handle error case only if we have no messages to display
@@ -63,6 +90,12 @@
       if (window.A11yAnnouncer) {
         window.A11yAnnouncer.announceAssertive('Error loading chat history: ' + (data.error.message || data.error));
       }
+      hudDiagLog(CHAT_LOG_PREFIX, 'history_loading_cleared', {
+        sessionKey: data.sessionKey || '',
+        hadLoading: hadLoading,
+        messageCount: (data.messages || []).length,
+        error: true
+      });
       return;
     }
     
@@ -79,6 +112,12 @@
     if (window.A11yAnnouncer) {
       window.A11yAnnouncer.announce('Chat history loaded, ' + (data.messages || []).length + ' messages');
     }
+    hudDiagLog(CHAT_LOG_PREFIX, 'history_loading_cleared', {
+      sessionKey: data.sessionKey || '',
+      hadLoading: hadLoading,
+      messageCount: (data.messages || []).length,
+      error: false
+    });
   }
 
   function handleChatEvent(data) {
@@ -297,7 +336,7 @@
         case 'chat-new-result':
           if (data.ok && data.sessionKey) {
             const parts = data.sessionKey.split(':');
-            if (parts.length >= 3) window.openChatPane(parts[1], parts.slice(2).join(':'), '');
+            if (parts.length >= 3) window.openChatPane(parts[1], parts.slice(2).join(':'), '', data.sessionKey);
           }
           return;
         case 'log-entry': return handleLogEntry(data);
