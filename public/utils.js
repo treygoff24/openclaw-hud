@@ -11,6 +11,10 @@ window.escapeHtml = escapeHtml;
 
 window.HUD = window.HUD || {};
 HUD.utils = {
+  wsUrl: function(opts) {
+    var p = opts.protocol || 'wss:';
+    return p + '//' + opts.host;
+  },
   timeAgo: function(ms) {
     if (!ms) return '—';
     const diff = Date.now() - ms;

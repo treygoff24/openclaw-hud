@@ -77,11 +77,17 @@ describe('openChatPane', () => {
     );
   });
 
-  it('logs warning and returns early for empty string sessionId', () => {
+  it('logs warning and returns early for missing agentId', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    window.openChatPane('agent1', '', 'label');
-    expect(spy).toHaveBeenCalledWith('[HUD-CHAT] openChatPane aborted: missing', { agentId: 'agent1', sessionId: '' });
+    window.openChatPane('', 'sess', 'label', 'agent::sess');
+    expect(spy).toHaveBeenCalledWith('[HUD-CHAT] openChatPane aborted: missing agentId');
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('throws on non-canonical sessionKey', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => window.openChatPane('agent1', 'sess', 'label', 'bad-key')).toThrow('canonical sessionKey');
     spy.mockRestore();
   });
   it('adds chat-open class and sets title', () => {

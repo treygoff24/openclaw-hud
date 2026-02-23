@@ -130,8 +130,8 @@
   };
 
   window.openChatPane = function(agentId, sessionId, label, sessionKey) {
-    if (!agentId || !sessionId) {
-      console.warn('[HUD-CHAT] openChatPane aborted: missing', { agentId, sessionId });
+    if (!agentId) {
+      console.warn('[HUD-CHAT] openChatPane aborted: missing agentId');
       return;
     }
     if (!isCanonicalSessionKey(sessionKey)) {
