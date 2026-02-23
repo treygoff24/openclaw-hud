@@ -24,7 +24,7 @@ global.IntersectionObserver = class IntersectionObserver {
 // Mock dependencies
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };
-window.DOMPurify = { sanitize: vi.fn(t => t) };
+window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 
 await import('../../public/chat-markdown.js');
 await import('../../public/chat-tool-blocks.js');

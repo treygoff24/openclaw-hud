@@ -1,143 +1,118 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+/**
+ * Helper: create a mock DOM element that tracks attributes properly.
+ */
+function createMockEl() {
+  const attrs = {};
+  return {
+    textContent: '',
+    style: {},
+    cssText: '',
+    setAttribute(name, value) { attrs[name] = value; },
+    getAttribute(name) { return attrs[name] ?? null; },
+    classList: { add: vi.fn(), remove: vi.fn() },
+  };
+}
+
 describe('A11yAnnouncer', () => {
-  let A11yAnnouncer;
-  let mockBody;
-  let politeRegion;
-  let assertiveRegion;
+  let appendedElements;
 
   beforeEach(() => {
-    // Mock document.body
-    politeRegion = {
-      textContent: '',
-      setAttribute: vi.fn()
-    };
-    assertiveRegion = {
-      textContent: '',
-      setAttribute: vi.fn()
-    };
+    appendedElements = [];
 
-    mockBody = {
-      appendChild: vi.fn((el) => {
-        if (el.getAttribute('aria-live') === 'polite') politeRegion = el;
-        if (el.getAttribute('aria-live') === 'assertive') assertiveRegion = el;
-      })
-    };
-
-    // Mock document
     global.document = {
-      createElement: vi.fn((tag) => ({
-        tagName: tag.toUpperCase(),
-        textContent: '',
-        style: {},
-        setAttribute: vi.fn((name, value) => {
-          if (name === 'aria-live') {
-            if (value === 'polite') politeRegion = { ...politeRegion, getAttribute: () => 'polite' };
-            if (value === 'assertive') assertiveRegion = { ...assertiveRegion, getAttribute: () => 'assertive' };
-          }
+      createElement: vi.fn(() => createMockEl()),
+      body: {
+        appendChild: vi.fn((el) => {
+          appendedElements.push(el);
         }),
-        getAttribute: vi.fn((name) => {
-          if (name === 'aria-live') return null;
-          return null;
-        })
-      })),
-      body: mockBody,
-      addEventListener: vi.fn()
+      },
+      addEventListener: vi.fn(),
     };
+    global.window = {};
 
     vi.useFakeTimers();
+    vi.resetModules();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    delete global.window.A11yAnnouncer;
   });
 
-  it('should create polite and assertive live regions on init', () => {
-    // Load announcer module
-    require('../../public/a11y/announcer.js');
-    
-    // Check that regions were created
+  function getRegion(type) {
+    return appendedElements.find(el => el.getAttribute('aria-live') === type);
+  }
+
+  it('should create polite and assertive live regions on init', async () => {
+    await import('../../public/a11y/announcer.js');
+
     expect(document.createElement).toHaveBeenCalledWith('div');
-    expect(mockBody.appendChild).toHaveBeenCalled();
+    expect(document.body.appendChild).toHaveBeenCalledTimes(2);
+    expect(getRegion('polite')).toBeTruthy();
+    expect(getRegion('assertive')).toBeTruthy();
   });
 
-  it('should announce messages politely by default', () => {
-    require('../../public/a11y/announcer.js');
-    
+  it('should announce messages politely by default', async () => {
+    await import('../../public/a11y/announcer.js');
     const announcer = window.A11yAnnouncer;
-    if (announcer) {
-      announcer.announce('Test message');
-      
-      vi.advanceTimersByTime(20);
-      
-      // Message should be in the polite region
-      expect(politeRegion.textContent).toBe('Test message');
-    }
+
+    announcer.announce('Test message');
+    vi.advanceTimersByTime(20);
+
+    expect(getRegion('polite').textContent).toBe('Test message');
   });
 
-  it('should announce messages assertively when specified', () => {
-    require('../../public/a11y/announcer.js');
-    
+  it('should announce messages assertively when specified', async () => {
+    await import('../../public/a11y/announcer.js');
     const announcer = window.A11yAnnouncer;
-    if (announcer) {
-      announcer.announceAssertive('Urgent message');
-      
-      vi.advanceTimersByTime(20);
-      
-      // Message should be in the assertive region
-      expect(assertiveRegion.textContent).toBe('Urgent message');
-    }
+
+    announcer.announceAssertive('Urgent message');
+    vi.advanceTimersByTime(20);
+
+    expect(getRegion('assertive').textContent).toBe('Urgent message');
   });
 
-  it('should debounce messages with the same key', () => {
-    require('../../public/a11y/announcer.js');
-    
+  it('should debounce messages with the same key', async () => {
+    await import('../../public/a11y/announcer.js');
     const announcer = window.A11yAnnouncer;
-    if (announcer) {
-      announcer.announce('Message 1', 'test-key', 100);
-      announcer.announce('Message 2', 'test-key', 100);
-      
-      vi.advanceTimersByTime(150);
-      
-      // Only the last message should be announced
-      expect(politeRegion.textContent).toBe('Message 2');
-    }
+
+    announcer.announce('Message 1', 'test-key', 100);
+    announcer.announce('Message 2', 'test-key', 100);
+
+    vi.advanceTimersByTime(150);
+
+    expect(getRegion('polite').textContent).toBe('Message 2');
   });
 
-  it('should clear text before setting new message', () => {
-    require('../../public/a11y/announcer.js');
-    
+  it('should clear text before setting new message', async () => {
+    await import('../../public/a11y/announcer.js');
     const announcer = window.A11yAnnouncer;
-    if (announcer) {
-      politeRegion.textContent = 'Old message';
-      announcer.speak('New message', 'polite');
-      
-      // Text should be cleared first
-      expect(politeRegion.textContent).toBe('');
-      
-      vi.advanceTimersByTime(20);
-      
-      // Then new message set
-      expect(politeRegion.textContent).toBe('New message');
-    }
+    const polite = getRegion('polite');
+
+    polite.textContent = 'Old message';
+    announcer.speak('New message', 'polite');
+
+    // Immediately after speak(), the region is cleared
+    expect(polite.textContent).toBe('');
+
+    vi.advanceTimersByTime(20);
+    expect(polite.textContent).toBe('New message');
   });
 
-  it('should clean up timers on destroy', () => {
-    require('../../public/a11y/announcer.js');
-    
+  it('should clean up timers on destroy', async () => {
+    await import('../../public/a11y/announcer.js');
     const announcer = window.A11yAnnouncer;
-    if (announcer) {
-      announcer.announce('Message', 'key1', 1000);
-      announcer.announce('Message', 'key2', 1000);
-      
-      const timerCount = announcer.debounceTimers.size;
-      expect(timerCount).toBeGreaterThan(0);
-      
-      announcer.destroy();
-      
-      expect(announcer.debounceTimers.size).toBe(0);
-    }
+
+    announcer.announce('Message', 'key1', 1000);
+    announcer.announce('Message', 'key2', 1000);
+
+    expect(announcer.debounceTimers.size).toBeGreaterThan(0);
+
+    announcer.destroy();
+    expect(announcer.debounceTimers.size).toBe(0);
   });
 });
 

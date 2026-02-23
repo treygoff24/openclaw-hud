@@ -17,3 +17,21 @@
   font-size: 15px;
   color: var(--cyan);
 }
+
+@container dashboard (max-width: 900px) {
+  .sys-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .sys-label {
+    font-size: 10px;
+    letter-spacing: 1.2px;
+  }
+
+  .sys-value {
+    font-size: 13px;
+    word-break: break-word;
+  }
+}

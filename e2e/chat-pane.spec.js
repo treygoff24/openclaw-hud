@@ -9,6 +9,11 @@ test.describe('Chat Pane', () => {
   async function openSession(page, sessionId) {
     await page.locator(`.tree-node-content[data-session="${sessionId}"]`).first().click();
     await page.waitForSelector('.chat-open');
+    // Wait for chat history to load - use data-ready attribute for reliability
+    const messagesContainer = page.locator('#chat-messages');
+    await messagesContainer.waitFor({ state: 'visible' });
+    // Wait for the ready signal from the app
+    await expect(messagesContainer).toHaveAttribute('data-ready', 'true', { timeout: 10000 });
   }
 
   test('click session in tree opens chat pane', async ({ page }) => {

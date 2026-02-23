@@ -9,6 +9,24 @@ test.describe('Chat Rich Content & Security', () => {
   async function openSession(page, sessionId) {
     await page.locator(`.tree-node-content[data-session="${sessionId}"]`).first().click();
     await page.waitForSelector('.chat-open');
+    // Wait for chat history to load - use data-ready attribute for reliability
+    const messagesContainer = page.locator('#chat-messages');
+    await messagesContainer.waitFor({ state: 'visible' });
+    // Wait for the ready signal from the app
+    await expect(messagesContainer).toHaveAttribute('data-ready', 'true', { timeout: 10000 });
+  }
+
+  // Helper for injection tests that need ChatMessage but don't wait for history
+  async function openChatPaneForInjection(page, sessionId) {
+    await page.locator(`.tree-node-content[data-session="${sessionId}"]`).first().click();
+    await page.waitForSelector('.chat-open');
+    // Wait for chat pane to be visible with messages container
+    const messagesContainer = page.locator('#chat-messages');
+    await messagesContainer.waitFor({ state: 'visible' });
+    // For injection tests, we just need the modules to be loaded
+    await page.waitForFunction(() => typeof window.ChatMessage !== 'undefined', { timeout: 5000 });
+    await page.waitForFunction(() => typeof window.marked !== 'undefined' && typeof window.DOMPurify !== 'undefined', { timeout: 10000 });
+    await page.waitForFunction(() => window.ChatMarkdown && typeof window.ChatMarkdown.renderMarkdown === 'function', { timeout: 5000 });
   }
 
   // ============================================================
@@ -17,7 +35,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Markdown Rendering', () => {
     test('headers render correctly', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       // Inject markdown content
@@ -53,7 +71,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('lists render correctly', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -79,7 +97,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('links render with correct attributes', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -104,7 +122,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('code blocks are styled', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -131,12 +149,14 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Tool Blocks', () => {
     test('tool use blocks display and expand/collapse', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
         const container = document.getElementById('chat-messages');
         while (container.firstChild) container.removeChild(container.firstChild);
+        // Remove data-ready to prevent race conditions with pending renders
+        delete container.dataset.ready;
 
         const msg = window.ChatMessage.renderHistoryMessage({
           role: 'assistant',
@@ -146,11 +166,13 @@ test.describe('Chat Rich Content & Security', () => {
           ]
         });
         container.appendChild(msg);
+        // Mark as ready since we've injected our content
+        container.dataset.ready = 'true';
       });
 
-      // Check tool use block exists
-      const toolUse = page.locator('.chat-tool-use');
-      await expect(toolUse).toHaveCount(1);
+      // Check tool use block exists (should be only our injected one)
+      const toolUse = page.locator('.chat-tool-use').first();
+      await expect(page.locator('.chat-tool-use')).toHaveCount(1);
 
       // Check header shows tool name and preview
       const header = toolUse.locator('.chat-tool-use-header');
@@ -176,7 +198,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('tool grouping behavior with 3+ calls', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -214,7 +236,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('less than 3 tool calls are NOT grouped', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -243,7 +265,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Thinking Blocks', () => {
     test('thinking blocks render correctly', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -271,7 +293,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Security - Dangerous Link Schemes', () => {
     test('javascript: link scheme is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -298,7 +320,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('data: link scheme is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -320,7 +342,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('vbscript: link scheme is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -343,7 +365,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Security - Inline Handlers', () => {
     test('onclick handler is removed', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -365,7 +387,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('onerror handler is removed', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -387,7 +409,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('onload handler is removed', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -412,7 +434,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Security - Raw HTML Attempts', () => {
     test('raw script tags are sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -431,12 +453,13 @@ test.describe('Chat Rich Content & Security', () => {
       const content = page.locator('.chat-msg-content');
       await expect(content.locator('script')).toHaveCount(0);
       await expect(content).toContainText('Hello World');
-      // Script content should be escaped
-      await expect(content.innerHTML()).not.toContain('<script>');
+      // Script content should be escaped - use evaluate to check innerHTML
+      const innerHTML = await content.evaluate(el => el.innerHTML);
+      expect(innerHTML).not.toContain('<script>');
     });
 
     test('iframe tags are sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -458,7 +481,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('object tags are sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -481,7 +504,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Security - Nested HTML Payloads', () => {
     test('nested script in anchor is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -503,7 +526,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('SVG onload is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -525,7 +548,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('form with onsubmit is sanitized', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -549,7 +572,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Security - Link Protection', () => {
     test('external links have rel="noopener noreferrer"', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {
@@ -578,7 +601,7 @@ test.describe('Chat Rich Content & Security', () => {
 
   test.describe('Accessibility', () => {
     test('tool block headers are keyboard accessible', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
@@ -611,7 +634,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('tool group headers are keyboard accessible', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
@@ -640,7 +663,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('aria-expanded state updates on toggle', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('#chat-messages');
 
       await page.evaluate(() => {
@@ -671,7 +694,7 @@ test.describe('Chat Rich Content & Security', () => {
     });
 
     test('code blocks have proper semantic structure', async ({ page }) => {
-      await openSession(page, 'sess-abc-001');
+      await openChatPaneForInjection(page, 'sess-abc-001');
       await page.waitForSelector('.chat-msg');
 
       await page.evaluate(() => {

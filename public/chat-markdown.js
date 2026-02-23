@@ -17,16 +17,61 @@
     ALLOW_DATA_ATTR: true,
   };
 
+  // Dangerous URL schemes that should be stripped
+  var DANGEROUS_SCHEMES = /^(javascript:|data:|vbscript:|file:|about:)/i;
+
+  // Set up DOMPurify hook to strip anchors with dangerous hrefs
+  function setupPurifyHooks() {
+    if (typeof DOMPurify === 'undefined') return;
+    
+    // Use beforeSanitizeAttributes to catch dangerous hrefs early
+    DOMPurify.addHook('beforeSanitizeAttributes', function(node) {
+      if (node.tagName === 'A' && node.hasAttribute('href')) {
+        var href = node.getAttribute('href') || '';
+        if (DANGEROUS_SCHEMES.test(href)) {
+          // Remove the href to prevent the link from being useful
+          node.removeAttribute('href');
+        }
+      }
+    });
+  }
+  
+  // Post-process sanitized HTML to remove empty/dangerous anchors
+  function postProcessAnchors(html) {
+    // Create a temporary container to parse the HTML
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    
+    // Find all anchors with dangerous schemes (or no href after sanitization)
+    var anchors = temp.querySelectorAll('a');
+    anchors.forEach(function(node) {
+      var href = node.getAttribute('href') || '';
+      if (!href || DANGEROUS_SCHEMES.test(href)) {
+        // Replace the anchor with its text content
+        var text = node.textContent || '';
+        var textNode = document.createTextNode(text);
+        if (node.parentNode) {
+          node.parentNode.replaceChild(textNode, node);
+        }
+      }
+    });
+    
+    return temp.innerHTML;
+  }
+
   // Track code blocks for copy functionality
   var codeBlockCounter = 0;
   var codeBlocks = new Map();
 
   function initMarked() {
-    if (!markedAvailable) return;
+    if (typeof marked === 'undefined') return;
+    markedAvailable = true;
     marked.setOptions({ gfm: true, breaks: true });
+    setupPurifyHooks();
     marked.use({ renderer: { 
       link: function(token) {
-        if (/^javascript:/i.test(token.href)) {
+        // Sanitize dangerous URL schemes
+        if (/^(javascript:|data:|vbscript:|file:|about:)/i.test(token.href)) {
           return this.parser.parseInline(token.tokens);
         }
         return '<a href="' + token.href + '" target="_blank" rel="noopener noreferrer">' + this.parser.parseInline(token.tokens) + '</a>';
@@ -51,15 +96,18 @@
 
   function renderMarkdown(text) {
     if (!text) return '';
-    if (!markedAvailable) return escapeHtml(text);
+    // Check dynamically if marked is available now (may have loaded after init)
+    if (typeof marked === 'undefined') return escapeHtml(text);
     var raw = marked.parse(text);
-    if (!purifyAvailable) {
-      console.warn('DOMPurify not loaded \u2014 falling back to plain text for safety');
+    if (typeof DOMPurify === 'undefined') {
+      console.warn('DOMPurify not loaded — falling back to plain text for safety');
       return escapeHtml(text);
     }
     // Use more permissive config for code blocks with copy buttons
     var config = Object.assign({}, PURIFY_CONFIG);
-    return DOMPurify.sanitize(raw, config);
+    var sanitized = DOMPurify.sanitize(raw, config);
+    // Post-process to remove dangerous or empty anchors
+    return postProcessAnchors(sanitized);
   }
 
   function renderPlainText(text) {
@@ -113,12 +161,32 @@
     });
   });
 
-  // Initialize on load
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initMarked);
-  } else {
+  // Initialize on load and also check if libraries become available later
+  var hooksSetup = false;
+  function checkAndInit() {
     initMarked();
+    // If marked still not available, poll for it (for CDN loading)
+    if (!markedAvailable && typeof marked !== 'undefined') {
+      markedAvailable = true;
+      initMarked();
+    }
+    // Setup hooks if DOMPurify is available (may load independently of marked)
+    if (!hooksSetup && typeof DOMPurify !== 'undefined') {
+      setupPurifyHooks();
+      hooksSetup = true;
+    }
   }
+  
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkAndInit);
+  } else {
+    checkAndInit();
+  }
+  
+  // Also try to initialize after a short delay to catch CDN-loaded scripts
+  setTimeout(checkAndInit, 100);
+  setTimeout(checkAndInit, 500);
+  setTimeout(checkAndInit, 1000);
 
   window.ChatMarkdown = {
     renderMarkdown: renderMarkdown,
