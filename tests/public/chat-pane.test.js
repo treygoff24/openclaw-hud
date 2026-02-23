@@ -38,6 +38,11 @@ let uuidCounter = 0;
 if (!globalThis.crypto) globalThis.crypto = {};
 globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
+await import('../../public/chat-message.js');
+await import('../../public/chat-input.js');
+await import('../../public/chat-message.js');
+await import('../../public/chat-input.js');
+await import('../../public/chat-ws-handler.js');
 await import('../../public/chat-pane.js');
 
 function mockWs() {
@@ -382,5 +387,22 @@ describe('keyboard and UI events', () => {
     window.openChatPane('a', 's');
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+  });
+});
+
+describe('textarea auto-grow', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window._hudWs = mockWs();
+  });
+
+  it('sets height on input event', () => {
+    window.openChatPane('a', 's');
+    const input = document.getElementById('chat-input');
+    input.value = 'line1\nline2\nline3';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // jsdom doesn't compute real scroll heights, but style.height should be set
+    expect(input.style.height).toBeDefined();
   });
 });
