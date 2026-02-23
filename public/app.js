@@ -2,6 +2,32 @@
 (function() {
   'use strict';
   const $ = s => document.querySelector(s);
+  const WS_LOG_PREFIX = '[HUD-WS]';
+
+  if (!window.__hudDiagLog) {
+    window.__hudDiagLog = function(prefix, event, fields) {
+      const now = new Date().toISOString();
+      const diag = window.__HUD_DIAG__ || (window.__HUD_DIAG__ = { maxEvents: 200, events: [], seq: 0 });
+      if (!Array.isArray(diag.events)) diag.events = [];
+      if (!diag.maxEvents || diag.maxEvents < 1) diag.maxEvents = 200;
+      if (typeof diag.seq !== 'number') diag.seq = 0;
+      const payload = fields || {};
+      const entry = Object.assign({ seq: ++diag.seq, ts: now, prefix: prefix, event: event }, payload);
+      diag.events.push(entry);
+      if (diag.events.length > diag.maxEvents) {
+        diag.events.splice(0, diag.events.length - diag.maxEvents);
+      }
+      const parts = [];
+      for (const key in payload) {
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+        const value = payload[key];
+        if (value === undefined) continue;
+        parts.push(key + '=' + (typeof value === 'string' ? JSON.stringify(value) : String(value)));
+      }
+      console.log((prefix + ' ' + event + ' ts=' + now + (parts.length ? ' ' + parts.join(' ') : '')).trim());
+    };
+  }
+  const hudDiagLog = window.__hudDiagLog;
 
   // Uptime counter
   const pageStartTime = Date.now();
@@ -29,6 +55,7 @@
 
   // Connection status
   let connected = true;
+  let hasAttemptedChatSessionRestore = false;
   function setConnectionStatus(ok) {
     connected = ok;
     let badge = document.getElementById('connection-badge');
@@ -50,9 +77,9 @@
       HUD.cron.openEditor(cronRow.dataset.cronId);
       return;
     }
-    const row = e.target.closest('[data-agent][data-session]');
+    const row = e.target.closest('[data-agent][data-session-key]');
     if (row) {
-      openChatPane(row.dataset.agent, row.dataset.session, row.dataset.label || '');
+      openChatPane(row.dataset.agent, row.dataset.session || '', row.dataset.label || '', row.dataset.sessionKey);
     }
     const card = e.target.closest('[data-agent-id]');
     if (card && !row) {
@@ -72,7 +99,8 @@
     if (treeNode && !e.target.closest('[data-toggle-key]')) {
       const agent = treeNode.dataset.agent;
       const session = treeNode.dataset.session;
-      if (agent && session) openChatPane(agent, session, treeNode.dataset.label || '');
+      const sessionKey = treeNode.dataset.sessionKey;
+      if (agent && sessionKey) openChatPane(agent, session || '', treeNode.dataset.label || '', sessionKey);
     }
   });
 
@@ -134,6 +162,10 @@
       HUD.models.render(usage);
       HUD.activity.render(activity);
       HUD.sessionTree.render(tree);
+      if (!hasAttemptedChatSessionRestore && typeof window.restoreSavedChatSession === 'function') {
+        hasAttemptedChatSessionRestore = true;
+        window.restoreSavedChatSession(sessions);
+      }
       setConnectionStatus(true);
     } catch (err) {
       console.error('Fetch error:', err);
@@ -160,13 +192,88 @@
   startPolling();
 
   // WebSocket for ticks
-  try {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}`);
+  const WS_RECONNECT_BASE_MS = 500;
+  const WS_RECONNECT_MAX_MS = 5000;
+  const WS_RECONNECT_JITTER_MS = 250;
+  let wsReconnectAttempts = 0;
+  let wsReconnectTimer = null;
+  let wsEverOpened = false;
+  let wsConnectAttempt = 0;
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  function clearWsReconnectTimer() {
+    if (wsReconnectTimer) {
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = null;
+    }
+  }
+
+  function scheduleWsReconnect(trigger) {
+    if (wsEverOpened || wsReconnectTimer) return;
+    const exp = Math.min(wsReconnectAttempts, 6);
+    const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
+    const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
+    const delayMs = backoff + jitter;
+    const reconnectAttempt = wsReconnectAttempts + 1;
+    hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
+      trigger: trigger || 'unknown',
+      reconnectAttempt: reconnectAttempt,
+      delayMs: delayMs,
+      backoffMs: backoff,
+      jitterMs: jitter
+    });
+    wsReconnectAttempts += 1;
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      hudDiagLog(WS_LOG_PREFIX, 'reconnect_fired', {
+        reconnectAttempt: reconnectAttempt
+      });
+      connectWs();
+    }, delayMs);
+  }
+
+  function connectWs() {
+    const existing = window._hudWs;
+    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const attempt = ++wsConnectAttempt;
+    const wsUrl = HUD.utils.wsUrl({ protocol, host: location.host, pathname: location.pathname, hash: location.hash, search: location.search });
+    hudDiagLog(WS_LOG_PREFIX, 'connect_attempt', {
+      attempt: attempt,
+      url: wsUrl
+    });
+
+    let ws;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      hudDiagLog(WS_LOG_PREFIX, 'connect_constructor_error', {
+        attempt: attempt,
+        url: wsUrl
+      });
+      startPolling();
+      setConnectionStatus(false);
+      scheduleWsReconnect('constructor_error');
+      return;
+    }
+
     window._hudWs = ws;
+    let opened = false;
+
     ws.onopen = () => {
+      if (window._hudWs !== ws) return;
+      opened = true;
+      wsEverOpened = true;
+      wsReconnectAttempts = 0;
+      clearWsReconnectTimer();
       stopPolling();
       setConnectionStatus(true);
+      hudDiagLog(WS_LOG_PREFIX, 'open', {
+        attempt: attempt,
+        url: wsUrl
+      });
       if (window._flushChatWsQueue) window._flushChatWsQueue();
     };
     ws.onmessage = e => {
@@ -174,12 +281,30 @@
       if (data.type === 'tick') fetchAll();
       if (window.handleChatWsMessage) window.handleChatWsMessage(data);
     };
-    ws.onclose = () => {
+    ws.onclose = evt => {
+      if (window._hudWs === ws) window._hudWs = null;
       startPolling();
       setConnectionStatus(false);
+      hudDiagLog(WS_LOG_PREFIX, 'close', {
+        attempt: attempt,
+        url: wsUrl,
+        code: evt && typeof evt.code === 'number' ? evt.code : '',
+        reason: evt && typeof evt.reason === 'string' ? evt.reason : '',
+        wasClean: evt && typeof evt.wasClean === 'boolean' ? evt.wasClean : '',
+        opened: opened
+      });
+      if (!opened) scheduleWsReconnect('close_before_open');
     };
     ws.onerror = () => {
       setConnectionStatus(false);
+      hudDiagLog(WS_LOG_PREFIX, 'error', {
+        attempt: attempt,
+        url: wsUrl,
+        opened: opened
+      });
+      if (!opened) scheduleWsReconnect('error_before_open');
     };
-  } catch {}
+  }
+
+  connectWs();
 })();

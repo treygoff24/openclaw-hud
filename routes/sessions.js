@@ -5,22 +5,54 @@ const { OPENCLAW_HOME, safeJSON, safeReaddir, safeRead, getSessionStatus } = req
 const router = Router();
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
+const AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
+const LEGACY_SESSION_KEY_RE = /^[a-zA-Z0-9:_-]+$/;
+const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
+
+function canonicalizeSessionKey(agentId, storedKey) {
+  if (!AGENT_ID_RE.test(agentId)) {
+    throw new Error(`Invalid agentId "${agentId}" for session key canonicalization`);
+  }
+  if (typeof storedKey !== 'string' || !storedKey.trim()) {
+    throw new Error('Session key must be a non-empty string');
+  }
+  if (CANONICAL_SESSION_KEY_RE.test(storedKey)) {
+    const [, keyAgentId] = storedKey.split(':');
+    if (keyAgentId !== agentId) {
+      throw new Error(`Canonical session key "${storedKey}" does not match agent "${agentId}"`);
+    }
+    return storedKey;
+  }
+  if (!LEGACY_SESSION_KEY_RE.test(storedKey)) {
+    throw new Error(`Invalid legacy session key "${storedKey}"`);
+  }
+  return `agent:${agentId}:${storedKey}`;
+}
 
 router.get('/api/sessions', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
   const all = [];
+  const invalid = [];
   for (const agentId of agents) {
     const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
-      const s = { agentId, key, ...val };
-      if (!s.sessionId && key.startsWith('agent:')) {
-        s.sessionId = key.split(':').slice(2).join(':');
+      try {
+        const sessionKey = canonicalizeSessionKey(agentId, key);
+        const s = { agentId, key, sessionKey, ...val };
+        if (!s.sessionId && key.startsWith('agent:')) {
+          s.sessionId = key.split(':').slice(2).join(':');
+        }
+        s.status = getSessionStatus(s);
+        all.push(s);
+      } catch (err) {
+        invalid.push({ agentId, key, error: err.message });
       }
-      s.status = getSessionStatus(s);
-      all.push(s);
     }
+  }
+  if (invalid.length > 0) {
+    return res.status(500).json({ error: 'Invalid session keys in sessions.json', invalid });
   }
   const recent = all.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -48,17 +80,26 @@ router.get('/api/session-tree', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
   const allSessions = {};
+  const invalid = [];
 
   for (const agentId of agents) {
     const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
-      const s = { key, agentId, ...val };
-      if (!s.sessionId && key.startsWith('agent:')) {
-        s.sessionId = key.split(':').slice(2).join(':');
+      try {
+        const sessionKey = canonicalizeSessionKey(agentId, key);
+        const s = { key, sessionKey, agentId, ...val };
+        if (!s.sessionId && key.startsWith('agent:')) {
+          s.sessionId = key.split(':').slice(2).join(':');
+        }
+        allSessions[key] = s;
+      } catch (err) {
+        invalid.push({ agentId, key, error: err.message });
       }
-      allSessions[key] = s;
     }
+  }
+  if (invalid.length > 0) {
+    return res.status(500).json({ error: 'Invalid session keys in sessions.json', invalid });
   }
 
   const childCounts = {};
@@ -70,6 +111,7 @@ router.get('/api/session-tree', (req, res) => {
 
   const result = Object.values(allSessions).map(s => ({
     key: s.key,
+    sessionKey: s.sessionKey,
     agentId: s.agentId,
     label: s.label || null,
     sessionId: s.sessionId,

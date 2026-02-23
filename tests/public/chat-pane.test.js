@@ -65,6 +65,18 @@ describe('openChatPane', () => {
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
 
+  it('throws if canonical sessionKey is missing', () => {
+    expect(() => window.openChatPane('agent1', 'session123', 'my-label')).toThrow(
+      'openChatPane requires canonical sessionKey from /api/sessions'
+    );
+  });
+
+  it('throws if sessionKey is not canonical', () => {
+    expect(() => window.openChatPane('agent1', 'session123', 'my-label', 'not-canonical')).toThrow(
+      'openChatPane requires canonical sessionKey from /api/sessions'
+    );
+  });
+
   it('logs warning and returns early for empty string sessionId', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     window.openChatPane('agent1', '', 'label');
@@ -72,47 +84,150 @@ describe('openChatPane', () => {
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
     spy.mockRestore();
   });
-
   it('adds chat-open class and sets title', () => {
     mockWs();
-    window.openChatPane('agent1', 'session123', 'my-label');
+    window.openChatPane('agent1', 'session123', 'my-label', 'agent:agent1:session123');
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
     expect(document.getElementById('chat-title').textContent).toBe('agent1 // my-label');
   });
 
   it('uses sessionId prefix when no label', () => {
     mockWs();
-    window.openChatPane('agent1', 'session123456789');
+    window.openChatPane('agent1', 'session123456789', '', 'agent:agent1:session123456789');
     expect(document.getElementById('chat-title').textContent).toBe('agent1 // session1');
   });
 
   it('sends chat-subscribe and chat-history over WS', () => {
     const ws = mockWs();
-    window.openChatPane('agent1', 'sess1', 'lbl');
+    window.openChatPane('agent1', 'sess1', 'lbl', 'agent:agent1:sess1');
     const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
     expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:sess1')).toBeTruthy();
     expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:sess1')).toBeTruthy();
   });
 
+  it('uses canonical session key when provided and resolves loading on matching history', () => {
+    const ws = mockWs();
+    window.openChatPane('agent1', 'sess-internal-123', 'main', 'agent:agent1:main');
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+    expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:agent1:main', messages: [] });
+    expect(document.querySelector('.chat-loading')).toBeNull();
+  });
+
+  it('routes chat transport by canonical key even when sessionId is empty', () => {
+    const ws = mockWs();
+    window.openChatPane('agent1', '', 'main', 'agent:agent1:main');
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+    expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+  });
+
   it('shows loading spinner', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     expect(document.querySelector('.chat-loading')).not.toBeNull();
+  });
+
+  it('fails safe when history never arrives and clears loading state', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
+
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelector('.chat-loading')).toBeNull();
+    expect(document.querySelector('.chat-history-warning')).not.toBeNull();
+    expect(document.getElementById('chat-messages').dataset.ready).toBe('true');
+    vi.useRealTimers();
+  });
+
+  it('does not show history timeout warning after successful history result', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelector('.chat-history-warning')).toBeNull();
+    expect(document.querySelector('.chat-loading')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('allows retry by reopening chat after history timeout', () => {
+    vi.useFakeTimers();
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    vi.advanceTimersByTime(10001);
+    expect(document.querySelector('.chat-history-warning')).not.toBeNull();
+
+    window.closeChatPane();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    expect(document.querySelector('.chat-history-warning')).toBeNull();
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
+    vi.useRealTimers();
   });
 
   it('unsubscribes from previous session', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's1');
+    window.openChatPane('a', 's1', '', 'agent:a:s1');
     ws.send.mockClear();
-    window.openChatPane('a', 's2');
+    window.openChatPane('a', 's2', '', 'agent:a:s2');
     const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
     expect(calls.find(c => c.type === 'chat-unsubscribe' && c.sessionKey === 'agent:a:s1')).toBeTruthy();
   });
 
   it('saves to localStorage', () => {
     mockWs();
-    window.openChatPane('agent1', 'sess1', 'lbl');
+    window.openChatPane('agent1', 'sess1', 'lbl', 'agent:agent1:sess1');
     expect(localStorage.setItem).toHaveBeenCalled();
+  });
+});
+
+describe('restoreSavedChatSession', () => {
+  beforeEach(resetState);
+
+  it('does not restore stale saved key and clears localStorage', () => {
+    store['hud-chat-session'] = JSON.stringify({
+      agentId: 'a',
+      sessionId: 'stale',
+      label: 'stale',
+      sessionKey: 'agent:a:stale',
+    });
+    const openSpy = vi.spyOn(window, 'openChatPane');
+
+    const restored = window.restoreSavedChatSession([
+      { agentId: 'a', sessionId: 'live', label: 'live', sessionKey: 'agent:a:live' },
+    ]);
+
+    expect(restored).toBe(false);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(localStorage.removeItem).toHaveBeenCalledWith('hud-chat-session');
+    openSpy.mockRestore();
+  });
+
+  it('restores valid saved key from fetched sessions payload', () => {
+    store['hud-chat-session'] = JSON.stringify({
+      agentId: 'a',
+      sessionId: 'live',
+      label: 'saved-label',
+      sessionKey: 'agent:a:live',
+    });
+    const openSpy = vi.spyOn(window, 'openChatPane');
+
+    const restored = window.restoreSavedChatSession([
+      { agentId: 'a', sessionId: 'live', label: 'live-label', sessionKey: 'agent:a:live' },
+    ]);
+
+    expect(restored).toBe(true);
+    expect(openSpy).toHaveBeenCalledWith('a', 'live', 'live-label', 'agent:a:live');
+    expect(localStorage.removeItem).not.toHaveBeenCalledWith('hud-chat-session');
+    openSpy.mockRestore();
   });
 });
 
@@ -121,7 +236,7 @@ describe('closeChatPane', () => {
 
   it('removes chat-open class and clears localStorage', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.closeChatPane();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
     expect(localStorage.removeItem).toHaveBeenCalledWith('hud-chat-session');
@@ -133,7 +248,7 @@ describe('handleChatWsMessage — chat-history-result', () => {
 
   it('renders history messages and removes spinner', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({
       type: 'chat-history-result', sessionKey: 'agent:a:s',
       messages: [
@@ -147,7 +262,7 @@ describe('handleChatWsMessage — chat-history-result', () => {
 
   it('renders tool_use blocks as collapsed', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({
       type: 'chat-history-result', sessionKey: 'agent:a:s',
       messages: [{ role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: { cmd: 'ls' } }] }]
@@ -159,7 +274,7 @@ describe('handleChatWsMessage — chat-history-result', () => {
 
   it('renders tool_result blocks as collapsed', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({
       type: 'chat-history-result', sessionKey: 'agent:a:s',
       messages: [{ role: 'tool', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'done' }] }]
@@ -175,7 +290,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 
   it('creates assistant message on delta and replaces text', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hello' } });
     let msg = document.querySelector('.chat-msg.assistant.streaming');
@@ -187,7 +302,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 
   it('shows stop button when run is active', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
     expect(document.getElementById('chat-stop-btn').style.display).not.toBe('none');
@@ -196,7 +311,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 
   it('handles final state', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'final', seq: 2 } });
@@ -206,7 +321,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 
   it('handles error state', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'error', errorMessage: 'Something broke' } });
     const errorMsg = document.querySelector('.chat-msg.error');
@@ -216,7 +331,7 @@ describe('handleChatWsMessage — chat-event deltas', () => {
 
   it('handles aborted state with badge', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'partial' } });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'aborted', stopReason: 'user_cancelled' } });
@@ -230,7 +345,7 @@ describe('handleChatWsMessage — chat-send-ack', () => {
 
   it('removes pending class on success ack', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     const input = document.getElementById('chat-input');
     input.value = 'test message';
@@ -244,7 +359,7 @@ describe('handleChatWsMessage — chat-send-ack', () => {
 
   it('marks as failed on error ack', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     const input = document.getElementById('chat-input');
     input.value = 'test message';
@@ -266,7 +381,7 @@ describe('handleChatWsMessage — gateway-status', () => {
 
   it('hides banner on connected', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'gateway-status', status: 'disconnected' });
     window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
     expect(document.getElementById('gateway-banner').style.display).toBe('none');
@@ -278,7 +393,7 @@ describe('message input', () => {
 
   it('Enter sends message, Shift+Enter does not', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     const input = document.getElementById('chat-input');
     input.value = 'hello';
@@ -290,7 +405,7 @@ describe('message input', () => {
 
   it('optimistic send creates pending message and disables input', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     const input = document.getElementById('chat-input');
     input.value = 'test';
@@ -301,7 +416,7 @@ describe('message input', () => {
 
   it('does not send empty messages', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     document.getElementById('chat-input').value = '   ';
     document.getElementById('chat-send-btn').click();
@@ -314,7 +429,7 @@ describe('abort button', () => {
 
   it('sends chat-abort on click', () => {
     const ws = mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
     ws.send.mockClear();
@@ -329,7 +444,7 @@ describe('multiple concurrent runs', () => {
 
   it('tracks multiple runs independently', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Run1' } });
     window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r2', state: 'delta', seq: 1, message: 'Run2' } });
@@ -342,7 +457,7 @@ describe('WS queue', () => {
 
   it('queues and flushes messages', () => {
     window._hudWs = null;
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     const ws = mockWs();
     window._flushChatWsQueue();
     expect(ws.send).toHaveBeenCalled();
@@ -354,14 +469,14 @@ describe('backward compatibility', () => {
 
   it('handles subscribed message for LIVE indicator', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'subscribed', sessionId: 's' });
     expect(document.getElementById('chat-live').classList.contains('visible')).toBe(true);
   });
 
   it('handles log-entry messages', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
     window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'user', content: 'hi' } });
     expect(document.querySelectorAll('.chat-msg').length).toBe(1);
@@ -373,14 +488,14 @@ describe('keyboard and UI events', () => {
 
   it('closes chat pane on Escape key', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
 
   it('does not close on Escape when modal is active', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     const modal = document.createElement('div');
     modal.className = 'modal-overlay active';
     document.body.appendChild(modal);
@@ -390,7 +505,7 @@ describe('keyboard and UI events', () => {
 
   it('close button closes chat', () => {
     mockWs();
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
@@ -404,7 +519,7 @@ describe('textarea auto-grow', () => {
   });
 
   it('sets height on input event', () => {
-    window.openChatPane('a', 's');
+    window.openChatPane('a', 's', '', 'agent:a:s');
     const input = document.getElementById('chat-input');
     input.value = 'line1\nline2\nline3';
     input.dispatchEvent(new Event('input', { bubbles: true }));
