@@ -19,9 +19,11 @@
   function initMarked() {
     if (!markedAvailable) return;
     marked.setOptions({ gfm: true, breaks: true });
-    marked.use({ renderer: { link: function(href, title, text) {
-      if (/^javascript:/i.test(href)) return text;
-      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+    marked.use({ renderer: { link: function(token) {
+      if (/^javascript:/i.test(token.href)) {
+        return this.parser.parseInline(token.tokens);
+      }
+      return '<a href="' + token.href + '" target="_blank" rel="noopener noreferrer">' + this.parser.parseInline(token.tokens) + '</a>';
     }}});
   }
 

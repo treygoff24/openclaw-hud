@@ -46,6 +46,68 @@ describe('ChatMarkdown', () => {
   });
 });
 
+describe('ChatMarkdown link rendering (v15 token semantics)', () => {
+  it('uses token-object signature (href, title, tokens) not positional params', () => {
+    // Verify the renderer.link function accepts a single token parameter
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    expect(useCall).toBeDefined();
+    expect(useCall.renderer).toBeDefined();
+    expect(useCall.renderer.link).toBeDefined();
+
+    const linkFn = useCall.renderer.link;
+    expect(linkFn.length).toBe(1); // Marked v15: single token parameter
+
+    // Test with Marked v15-style token object
+    const mockParser = { parseInline: vi.fn(tokens => tokens.map(t => t.text).join('')) };
+    const mockToken = {
+      href: 'https://example.com',
+      title: 'Example Site',
+      tokens: [{ type: 'text', text: 'Click Here' }]
+    };
+
+    const result = linkFn.call({ parser: mockParser }, mockToken);
+    expect(result).toBe('<a href="https://example.com" target="_blank" rel="noopener noreferrer">Click Here</a>');
+    expect(mockParser.parseInline).toHaveBeenCalledWith(mockToken.tokens);
+  });
+
+  it('blocks javascript: links and returns only the parsed text content', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    const linkFn = useCall.renderer.link;
+
+    const mockParser = { parseInline: vi.fn(tokens => tokens.map(t => t.text).join('')) };
+    const maliciousToken = {
+      href: 'javascript:alert("xss")',
+      title: 'Bad Link',
+      tokens: [{ type: 'text', text: 'Click me' }]
+    };
+
+    const result = linkFn.call({ parser: mockParser }, maliciousToken);
+    expect(result).toBe('Click me'); // Only text, no anchor tag
+    expect(result).not.toContain('<a');
+    expect(result).not.toContain('javascript:');
+    expect(result).not.toContain('href=');
+  });
+
+  it('preserves javascript: blocking for case-insensitive variants', () => {
+    const useCall = window.marked.use.mock.calls[0]?.[0];
+    const linkFn = useCall.renderer.link;
+
+    const mockParser = { parseInline: vi.fn(tokens => tokens.map(t => t.text).join('')) };
+    const variants = [
+      { href: 'javascript:alert(1)', text: 'lowercase' },
+      { href: 'JAVASCRIPT:alert(1)', text: 'uppercase' },
+      { href: 'JavaScript:alert(1)', text: 'mixed case' },
+    ];
+
+    for (const variant of variants) {
+      const token = { href: variant.href, title: null, tokens: [{ type: 'text', text: variant.text }] };
+      const result = linkFn.call({ parser: mockParser }, token);
+      expect(result).toBe(variant.text);
+      expect(result).not.toContain('<a');
+    }
+  });
+});
+
 describe('ChatMarkdown fallback', () => {
   it('falls back to escapeHtml when marked is unavailable', async () => {
     const origMarked = window.marked;
