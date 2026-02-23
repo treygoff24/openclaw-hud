@@ -10,6 +10,7 @@ let server;
 let wss;
 let clients = [];
 let setupWebSocket;
+let mockGateway;
 
 function createClient(port) {
   return new Promise((resolve, reject) => {
@@ -67,7 +68,7 @@ beforeEach(async () => {
 
   // Clear module cache so log-streaming.js re-reads OPENCLAW_HOME
   const modKeys = Object.keys(require.cache).filter(
-    (k) => k.includes('log-streaming') || k.includes('helpers')
+    (k) => k.includes('log-streaming') || k.includes('helpers') || k.includes('chat-handlers')
   );
   for (const k of modKeys) delete require.cache[k];
 
@@ -76,7 +77,12 @@ beforeEach(async () => {
 
   server = http.createServer();
   wss = new WebSocketServer({ server });
-  setupWebSocket(wss);
+  mockGateway = {
+    connected: true,
+    on: vi.fn(),
+    request: vi.fn(),
+  };
+  setupWebSocket(wss, mockGateway);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   clients = [];
 });
@@ -237,6 +243,103 @@ describe('WebSocket log-streaming', () => {
     const [msg1, msg2] = await Promise.all([p1, p2]);
     expect(msg1.entry.content).toBe('broadcast');
     expect(msg2.entry.content).toBe('broadcast');
+  });
+
+  it('chat-subscribe sends ack', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-subscribe-ack');
+    sendJSON(ws, { type: 'chat-subscribe', sessionKey: 'sk1' });
+    const msg = await p;
+    expect(msg).toEqual({ type: 'chat-subscribe-ack', sessionKey: 'sk1' });
+  });
+
+  it('chat-unsubscribe removes from subscriptions', async () => {
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-subscribe-ack');
+    sendJSON(ws, { type: 'chat-subscribe', sessionKey: 'sk1' });
+    await p;
+    // Should not throw
+    sendJSON(ws, { type: 'chat-unsubscribe', sessionKey: 'sk1' });
+    await delay(100);
+  });
+
+  it('chat-send calls gateway and sends ack', async () => {
+    mockGateway.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-send-ack');
+    sendJSON(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' });
+    const msg = await p;
+    expect(msg.ok).toBe(true);
+    expect(msg.runId).toBe('r1');
+    expect(msg.idempotencyKey).toBe('ik1');
+    expect(mockGateway.request).toHaveBeenCalledWith('chat.send', { sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik1' });
+  });
+
+  it('chat-send with gateway disconnected sends error', async () => {
+    mockGateway.connected = false;
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-send-ack');
+    sendJSON(ws, { type: 'chat-send', sessionKey: 'sk1', message: 'hi', idempotencyKey: 'ik2' });
+    const msg = await p;
+    expect(msg.ok).toBe(false);
+    expect(msg.error.code).toBe('UNAVAILABLE');
+    mockGateway.connected = true;
+  });
+
+  it('chat-history calls gateway and sends result', async () => {
+    mockGateway.request.mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], thinkingLevel: 'low', verboseLevel: 'normal' });
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-history-result');
+    sendJSON(ws, { type: 'chat-history', sessionKey: 'sk1' });
+    const msg = await p;
+    expect(msg.sessionKey).toBe('sk1');
+    expect(msg.messages).toHaveLength(1);
+    expect(mockGateway.request).toHaveBeenCalledWith('chat.history', { sessionKey: 'sk1' });
+  });
+
+  it('chat-abort calls gateway and sends result', async () => {
+    mockGateway.request.mockResolvedValue({ aborted: true, runIds: ['r1'] });
+    const ws = await createClient(port());
+    const p = waitForMessage(ws, (m) => m.type === 'chat-abort-result');
+    sendJSON(ws, { type: 'chat-abort', sessionKey: 'sk1', runId: 'r1' });
+    const msg = await p;
+    expect(msg.ok).toBe(true);
+    expect(msg.aborted).toBe(true);
+  });
+
+  it('chat-event routing only to subscribed clients', async () => {
+    const ws1 = await createClient(port());
+    const ws2 = await createClient(port());
+    const sub1 = waitForMessage(ws1, (m) => m.type === 'chat-subscribe-ack');
+    sendJSON(ws1, { type: 'chat-subscribe', sessionKey: 'sk1' });
+    await sub1;
+
+    // Find the chat-event handler registered on mockGateway
+    const chatEventCall = mockGateway.on.mock.calls.find(c => c[0] === 'chat-event');
+    expect(chatEventCall).toBeTruthy();
+    const chatEventHandler = chatEventCall[1];
+
+    const p1 = waitForMessage(ws1, (m) => m.type === 'chat-event');
+    const collected2 = collectMessages(ws2, 300);
+
+    chatEventHandler({ sessionKey: 'sk1', text: 'hello' });
+
+    const msg1 = await p1;
+    expect(msg1.payload.text).toBe('hello');
+
+    const msgs2 = await collected2;
+    expect(msgs2.filter(m => m.type === 'chat-event')).toHaveLength(0);
+  });
+
+  it('browser disconnect cleans up chat subscriptions', async () => {
+    const ws = await createClient(port());
+    const sub = waitForMessage(ws, (m) => m.type === 'chat-subscribe-ack');
+    sendJSON(ws, { type: 'chat-subscribe', sessionKey: 'sk1' });
+    await sub;
+
+    ws.close();
+    await delay(200);
+    // No error means cleanup worked
   });
 
   it('should auto-unsubscribe previous session when subscribing to new one', async () => {

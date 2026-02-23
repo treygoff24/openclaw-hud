@@ -91,14 +91,23 @@ function removeClientFromWatcher(filePath, client) {
   }
 }
 
-function setupWebSocket(wss) {
+function setupWebSocket(wss, gatewayWS) {
+  const { handleChatMessage, isChatMessage, setupChatEventRouting, cleanupChatSubscriptions } = require('./chat-handlers');
+
+  setupChatEventRouting(gatewayWS);
+
   wss.on('connection', (ws) => {
     clientSubscriptions.set(ws, []);
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
       if (!msg || !msg.type) return;
+
+      if (isChatMessage(msg.type)) {
+        await handleChatMessage(ws, msg, gatewayWS);
+        return;
+      }
 
       if (msg.type === 'subscribe-log') {
         const { agentId, sessionId } = msg;
@@ -154,6 +163,7 @@ function setupWebSocket(wss) {
           removeClientFromWatcher(filePath, ws);
         }
       }
+      cleanupChatSubscriptions(ws);
     });
   });
 
