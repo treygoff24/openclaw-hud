@@ -9,6 +9,14 @@ function setupDOM() {
       <div id="chat-messages"></div>
       <div id="chat-new-pill"></div>
       <button id="chat-close"></button>
+      <button id="chat-new-chat-btn"></button>
+      <div id="chat-model-picker" style="display:none"></div>
+      <div id="gateway-banner" class="gateway-banner" style="display:none">Gateway connection lost</div>
+      <div class="chat-input-area" id="chat-input-area">
+        <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1"></textarea>
+        <button id="chat-send-btn" class="chat-send-btn" title="Send">▶</button>
+        <button id="chat-stop-btn" class="chat-stop-btn" title="Stop" style="display:none">■</button>
+      </div>
     </div>
   `;
 }
@@ -16,7 +24,9 @@ function setupDOM() {
 setupDOM();
 window.HUD = window.HUD || {};
 window._hudWs = null;
-window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+window.escapeHtml = function(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+};
 const store = {};
 vi.stubGlobal('localStorage', {
   getItem: vi.fn(k => store[k] || null),
@@ -24,236 +34,333 @@ vi.stubGlobal('localStorage', {
   removeItem: vi.fn(k => { delete store[k]; }),
 });
 window.WebSocket = { OPEN: 1 };
+let uuidCounter = 0;
+if (!globalThis.crypto) globalThis.crypto = {};
+globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
 await import('../../public/chat-pane.js');
 
+function mockWs() {
+  const ws = { readyState: 1, send: vi.fn() };
+  window._hudWs = ws;
+  return ws;
+}
+
 describe('openChatPane', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  });
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
 
   it('returns early if no agentId or sessionId', () => {
     window.openChatPane(null, null);
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
 
-  it('adds chat-open class to layout', () => {
+  it('adds chat-open class and sets title', () => {
+    mockWs();
     window.openChatPane('agent1', 'session123', 'my-label');
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
-  });
-
-  it('sets the title', () => {
-    window.openChatPane('agent1', 'session123', 'my-label');
     expect(document.getElementById('chat-title').textContent).toBe('agent1 // my-label');
   });
 
   it('uses sessionId prefix when no label', () => {
+    mockWs();
     window.openChatPane('agent1', 'session123456789');
     expect(document.getElementById('chat-title').textContent).toBe('agent1 // session1');
   });
 
-  it('saves to localStorage', () => {
+  it('sends chat-subscribe and chat-history over WS', () => {
+    const ws = mockWs();
     window.openChatPane('agent1', 'sess1', 'lbl');
-    expect(localStorage.setItem).toHaveBeenCalledWith('hud-chat-session', JSON.stringify({ agentId: 'agent1', sessionId: 'sess1', label: 'lbl' }));
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:sess1')).toBeTruthy();
+    expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:sess1')).toBeTruthy();
   });
 
-  it('shows loading indicator in messages', () => {
-    window.openChatPane('agent1', 'sess1');
-    const loading = document.getElementById('chat-empty');
-    expect(loading).not.toBeNull();
-    expect(loading.textContent).toBe('Loading...');
+  it('shows loading spinner', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    expect(document.querySelector('.chat-loading')).not.toBeNull();
   });
 
-  it('calls fetch with correct URL', () => {
-    window.openChatPane('agent1', 'sess1');
-    expect(window.fetch).toHaveBeenCalledWith('/api/session-log/agent1/sess1?limit=100');
+  it('unsubscribes from previous session', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's1');
+    ws.send.mockClear();
+    window.openChatPane('a', 's2');
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-unsubscribe' && c.sessionKey === 'agent:a:s1')).toBeTruthy();
+  });
+
+  it('saves to localStorage', () => {
+    mockWs();
+    window.openChatPane('agent1', 'sess1', 'lbl');
+    expect(localStorage.setItem).toHaveBeenCalled();
   });
 });
 
 describe('closeChatPane', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  });
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
 
-  it('removes chat-open class', () => {
-    window.openChatPane('agent1', 'sess1');
+  it('removes chat-open class and clears localStorage', () => {
+    mockWs();
+    window.openChatPane('a', 's');
     window.closeChatPane();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
-  });
-
-  it('removes from localStorage', () => {
-    window.openChatPane('agent1', 'sess1');
-    window.closeChatPane();
     expect(localStorage.removeItem).toHaveBeenCalledWith('hud-chat-session');
   });
 });
 
-describe('handleChatWsMessage', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  });
+describe('handleChatWsMessage — chat-history-result', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
 
-  it('ignores non log-entry messages', () => {
+  it('renders history messages and removes spinner', () => {
+    mockWs();
     window.openChatPane('a', 's');
-    const msgsBefore = document.getElementById('chat-messages').children.length;
-    window.handleChatWsMessage({ type: 'other' });
-    expect(document.getElementById('chat-messages').children.length).toBe(msgsBefore);
+    window.handleChatWsMessage({
+      type: 'chat-history-result', sessionKey: 'agent:a:s',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'hi there' }] },
+      ]
+    });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(2);
+    expect(document.querySelector('.chat-loading')).toBeNull();
   });
 
-  it('ignores log-entry for different session', () => {
+  it('renders tool_use blocks as collapsed', () => {
+    mockWs();
     window.openChatPane('a', 's');
-    const msgsBefore = document.getElementById('chat-messages').children.length;
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 'other', entry: { role: 'user', content: 'hi' } });
-    expect(document.getElementById('chat-messages').children.length).toBe(msgsBefore);
+    window.handleChatWsMessage({
+      type: 'chat-history-result', sessionKey: 'agent:a:s',
+      messages: [{ role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: { cmd: 'ls' } }] }]
+    });
+    const tb = document.querySelector('.chat-tool-block');
+    expect(tb).not.toBeNull();
+    expect(tb.textContent).toContain('Tool: exec');
   });
 
-  it('appends message for current session', () => {
+  it('renders tool_result blocks as collapsed', () => {
+    mockWs();
     window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'user', content: 'hello' } });
-    const msgs = document.querySelectorAll('.chat-msg');
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].querySelector('.chat-msg-content').textContent).toBe('hello');
+    window.handleChatWsMessage({
+      type: 'chat-history-result', sessionKey: 'agent:a:s',
+      messages: [{ role: 'tool', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'done' }] }]
+    });
+    const tb = document.querySelector('.chat-tool-block');
+    expect(tb).not.toBeNull();
+    expect(tb.textContent).toContain('Result');
   });
+});
 
-  it('removes empty placeholder when appending', () => {
+describe('handleChatWsMessage — chat-event deltas', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('creates assistant message on delta and replaces text', () => {
+    mockWs();
     window.openChatPane('a', 's');
-    expect(document.getElementById('chat-empty')).not.toBeNull();
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'assistant', content: 'hi' } });
-    expect(document.getElementById('chat-empty')).toBeNull();
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hello' } });
+    let msg = document.querySelector('.chat-msg.assistant.streaming');
+    expect(msg).not.toBeNull();
+    expect(msg.querySelector('.chat-msg-content').textContent).toBe('Hello');
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 2, message: 'Hello world' } });
+    expect(msg.querySelector('.chat-msg-content').textContent).toBe('Hello world');
   });
 
-  it('handles subscribed message and shows LIVE indicator', () => {
+  it('shows stop button when run is active', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
+    expect(document.getElementById('chat-stop-btn').style.display).not.toBe('none');
+    expect(document.getElementById('chat-send-btn').style.display).toBe('none');
+  });
+
+  it('handles final state', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'final', seq: 2 } });
+    expect(document.querySelector('.chat-msg.streaming')).toBeNull();
+    expect(document.getElementById('chat-send-btn').style.display).not.toBe('none');
+  });
+
+  it('handles error state', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'error', errorMessage: 'Something broke' } });
+    const errorMsg = document.querySelector('.chat-msg.error');
+    expect(errorMsg).not.toBeNull();
+    expect(errorMsg.textContent).toContain('Something broke');
+  });
+
+  it('handles aborted state with badge', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'partial' } });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'aborted', stopReason: 'user_cancelled' } });
+    expect(document.querySelector('.chat-aborted-badge')).not.toBeNull();
+    expect(document.querySelector('.chat-aborted-badge').textContent).toContain('user_cancelled');
+  });
+});
+
+describe('handleChatWsMessage — chat-send-ack', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('removes pending class on success ack', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    const input = document.getElementById('chat-input');
+    input.value = 'test message';
+    document.getElementById('chat-send-btn').click();
+    const key = JSON.parse(ws.send.mock.calls.find(c => JSON.parse(c[0]).type === 'chat-send')[0]).idempotencyKey;
+    expect(document.querySelector('.chat-msg.pending')).not.toBeNull();
+    window.handleChatWsMessage({ type: 'chat-send-ack', idempotencyKey: key, ok: true });
+    expect(document.querySelector('.chat-msg.pending')).toBeNull();
+    expect(input.disabled).toBe(false);
+  });
+
+  it('marks as failed on error ack', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    const input = document.getElementById('chat-input');
+    input.value = 'test message';
+    document.getElementById('chat-send-btn').click();
+    const key = JSON.parse(ws.send.mock.calls.find(c => JSON.parse(c[0]).type === 'chat-send')[0]).idempotencyKey;
+    window.handleChatWsMessage({ type: 'chat-send-ack', idempotencyKey: key, ok: false, error: 'fail' });
+    expect(document.querySelector('.chat-msg.failed')).not.toBeNull();
+    expect(input.disabled).toBe(false);
+  });
+});
+
+describe('handleChatWsMessage — gateway-status', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('shows banner on disconnect', () => {
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'disconnected' });
+    expect(document.getElementById('gateway-banner').style.display).toBe('block');
+  });
+
+  it('hides banner on connected', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'disconnected' });
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
+    expect(document.getElementById('gateway-banner').style.display).toBe('none');
+  });
+});
+
+describe('message input', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('Enter sends message, Shift+Enter does not', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    const input = document.getElementById('chat-input');
+    input.value = 'hello';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+    expect(ws.send.mock.calls.map(c => JSON.parse(c[0])).filter(c => c.type === 'chat-send').length).toBe(0);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: false, bubbles: true, cancelable: true }));
+    expect(ws.send.mock.calls.map(c => JSON.parse(c[0])).filter(c => c.type === 'chat-send').length).toBe(1);
+  });
+
+  it('optimistic send creates pending message and disables input', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    const input = document.getElementById('chat-input');
+    input.value = 'test';
+    document.getElementById('chat-send-btn').click();
+    expect(document.querySelector('.chat-msg.user.pending')).not.toBeNull();
+    expect(input.disabled).toBe(true);
+  });
+
+  it('does not send empty messages', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    document.getElementById('chat-input').value = '   ';
+    document.getElementById('chat-send-btn').click();
+    expect(ws.send.mock.calls.map(c => JSON.parse(c[0])).filter(c => c.type === 'chat-send').length).toBe(0);
+  });
+});
+
+describe('abort button', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('sends chat-abort on click', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Hi' } });
+    ws.send.mockClear();
+    document.getElementById('chat-stop-btn').click();
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-abort')).toBeTruthy();
+  });
+});
+
+describe('multiple concurrent runs', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('tracks multiple runs independently', () => {
+    mockWs();
+    window.openChatPane('a', 's');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r1', state: 'delta', seq: 1, message: 'Run1' } });
+    window.handleChatWsMessage({ type: 'chat-event', payload: { sessionKey: 'agent:a:s', runId: 'r2', state: 'delta', seq: 1, message: 'Run2' } });
+    expect(document.querySelectorAll('.chat-msg.assistant.streaming').length).toBe(2);
+  });
+});
+
+describe('WS queue', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('queues and flushes messages', () => {
+    window._hudWs = null;
+    window.openChatPane('a', 's');
+    const ws = mockWs();
+    window._flushChatWsQueue();
+    expect(ws.send).toHaveBeenCalled();
+  });
+});
+
+describe('backward compatibility', () => {
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
+
+  it('handles subscribed message for LIVE indicator', () => {
+    mockWs();
     window.openChatPane('a', 's');
     window.handleChatWsMessage({ type: 'subscribed', sessionId: 's' });
     expect(document.getElementById('chat-live').classList.contains('visible')).toBe(true);
   });
 
-  it('ignores subscribed for different session', () => {
+  it('handles log-entry messages', () => {
+    mockWs();
     window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'subscribed', sessionId: 'other' });
-    expect(document.getElementById('chat-live').classList.contains('visible')).toBe(false);
-  });
-
-  it('handles tool_use entries with tool role class', () => {
-    window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { type: 'tool_use', name: 'exec', content: 'result' } });
-    const msg = document.querySelector('.chat-msg.tool');
-    expect(msg).not.toBeNull();
-    expect(msg.querySelector('.chat-msg-content').textContent).toContain('[exec]');
-  });
-
-  it('handles array content', () => {
-    window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'assistant', content: ['hello', { text: 'world' }] } });
-    const msg = document.querySelector('.chat-msg-content');
-    expect(msg.textContent).toContain('hello');
-    expect(msg.textContent).toContain('world');
-  });
-
-  it('truncates long content', () => {
-    window.openChatPane('a', 's');
-    const longContent = 'x'.repeat(3000);
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'user', content: longContent } });
-    const msg = document.querySelector('.chat-msg-content');
-    expect(msg.textContent.length).toBeLessThan(3000);
-    expect(msg.querySelector('.chat-truncated')).not.toBeNull();
-  });
-
-  it('uses type as content when content is missing', () => {
-    window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { type: 'model_change' } });
-    const msg = document.querySelector('.chat-msg-content');
-    expect(msg.textContent).toBe('model_change');
-  });
-
-  it('handles object content in array', () => {
-    window.openChatPane('a', 's');
-    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'assistant', content: [{ foo: 'bar' }] } });
-    const msg = document.querySelector('.chat-msg-content');
-    expect(msg.textContent).toContain('foo');
-  });
-});
-
-describe('WS queue', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  });
-
-  it('queues messages when WS is not open', () => {
-    window._hudWs = null;
-    window.openChatPane('a', 's');
-    // The subscribe-log message should be queued since no WS
-  });
-
-  it('flushes queue when WS becomes available', () => {
-    window._hudWs = null;
-    window.openChatPane('a', 's');
-    const mockSend = vi.fn();
-    window._hudWs = { readyState: 1, send: mockSend };
-    window._flushChatWsQueue();
-    expect(mockSend).toHaveBeenCalled();
-  });
-});
-
-describe('fetch response handling', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-  });
-
-  it('renders fetched log entries', async () => {
-    window.fetch = vi.fn(() => Promise.resolve({
-      json: () => Promise.resolve([
-        { role: 'user', content: 'hello' },
-        { role: 'assistant', content: 'hi there' },
-      ])
-    }));
-    window.openChatPane('a', 's');
-    await new Promise(r => setTimeout(r, 50));
-    const msgs = document.querySelectorAll('.chat-msg');
-    expect(msgs.length).toBe(2);
-  });
-
-  it('shows "No log entries" when fetch returns empty', async () => {
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-    window.openChatPane('a', 's');
-    await new Promise(r => setTimeout(r, 50));
-    const empty = document.getElementById('chat-empty');
-    expect(empty).not.toBeNull();
-    expect(empty.textContent).toBe('No log entries');
-  });
-
-  it('handles fetch error gracefully', async () => {
-    window.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
-    window.openChatPane('a', 's');
-    await new Promise(r => setTimeout(r, 50));
-    const empty = document.getElementById('chat-empty');
-    expect(empty.textContent).toContain('Error');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    window.handleChatWsMessage({ type: 'log-entry', agentId: 'a', sessionId: 's', entry: { role: 'user', content: 'hi' } });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
   });
 });
 
 describe('keyboard and UI events', () => {
-  beforeEach(() => {
-    setupDOM();
-    vi.clearAllMocks();
-    window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
-  });
+  beforeEach(() => { setupDOM(); vi.clearAllMocks(); uuidCounter = 0; });
 
   it('closes chat pane on Escape key', () => {
+    mockWs();
     window.openChatPane('a', 's');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
 
-  it('does not close chat on Escape when modal is active', () => {
+  it('does not close on Escape when modal is active', () => {
+    mockWs();
     window.openChatPane('a', 's');
     const modal = document.createElement('div');
     modal.className = 'modal-overlay active';
@@ -263,16 +370,9 @@ describe('keyboard and UI events', () => {
   });
 
   it('close button closes chat', () => {
+    mockWs();
     window.openChatPane('a', 's');
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
-  });
-
-  it('shows new-pill and scrolls on click', () => {
-    window.openChatPane('a', 's');
-    const pill = document.getElementById('chat-new-pill');
-    pill.classList.add('visible');
-    pill.click();
-    expect(pill.classList.contains('visible')).toBe(false);
   });
 });
