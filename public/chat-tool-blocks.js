@@ -19,21 +19,27 @@
 
   function createToolUseBlock(block) {
     var wrapper = document.createElement('div');
-    wrapper.className = 'chat-tool-use';
+    wrapper.className = 'chat-tool-use expanded';
     wrapper.dataset.toolUseId = block.id || '';
 
-    var header = document.createElement('div');
+    var bodyId = 'chat-tool-use-body-' + Math.random().toString(36).slice(2, 10);
+    var header = document.createElement('button');
+    header.type = 'button';
     header.className = 'chat-tool-use-header';
+    header.setAttribute('aria-expanded', 'true');
+    header.setAttribute('aria-controls', bodyId);
     var icon = getToolIcon(block.name);
     var preview = getArgPreview(block.input);
     header.textContent = icon + ' ' + block.name + (preview ? ' "' + preview + '"' : '');
 
     var body = document.createElement('div');
     body.className = 'chat-tool-use-body';
+    body.id = bodyId;
     body.textContent = JSON.stringify(block.input, null, 2);
 
     header.onclick = function() {
       wrapper.classList.toggle('expanded');
+      header.setAttribute('aria-expanded', wrapper.classList.contains('expanded') ? 'true' : 'false');
     };
 
     wrapper.appendChild(header);
@@ -76,15 +82,21 @@
     var wrapper = document.createElement('div');
     wrapper.className = 'chat-tool-group collapsed';
 
-    var header = document.createElement('div');
+    var bodyId = 'chat-tool-group-body-' + Math.random().toString(36).slice(2, 10);
+    var header = document.createElement('button');
+    header.type = 'button';
     header.className = 'chat-tool-group-header';
     header.textContent = '🔧 ' + toolBlocks.length + ' tool calls';
+    header.setAttribute('aria-expanded', 'false');
+    header.setAttribute('aria-controls', bodyId);
     header.onclick = function() {
       wrapper.classList.toggle('collapsed');
+      header.setAttribute('aria-expanded', wrapper.classList.contains('collapsed') ? 'false' : 'true');
     };
 
     var body = document.createElement('div');
     body.className = 'chat-tool-group-body';
+    body.id = bodyId;
     toolBlocks.forEach(function(el) { body.appendChild(el); });
 
     wrapper.appendChild(header);

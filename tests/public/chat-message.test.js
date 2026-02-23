@@ -27,7 +27,8 @@ describe('ChatMessage', () => {
 
     it('renders tool_use block', () => {
       const el = window.ChatMessage.renderContentBlock({ type: 'tool_use', id: 't1', name: 'exec', input: {} }, 'assistant');
-      expect(el.className).toBe('chat-tool-use');
+      expect(el.className).toContain('chat-tool-use');
+      expect(el.classList.contains('expanded')).toBe(true);
     });
 
     it('renders tool_result block', () => {

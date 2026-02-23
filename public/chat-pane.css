@@ -235,7 +235,9 @@
 .chat-tool-use-header {
   font-family: var(--font-mono); font-size: 11px; color: var(--amber);
   padding: 4px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 100%; text-align: left; background: none; border: 0;
 }
+.chat-tool-use-header:focus-visible { outline: 1px solid var(--amber); }
 .chat-tool-use-header:hover { background: rgba(255,171,0,0.08); }
 .chat-tool-use-body {
   display: none; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
@@ -263,7 +265,9 @@
 .chat-tool-group-header {
   font-family: var(--font-mono); font-size: 11px; color: var(--amber);
   cursor: pointer; padding: 4px 0;
+  width: 100%; text-align: left; background: none; border: 0;
 }
+.chat-tool-group-header:focus-visible { outline: 1px solid var(--amber); }
 .chat-tool-group-header:hover { color: var(--text-primary); }
 .chat-tool-group-body { padding-left: 4px; }
 .chat-tool-group.collapsed .chat-tool-group-body { display: none; }
