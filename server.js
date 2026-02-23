@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3777;
 
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
+console.log('[HUD-GW] config:', { port: gwConfig.port, hasToken: !!gwConfig.token, tokenLen: gwConfig.token ? gwConfig.token.length : 0 });
 const gatewayWS = new GatewayWS({
   url: `ws://127.0.0.1:${gwConfig.port || 18789}`,
   token: gwConfig.token,
