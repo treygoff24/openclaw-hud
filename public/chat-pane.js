@@ -326,7 +326,7 @@
     if (e.key === 'Escape') {
       if (e.defaultPrevented) return;
       const activeModal = document.querySelector('.modal-overlay.active');
-      if (!activeModal) window.closeChatPane();
+      if (!activeModal && window.ChatState && window.ChatState.subscribedKey) window.closeChatPane();
     }
   });
 

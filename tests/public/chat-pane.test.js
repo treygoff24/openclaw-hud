@@ -496,6 +496,24 @@ describe('keyboard and UI events', () => {
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
   });
 
+  it('does not call closeChatPane on Escape when subscribedKey is falsy (no chat pane open)', () => {
+    // Reset state without opening a chat pane - subscribedKey should be null
+    setupDOM();
+    vi.clearAllMocks();
+    window._hudWs = null;
+
+    // Spy on closeChatPane to ensure it's not called
+    const closeSpy = vi.spyOn(window, 'closeChatPane');
+
+    // Dispatch Escape key when no chat pane is open
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    // closeChatPane should NOT be called since there's no active chat subscription
+    expect(closeSpy).not.toHaveBeenCalled();
+
+    closeSpy.mockRestore();
+  });
+
   it('close button closes chat', () => {
     mockWs();
     window.openChatPane('a', 's', '', 'agent:a:s');
