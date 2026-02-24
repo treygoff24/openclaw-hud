@@ -22,6 +22,7 @@ window.makeFocusable = function(el, handler) {
 
 // Load utils for HUD.utils.timeAgo
 await import('../../../public/utils.js');
+await import('../../../public/session-labels.js');
 await import('../../../public/panels/sessions.js');
 
 describe('sessions.render', () => {
@@ -39,12 +40,12 @@ describe('sessions.render', () => {
 
   it('renders session rows with correct structure', () => {
     HUD.sessions.render([
-      { agentId: 'bot', sessionId: 'abc12345xyz', sessionKey: 'agent:bot:abc12345xyz', label: 'my-session', status: 'active', updatedAt: Date.now() - 5000 }
+      { agentId: 'bot', sessionId: 'abc12345xyz', sessionKey: 'agent:bot:abc12345xyz', label: 'my-session', model: 'gpt-4', status: 'active', updatedAt: Date.now() - 5000 }
     ]);
     const rows = document.querySelectorAll('.session-row');
     expect(rows.length).toBe(1);
     expect(rows[0].querySelector('.session-agent').textContent).toBe('bot');
-    expect(rows[0].querySelector('.session-label').textContent).toBe('my-session');
+    expect(rows[0].querySelector('.session-label').textContent).toBe('Main · gpt-4 · my-session');
     expect(rows[0].querySelector('.status-dot-green')).not.toBeNull();
   });
 
@@ -62,18 +63,11 @@ describe('sessions.render', () => {
     });
   });
 
-  it('shows depth tag for subagents', () => {
+  it('shows normalized subagent role label', () => {
     HUD.sessions.render([
-      { agentId: 'a', sessionId: 's', sessionKey: 'agent:a:s', status: 'active', spawnDepth: 2, updatedAt: Date.now() }
+      { key: 'agent:a:subagent-task', agentId: 'a', sessionId: 's', sessionKey: 'agent:a:subagent-task', model: 'claude', spawnDepth: 2, updatedAt: Date.now() }
     ]);
-    expect(document.querySelector('.session-label').innerHTML).toContain('depth:2');
-  });
-
-  it('does not show depth tag when spawnDepth is 0', () => {
-    HUD.sessions.render([
-      { agentId: 'a', sessionId: 's', sessionKey: 'agent:a:s', status: 'active', spawnDepth: 0, updatedAt: Date.now() }
-    ]);
-    expect(document.querySelector('.session-label').innerHTML).not.toContain('depth');
+    expect(document.querySelector('.session-label').textContent).toBe('Subagent · claude · subagent-task');
   });
 
   it('renders empty array', () => {
@@ -92,12 +86,28 @@ describe('sessions.render', () => {
 
   it('sets data attributes on session rows', () => {
     HUD.sessions.render([
-      { agentId: 'bot', sessionId: 'xyz', sessionKey: 'agent:bot:xyz', label: 'lbl', status: 'active', updatedAt: Date.now() }
+      { agentId: 'bot', sessionId: 'xyz', sessionKey: 'agent:bot:xyz', label: 'lbl', model: 'o1', status: 'active', updatedAt: Date.now() }
     ]);
     const row = document.querySelector('.session-row');
     expect(row.dataset.agent).toBe('bot');
     expect(row.dataset.session).toBe('xyz');
     expect(row.dataset.sessionKey).toBe('agent:bot:xyz');
+  });
+
+  it('uses full session slug in aria label and title for context', () => {
+    HUD.sessions.render([
+      { agentId: 'bot', sessionId: 'xyz', sessionKey: 'agent:bot:xyz', label: 'lbl', model: 'o1', status: 'active', updatedAt: Date.now() }
+    ]);
+    const row = document.querySelector('.session-row');
+    expect(row.getAttribute('title')).toContain('agent:bot:xyz');
+    expect(row.getAttribute('aria-label')).toContain('agent:bot:xyz');
+  });
+
+  it('falls back cleanly when model metadata is missing', () => {
+    HUD.sessions.render([
+      { agentId: 'a', sessionId: 's-missing', sessionKey: 'agent:a:s-missing', status: 'active', updatedAt: Date.now() }
+    ]);
+    expect(document.querySelector('.session-label').textContent).toBe('Main · unknown model · s-missing');
   });
 
   it('throws explicitly when sessionKey is missing', () => {

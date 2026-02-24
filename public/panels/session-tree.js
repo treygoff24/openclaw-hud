@@ -2,7 +2,52 @@ window.HUD = window.HUD || {};
 HUD.sessionTree = (function() {
   'use strict';
   const $ = s => document.querySelector(s);
+  const normalizeLabel = (window.HUD && HUD.labelSanitizer && typeof HUD.labelSanitizer.normalizeLabel === 'function')
+    ? HUD.labelSanitizer.normalizeLabel
+    : function(value) {
+      if (value == null) return '';
+      return String(value);
+    };
   const collapseState = {};
+  const defaultMeta = {
+    roleLabel: 'Main',
+    modelLabel: 'unknown model',
+    sessionAlias: 'session',
+    fullSlug: '',
+    compactLabel: 'Main · unknown model · session'
+  };
+
+  function resolveSessionDisplayMeta(session) {
+    if (window.SessionLabels && typeof window.SessionLabels.getDisplayMeta === 'function') {
+      return window.SessionLabels.getDisplayMeta(session);
+    }
+    const safeSession = session && typeof session === 'object' ? session : {};
+    const spawnDepth = Number(safeSession.spawnDepth);
+    const isSubagent = safeSession.spawnedBy || (Number.isFinite(spawnDepth) && spawnDepth > 0);
+    const roleLabel = isSubagent ? 'Subagent' : 'Main';
+    const sessionRole = isSubagent ? 'subagent' : 'main';
+    const aliasCandidate = safeSession.label ? safeSession.label : (
+      safeSession.key ? safeSession.key.split(':').pop() : (
+        safeSession.sessionId ? safeSession.sessionId : 'session'
+      )
+    );
+    const sessionAlias = normalizeLabel(aliasCandidate, safeSession.sessionId ? safeSession.sessionId : 'session');
+    const fullSlug = safeSession.sessionKey || safeSession.key || '';
+    return Object.assign({}, defaultMeta, {
+      sessionRole,
+      roleLabel,
+      sessionAlias,
+      fullSlug,
+      compactLabel: `${roleLabel} · ${defaultMeta.modelLabel} · ${sessionAlias}`
+    });
+  }
+
+  function resolveSessionMetaText(session) {
+    const meta = resolveSessionDisplayMeta(session);
+    return window.SessionLabels && typeof window.SessionLabels.buildSessionAriaLabel === 'function'
+      ? window.SessionLabels.buildSessionAriaLabel(session, meta)
+      : `Session ${meta.fullSlug || session?.sessionKey || 'unknown session'}; role ${meta.roleLabel}; model ${meta.modelLabel}; alias ${meta.sessionAlias}; agent ${session?.agentId || 'unknown'}; status ${session?.status || 'unknown'}`;
+  }
 
   function render(sessions) {
     for (const s of sessions) {
@@ -29,7 +74,8 @@ HUD.sessionTree = (function() {
     function renderNode(node, prefix, isLast, level = 0) {
       const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
       const dotClass = statusMap[node.status] || 'status-dot-gray';
-      const label = node.label || node.key;
+      const meta = resolveSessionDisplayMeta(node);
+      const label = meta.compactLabel;
       const sessionKey = node.sessionKey;
       if (!sessionKey || typeof sessionKey !== 'string') {
         throw new Error('sessionTree.render requires canonical sessionKey for each node');
@@ -41,13 +87,20 @@ HUD.sessionTree = (function() {
       const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>` : '';
       const ariaExpanded = hasKids ? (collapsed ? 'false' : 'true') : undefined;
       const statusLabel = node.status || 'unknown';
+      const fullContext = resolveSessionMetaText(node);
 
-      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}" aria-label="Session ${escapeHtml(label)}, ${statusLabel}, agent ${escapeHtml(node.agentId || 'unknown')}">
-        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(label)}" tabindex="0" role="button">
+      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}" aria-label="${escapeHtml(fullContext)}">
+        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(meta.compactLabel)}" title="${escapeHtml(fullContext)}" tabindex="0" role="button">
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
           <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
           <div class="${dotClass}" aria-hidden="true"></div>
-          <span class="tree-label">${escapeHtml(label)}</span>
+          <span class="tree-label">
+            <span class="session-label-role">${escapeHtml(meta.roleLabel)}</span>
+            <span class="session-label-sep">·</span>
+            <span class="session-label-model">${escapeHtml(meta.modelLabel)}</span>
+            <span class="session-label-sep">·</span>
+            <span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span>
+          </span>
           <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
           ${countBadge}
           <span class="tree-age" aria-hidden="true">${HUD.utils.timeAgo(node.updatedAt)}</span>
