@@ -70,6 +70,7 @@
     if (e.target.id === 'chat-input') {
       e.target.style.height = 'auto';
       e.target.style.height = e.target.scrollHeight + 'px';
+      e.target.style.overflowY = e.target.scrollHeight > 160 ? 'auto' : 'hidden';
     }
   });
 

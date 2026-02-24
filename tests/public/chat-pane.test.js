@@ -520,3 +520,31 @@ describe('textarea auto-grow', () => {
     expect(input.style.height).toBeDefined();
   });
 });
+
+describe('textarea scrollbar behavior', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window._hudWs = mockWs();
+  });
+
+  it('sets overflowY to hidden when scrollHeight <= 160', () => {
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const input = document.getElementById('chat-input');
+    // Simulate scrollHeight that is less than or equal to max-height (160px)
+    Object.defineProperty(input, 'scrollHeight', { value: 100, writable: true });
+    input.value = 'short text';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.style.overflowY).toBe('hidden');
+  });
+
+  it('sets overflowY to auto when scrollHeight > 160', () => {
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const input = document.getElementById('chat-input');
+    // Simulate scrollHeight that exceeds max-height (160px)
+    Object.defineProperty(input, 'scrollHeight', { value: 200, writable: true });
+    input.value = 'very long text that exceeds the max height limit';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.style.overflowY).toBe('auto');
+  });
+});
