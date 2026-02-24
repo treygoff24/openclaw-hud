@@ -11,6 +11,7 @@ document.body.innerHTML = `
     <select id="spawn-agent"></select>
     <select id="spawn-model"></select>
     <div id="spawn-error" style="display:none"></div>
+    <button id="new-session-btn"></button>
     <button id="open-spawn-btn"></button>
     <button id="spawn-cancel-btn"></button>
     <button id="spawn-modal-close"></button>
@@ -30,7 +31,69 @@ window.escapeHtml = function(s) {
   return d.innerHTML;
 };
 
+window.WebSocket = { OPEN: 1 };
+window._hudWs = null;
+window.ChatState = {
+  currentSession: null,
+  subscribedKey: null,
+  activeRuns: new Map(),
+  pendingAcks: new Map(),
+  sendWs: vi.fn(),
+};
+window.openChatPane = vi.fn();
+
 await import('../../../public/panels/spawn.js');
+HUD.spawn.init();
+
+describe('spawn.newSession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.ChatState.sendWs = vi.fn();
+    window.openChatPane = vi.fn();
+    window.ChatState.currentSession = null;
+    window._agents = [{ id: 'bot1' }, { id: 'bot2' }];
+  });
+
+  afterEach(() => {
+    window._agents = [{ id: 'bot1' }, { id: 'bot2' }];
+  });
+
+  it('sends chat-new with agentId from current subscribed session', () => {
+    window.ChatState.currentSession = { agentId: 'bot2', sessionId: 'main', sessionKey: 'agent:bot2:main' };
+    HUD.spawn.newSession();
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
+      type: 'chat-new',
+      agentId: 'bot2',
+      source: 'tree',
+    });
+  });
+
+  it('falls back to first agent when no session is open', () => {
+    window.ChatState.currentSession = null;
+    HUD.spawn.newSession();
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
+      type: 'chat-new',
+      agentId: 'bot1',
+      source: 'tree',
+    });
+  });
+
+  it('does nothing when no agent is available', () => {
+    window.ChatState.currentSession = null;
+    window._agents = [];
+    HUD.spawn.newSession();
+    expect(window.ChatState.sendWs).not.toHaveBeenCalled();
+  });
+
+  it('#new-session-btn click sends chat-new via sendWs', () => {
+    window._agents = [{ id: 'bot1' }];
+    window.ChatState.currentSession = null;
+    document.getElementById('new-session-btn').click();
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'chat-new', agentId: 'bot1', source: 'tree' })
+    );
+  });
+});
 
 describe('spawn.open', () => {
   it('opens the spawn modal', () => {

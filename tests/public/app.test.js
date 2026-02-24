@@ -7,7 +7,7 @@ document.body.innerHTML = `
   <span id="stat-uptime"></span>
   <span id="clock"></span>
   <div id="toast" class="toast"></div>
-  <div id="spawn-modal"><button id="open-spawn-btn"></button><button id="spawn-cancel-btn"></button><button id="spawn-modal-close"></button><button id="spawn-launch-btn"></button></div>
+  <div id="spawn-modal"><button id="new-session-btn"></button><button id="open-spawn-btn"></button><button id="spawn-cancel-btn"></button><button id="spawn-modal-close"></button><button id="spawn-launch-btn"></button></div>
   <div id="cron-modal"><button id="cron-modal-close"></button><select id="cron-session-target"><option value="main">main</option></select><select id="cron-schedule-kind"><option value="cron">cron</option></select></div>
   <span id="agent-count"></span><div id="agents-list"></div><input id="agent-search" />
   <span id="stat-agents"></span><span id="stat-active"></span>

@@ -583,6 +583,43 @@ describe('chat-new-result', () => {
     window.handleChatWsMessage({ type: 'chat-new-result', ok: false, error: 'gateway error' });
     expect(document.querySelectorAll('.chat-msg').length).toBe(1);
   });
+
+  it('opens chat pane when source is tree and reset succeeds', () => {
+    mockWs();
+    const openSpy = vi.spyOn(window, 'openChatPane');
+    window.handleChatWsMessage({
+      type: 'chat-new-result',
+      ok: true,
+      sessionKey: 'agent:bot1:main',
+      source: 'tree',
+    });
+    expect(openSpy).toHaveBeenCalledWith('bot1', 'main', '', 'agent:bot1:main');
+  });
+
+  it('does not open chat pane when source is tree but reset fails', () => {
+    mockWs();
+    const openSpy = vi.spyOn(window, 'openChatPane');
+    window.handleChatWsMessage({
+      type: 'chat-new-result',
+      ok: false,
+      error: 'gateway error',
+      source: 'tree',
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not open chat pane when source is not tree', () => {
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const openSpy = vi.spyOn(window, 'openChatPane');
+    openSpy.mockClear();
+    window.handleChatWsMessage({
+      type: 'chat-new-result',
+      ok: true,
+      sessionKey: 'agent:a:s',
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('textarea auto-grow', () => {

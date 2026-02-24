@@ -105,7 +105,16 @@ HUD.spawn = (function() {
     }
   }
 
+  function newSession() {
+    const agentId = (window.ChatState && window.ChatState.currentSession)
+      ? window.ChatState.currentSession.agentId
+      : (window._agents && window._agents.length ? window._agents[0].id : null);
+    if (!agentId) return;
+    window.ChatState.sendWs({ type: 'chat-new', agentId, source: 'tree' });
+  }
+
   function init() {
+    $('#new-session-btn').addEventListener('click', newSession);
     $('#open-spawn-btn').addEventListener('click', open);
     $('#spawn-cancel-btn').addEventListener('click', close);
     $('#spawn-modal-close').addEventListener('click', close);
@@ -115,5 +124,5 @@ HUD.spawn = (function() {
     });
   }
 
-  return { open, close, launch, init };
+  return { open, close, launch, newSession, init };
 })();

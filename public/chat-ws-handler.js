@@ -335,8 +335,17 @@
           return;
         case 'chat-new-result':
           if (data.ok) {
-            const container = document.getElementById('chat-messages');
-            if (container) container.innerHTML = '';
+            if (data.source === 'tree' && data.sessionKey) {
+              const parts = data.sessionKey.split(':');
+              const agentId = parts[1];
+              const sessionId = parts.slice(2).join(':');
+              if (typeof window.openChatPane === 'function') {
+                window.openChatPane(agentId, sessionId, '', data.sessionKey);
+              }
+            } else {
+              const container = document.getElementById('chat-messages');
+              if (container) container.innerHTML = '';
+            }
           }
           return;
         case 'log-entry': return handleLogEntry(data);
