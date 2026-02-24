@@ -1,0 +1,239 @@
+const { getGatewayConfig } = require('../../lib/helpers');
+const { chatSubscriptions, clientChatSubs } = require('./state');
+const { isCanonicalSessionKey } = require('./session-key');
+const {
+  validateAttachments,
+  buildContentBlocks,
+  checkAttachmentRateLimit,
+} = require('./attachments');
+const {
+  normalizeHistoryLimit,
+  logHistory,
+  loadLocalHistory,
+  normalizeGatewayError,
+} = require('./history');
+const { isChatMessage, dispatchChatMessage } = require('./dispatcher');
+
+function sendJson(ws, payload) {
+  ws.send(JSON.stringify(payload));
+}
+
+const commandHandlers = {
+  'chat-subscribe': async (msg, { ws }) => {
+    const { sessionKey } = msg;
+    if (!isCanonicalSessionKey(sessionKey)) {
+      sendJson(ws, { type: 'error', error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' } });
+      return;
+    }
+    if (!chatSubscriptions.has(sessionKey)) chatSubscriptions.set(sessionKey, new Set());
+    chatSubscriptions.get(sessionKey).add(ws);
+    if (!clientChatSubs.has(ws)) clientChatSubs.set(ws, new Set());
+    clientChatSubs.get(ws).add(sessionKey);
+    sendJson(ws, { type: 'chat-subscribe-ack', sessionKey });
+  },
+
+  'chat-unsubscribe': async (msg, { ws }) => {
+    const { sessionKey } = msg;
+    chatSubscriptions.get(sessionKey)?.delete(ws);
+    clientChatSubs.get(ws)?.delete(sessionKey);
+  },
+
+  'chat-send': async (msg, { ws, gatewayWS }) => {
+    const { sessionKey, message, idempotencyKey, attachments } = msg;
+    if (!isCanonicalSessionKey(sessionKey)) {
+      sendJson(ws, {
+        type: 'chat-send-ack',
+        idempotencyKey,
+        ok: false,
+        error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' },
+      });
+      return;
+    }
+
+    if (typeof message !== 'string' && (!attachments || !Array.isArray(attachments) || attachments.length === 0)) {
+      sendJson(ws, {
+        type: 'chat-send-ack',
+        idempotencyKey,
+        ok: false,
+        error: { code: 'INVALID', message: 'message or attachments required' },
+      });
+      return;
+    }
+
+    if (attachments && Array.isArray(attachments)) {
+      const validationError = validateAttachments(attachments);
+      if (validationError) {
+        sendJson(ws, { type: 'chat-send-ack', idempotencyKey, ok: false, error: validationError });
+        return;
+      }
+
+      const rateLimitResult = checkAttachmentRateLimit(ws);
+      if (!rateLimitResult.allowed) {
+        sendJson(ws, { type: 'chat-send-ack', idempotencyKey, ok: false, error: rateLimitResult.error });
+        return;
+      }
+    }
+
+    if (!gatewayWS || !gatewayWS.connected) {
+      sendJson(ws, {
+        type: 'chat-send-ack',
+        idempotencyKey,
+        ok: false,
+        error: { code: 'UNAVAILABLE', message: 'Gateway not connected' },
+      });
+      return;
+    }
+
+    try {
+      const content = buildContentBlocks(message, attachments);
+      const result = await gatewayWS.request('chat.send', { sessionKey, content, idempotencyKey });
+      sendJson(ws, { type: 'chat-send-ack', idempotencyKey, runId: result.runId, status: result.status, ok: true });
+    } catch (err) {
+      sendJson(ws, { type: 'chat-send-ack', idempotencyKey, ok: false, error: normalizeGatewayError(err) });
+    }
+  },
+
+  'chat-history': async (msg, { ws, gatewayWS }) => {
+    const { sessionKey, limit } = msg;
+    if (!isCanonicalSessionKey(sessionKey)) {
+      sendJson(ws, {
+        type: 'chat-history-result',
+        sessionKey: sessionKey || '',
+        messages: [],
+        error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' },
+      });
+      return;
+    }
+
+    const normalizedLimit = normalizeHistoryLimit(limit);
+    logHistory('request', { sessionKey, limit: normalizedLimit || 'default' });
+
+    let gatewayError = null;
+    let shouldFallback = false;
+    if (gatewayWS && gatewayWS.connected) {
+      logHistory('gateway-attempt', { sessionKey });
+      try {
+        const result = await gatewayWS.request('chat.history', { sessionKey, ...(normalizedLimit ? { limit: normalizedLimit } : {}) });
+        const messages = result.messages || [];
+        sendJson(ws, {
+          type: 'chat-history-result',
+          sessionKey,
+          messages,
+          thinkingLevel: result.thinkingLevel,
+          verboseLevel: result.verboseLevel,
+        });
+        logHistory('gateway-success', { sessionKey, count: messages.length });
+        return;
+      } catch (err) {
+        gatewayError = normalizeGatewayError(err);
+        logHistory('gateway-fail', { sessionKey, code: gatewayError.code });
+        shouldFallback = gatewayError.code === 'UNKNOWN_SESSION_KEY';
+      }
+    } else {
+      gatewayError = { code: 'UNAVAILABLE', message: 'Gateway not connected' };
+      logHistory('gateway-unavailable', { sessionKey });
+      shouldFallback = true;
+    }
+
+    if (!shouldFallback) {
+      sendJson(ws, { type: 'chat-history-result', sessionKey, messages: [], error: gatewayError });
+      logHistory('fallback-skipped', { sessionKey, code: gatewayError?.code || 'UNKNOWN' });
+      return;
+    }
+
+    try {
+      const fallbackMessages = loadLocalHistory(sessionKey, normalizedLimit);
+      sendJson(ws, { type: 'chat-history-result', sessionKey, messages: fallbackMessages });
+      logHistory('fallback-success', { sessionKey, count: fallbackMessages.length });
+    } catch (fallbackErr) {
+      const errorToSend = gatewayError || { code: 'UNAVAILABLE', message: 'History unavailable' };
+      sendJson(ws, { type: 'chat-history-result', sessionKey, messages: [], error: errorToSend });
+      logHistory('fallback-fail', { sessionKey, reason: fallbackErr.message });
+    }
+  },
+
+  'chat-abort': async (msg, { ws, gatewayWS }) => {
+    const { sessionKey, runId } = msg;
+    if (!isCanonicalSessionKey(sessionKey)) {
+      sendJson(ws, {
+        type: 'chat-abort-result',
+        ok: false,
+        error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' },
+      });
+      return;
+    }
+
+    if (!gatewayWS || !gatewayWS.connected) {
+      sendJson(ws, {
+        type: 'chat-abort-result',
+        ok: false,
+        error: { code: 'UNAVAILABLE', message: 'Gateway not connected' },
+      });
+      return;
+    }
+
+    try {
+      const result = await gatewayWS.request('chat.abort', { sessionKey, ...(runId && { runId }) });
+      sendJson(ws, { type: 'chat-abort-result', ok: true, aborted: result.aborted, runIds: result.runIds });
+    } catch (err) {
+      sendJson(ws, { type: 'chat-abort-result', ok: false, error: normalizeGatewayError(err) });
+    }
+  },
+
+  'chat-new': async (msg, { ws }) => {
+    const { model, agentId } = msg;
+    const gwConfig = getGatewayConfig();
+    if (!gwConfig.token) {
+      sendJson(ws, { type: 'chat-new-result', ok: false, error: 'Gateway token not configured' });
+      return;
+    }
+
+    try {
+      const gwRes = await fetch(`http://127.0.0.1:${gwConfig.port}/tools/invoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${gwConfig.token}`,
+        },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          tool: 'sessions_spawn',
+          args: {
+            task: 'New chat session from HUD',
+            agentId: agentId || undefined,
+            model: model || undefined,
+            mode: 'session',
+            label: `hud-${Date.now()}`,
+          },
+        }),
+      });
+      const body = await gwRes.json();
+      const sessionKey = body?.result?.details?.childSessionKey;
+      if (sessionKey) {
+        sendJson(ws, { type: 'chat-new-result', ok: true, sessionKey });
+      } else {
+        sendJson(ws, { type: 'chat-new-result', ok: false, error: body?.error?.message || 'Unknown error' });
+      }
+    } catch (err) {
+      sendJson(ws, { type: 'chat-new-result', ok: false, error: err.message });
+    }
+  },
+
+  'models-list': async (_msg, { ws, gatewayWS }) => {
+    try {
+      const result = await gatewayWS.request('models.list', {});
+      sendJson(ws, { type: 'models-list-result', models: result.models || result });
+    } catch (err) {
+      sendJson(ws, { type: 'models-list-result', models: [], error: err.message });
+    }
+  },
+};
+
+async function handleChatMessage(ws, msg, gatewayWS) {
+  return dispatchChatMessage(msg, commandHandlers, { ws, gatewayWS });
+}
+
+module.exports = {
+  handleChatMessage,
+  isChatMessage,
+};
