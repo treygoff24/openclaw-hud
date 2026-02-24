@@ -9,6 +9,7 @@ function setupDOM() {
       <div id="chat-messages"></div>
       <div id="chat-new-pill"></div>
       <button id="chat-close"></button>
+      <button id="chat-new-btn"></button>
       <button id="chat-new-chat-btn"></button>
       <div id="chat-model-picker" style="display:none"></div>
       <div id="gateway-banner" class="gateway-banner" style="display:none">Gateway connection lost</div>
@@ -514,6 +515,73 @@ describe('keyboard and UI events', () => {
     window.openChatPane('a', 's', '', 'agent:a:s');
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
+  });
+});
+
+describe('new chat button', () => {
+  beforeEach(resetState);
+
+  it('sends chat-new with current sessionKey and agentId', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    ws.send.mockClear();
+    document.getElementById('chat-new-btn').click();
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    const newMsg = calls.find(c => c.type === 'chat-new');
+    expect(newMsg).toBeTruthy();
+    expect(newMsg.sessionKey).toBe('agent:a:s');
+    expect(newMsg.agentId).toBe('a');
+  });
+
+  it('does not trigger model picker on new chat click', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    ws.send.mockClear();
+    document.getElementById('chat-new-btn').click();
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'models-list')).toBeFalsy();
+    expect(document.querySelector('.model-picker')).toBeNull();
+  });
+});
+
+describe('chat-new-result', () => {
+  beforeEach(resetState);
+
+  it('clears messages on successful reset', () => {
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({
+      type: 'chat-history-result', sessionKey: 'agent:a:s',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'old message' }] }]
+    });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
+    window.handleChatWsMessage({ type: 'chat-new-result', ok: true, sessionKey: 'agent:a:s' });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(0);
+  });
+
+  it('does not open a new pane on successful reset', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    ws.send.mockClear();
+    window.handleChatWsMessage({ type: 'chat-new-result', ok: true, sessionKey: 'agent:a:s' });
+    // Should NOT send chat-subscribe for a new session (same session, just cleared)
+    const subscribeCalls = ws.send.mock.calls.map(c => JSON.parse(c[0])).filter(c => c.type === 'chat-subscribe');
+    expect(subscribeCalls.length).toBe(0);
+  });
+
+  it('does nothing on failed reset', () => {
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({
+      type: 'chat-history-result', sessionKey: 'agent:a:s',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'old message' }] }]
+    });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
+    window.handleChatWsMessage({ type: 'chat-new-result', ok: false, error: 'gateway error' });
+    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
   });
 });
 

@@ -92,11 +92,11 @@
   document.addEventListener('click', function(e) {
     if (e.target.id === 'chat-new-btn') {
       const state = window.ChatState;
-      if (state.cachedModels) {
-        renderModelPicker(state.cachedModels);
-      } else {
-        state.sendWs({ type: 'models-list' });
-      }
+      state.sendWs({
+        type: 'chat-new',
+        sessionKey: state.currentSession ? state.currentSession.sessionKey : undefined,
+        agentId: state.currentSession ? state.currentSession.agentId : undefined,
+      });
     }
   });
 

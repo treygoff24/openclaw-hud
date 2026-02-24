@@ -167,6 +167,59 @@ describe('chat-handlers', () => {
       const result = await mod.handleChatMessage(ws, { type: 'unknown' }, null);
       expect(result).toBe(false);
     });
+
+    it('chat-new calls sessions.reset with provided sessionKey', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ ok: true, key: MAIN_KEY, entry: { sessionId: 'new-uuid' } });
+      await mod.handleChatMessage(ws, { type: 'chat-new', sessionKey: MAIN_KEY }, gw);
+      expect(gw.request).toHaveBeenCalledWith('sessions.reset', { key: MAIN_KEY, reason: 'new' });
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('chat-new-result');
+      expect(sent.ok).toBe(true);
+      expect(sent.sessionKey).toBe(MAIN_KEY);
+    });
+
+    it('chat-new constructs default key from agentId when sessionKey missing', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ ok: true, key: 'agent:codex:main', entry: { sessionId: 'new-uuid' } });
+      await mod.handleChatMessage(ws, { type: 'chat-new', agentId: 'codex' }, gw);
+      expect(gw.request).toHaveBeenCalledWith('sessions.reset', { key: 'agent:codex:main', reason: 'new' });
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(true);
+      expect(sent.sessionKey).toBe('agent:codex:main');
+    });
+
+    it('chat-new sends error when gateway disconnected', async () => {
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      await mod.handleChatMessage(ws, { type: 'chat-new', sessionKey: MAIN_KEY }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('chat-new-result');
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('UNAVAILABLE');
+    });
+
+    it('chat-new sends error when sessions.reset throws', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockRejectedValue(new Error('reset failed'));
+      await mod.handleChatMessage(ws, { type: 'chat-new', sessionKey: MAIN_KEY }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('chat-new-result');
+      expect(sent.ok).toBe(false);
+      expect(sent.error).toBeDefined();
+    });
+
+    it('chat-new sends error when no sessionKey and no agentId', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      await mod.handleChatMessage(ws, { type: 'chat-new' }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe('chat-new-result');
+      expect(sent.ok).toBe(false);
+    });
   });
 
   describe('isChatMessage', () => {

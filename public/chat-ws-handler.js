@@ -334,9 +334,9 @@
           window.ChatInput.renderModelPicker(data.models);
           return;
         case 'chat-new-result':
-          if (data.ok && data.sessionKey) {
-            const parts = data.sessionKey.split(':');
-            if (parts.length >= 3) window.openChatPane(parts[1], parts.slice(2).join(':'), '', data.sessionKey);
+          if (data.ok) {
+            const container = document.getElementById('chat-messages');
+            if (container) container.innerHTML = '';
           }
           return;
         case 'log-entry': return handleLogEntry(data);

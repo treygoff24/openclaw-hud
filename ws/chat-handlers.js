@@ -1,5 +1,3 @@
-const { getGatewayConfig } = require('../lib/helpers');
-
 // Map<sessionKey, Set<WebSocket>> — which browsers want events for which session
 const chatSubscriptions = new Map();
 // Map<WebSocket, Set<sessionKey>> — reverse lookup for cleanup
@@ -105,31 +103,21 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       break;
     }
     case 'chat-new': {
-      const { model, agentId } = msg;
-      const gwConfig = getGatewayConfig();
-      if (!gwConfig.token) {
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: 'Gateway token not configured' }));
+      const { sessionKey: rawKey, agentId } = msg;
+      const key = rawKey || (agentId ? `agent:${agentId}:main` : null);
+      if (!key) {
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: { code: 'INVALID', message: 'sessionKey or agentId required' } }));
+        break;
+      }
+      if (!gatewayWS || !gatewayWS.connected) {
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
         break;
       }
       try {
-        const gwRes = await fetch(`http://127.0.0.1:${gwConfig.port}/tools/invoke`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gwConfig.token}` },
-          signal: AbortSignal.timeout(15000),
-          body: JSON.stringify({
-            tool: 'sessions_spawn',
-            args: { task: 'New chat session from HUD', agentId: agentId || undefined, model: model || undefined, mode: 'session', thread: true, label: `hud-${Date.now()}` }
-          })
-        });
-        const body = await gwRes.json();
-        const sessionKey = body?.result?.details?.childSessionKey;
-        if (sessionKey) {
-          ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey }));
-        } else {
-          ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: body?.error?.message || 'Unknown error' }));
-        }
+        const result = await gatewayWS.request('sessions.reset', { key, reason: 'new' });
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey: result.key || key }));
       } catch (err) {
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: err.message }));
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: normalizeGatewayError(err) }));
       }
       break;
     }
