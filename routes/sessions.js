@@ -8,6 +8,7 @@ const {
   getSessionStatus,
   canonicalizeSessionKey,
   canonicalizeRelationshipKey,
+  getModelAliasMap,
   enrichSessionMetadata
 } = require('../lib/helpers');
 
@@ -36,6 +37,7 @@ function mergeCanonicalSessionEntry(allSessions, candidate) {
 router.get('/api/sessions', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
+  const modelAliases = getModelAliasMap();
   const all = [];
   const invalid = [];
   for (const agentId of agents) {
@@ -45,7 +47,7 @@ router.get('/api/sessions', (req, res) => {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);
         const s = { agentId, key, sessionKey, ...val };
-        const displayMeta = enrichSessionMetadata(sessionKey, val, { sessionKey });
+        const displayMeta = enrichSessionMetadata(sessionKey, val, { sessionKey, modelAliases });
         s.status = getSessionStatus(s);
         Object.assign(s, displayMeta);
         all.push(s);
@@ -82,6 +84,7 @@ router.get('/api/session-log/:agentId/:sessionId', (req, res) => {
 router.get('/api/session-tree', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
+  const modelAliases = getModelAliasMap();
   const allSessions = {};
   const invalid = [];
 
@@ -116,7 +119,7 @@ router.get('/api/session-tree', (req, res) => {
 
   const result = Object.values(allSessions).map(s => {
     const parent = s.canonicalSpawnedBy ? allSessions[s.canonicalSpawnedBy] : null;
-    const displayMeta = enrichSessionMetadata(s.key, s, { sessionKey: s.sessionKey });
+    const displayMeta = enrichSessionMetadata(s.key, s, { sessionKey: s.sessionKey, modelAliases });
     return {
       key: s.key,
       sessionKey: s.sessionKey,

@@ -131,6 +131,7 @@ describe('GET /api/sessions', () => {
     expect(sub.modelLabel).toBe('gpt4o');
     expect(sub.fullSlug).toBe('agent:agent-a:sub-task');
     expect(sub.sessionKey).toBe(sub.fullSlug);
+    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -435,5 +436,6 @@ describe('GET /api/session-tree', () => {
     expect(sub.sessionAlias).toBe('sub-task');
     expect(sub.modelLabel).toBe('gpt4o');
     expect(sub.fullSlug).toBe('agent:agent-a:sub-task');
+    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
   });
 });

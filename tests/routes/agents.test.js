@@ -114,5 +114,6 @@ describe('GET /api/agents', () => {
     expect(main.modelLabel).toBe('sonnet');
     expect(main.fullSlug).toBe('agent:agent-a:main');
     expect(main.sessionKey).toBe(main.fullSlug);
+    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,7 @@ const {
   safeJSON,
   safeReaddir,
   canonicalizeSessionKey,
+  getModelAliasMap,
   enrichSessionMetadata
 } = require('../lib/helpers');
 
@@ -13,6 +14,7 @@ const router = Router();
 
 router.get('/api/agents', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
+  const modelAliases = getModelAliasMap();
   const agents = safeReaddir(agentsDir).filter(f => {
     try { return fs.statSync(path.join(agentsDir, f)).isDirectory(); } catch { return false; }
   });
@@ -37,7 +39,7 @@ router.get('/api/agents', (req, res) => {
         spawnDepth: val.spawnDepth,
         lastChannel: val.lastChannel,
         groupChannel: val.groupChannel,
-        ...enrichSessionMetadata(sessionKey, { ...val, sessionKey }, { sessionKey })
+        ...enrichSessionMetadata(sessionKey, { ...val, sessionKey }, { sessionKey, modelAliases })
       });
       return acc;
     }, []);
