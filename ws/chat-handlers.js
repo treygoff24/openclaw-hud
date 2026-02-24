@@ -1,7 +1,41 @@
+const { getGatewayConfig } = require('../lib/helpers');
+
 // Map<sessionKey, Set<WebSocket>> — which browsers want events for which session
 const chatSubscriptions = new Map();
+
+// Attachment rate limiting — per WebSocket connection
+const connectionAttachmentTimestamps = new WeakMap();
+const MAX_ATTACHMENTS_PER_MINUTE = 5;
+const RATE_LIMIT_WINDOW_MS = 60000;
 // Map<WebSocket, Set<sessionKey>> — reverse lookup for cleanup
 const clientChatSubs = new Map();
+
+// Attachment rate limiting — per WebSocket connection
+function checkAttachmentRateLimit(ws) {
+  const now = Date.now();
+  
+  // Get existing timestamps for this connection
+  let timestamps = connectionAttachmentTimestamps.get(ws);
+  if (!timestamps) {
+    timestamps = [];
+    connectionAttachmentTimestamps.set(ws, timestamps);
+  }
+  
+  // Remove timestamps outside the window
+  while (timestamps.length && timestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
+    timestamps.shift();
+  }
+  
+  // Check if limit exceeded
+  if (timestamps.length >= MAX_ATTACHMENTS_PER_MINUTE) {
+    return { allowed: false, error: { code: 'RATE_LIMITED', message: 'Too many attachment uploads' } };
+  }
+  
+  // Add current timestamp
+  timestamps.push(now);
+  return { allowed: true };
+}
+
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
 
 function isCanonicalSessionKey(sessionKey) {
@@ -39,21 +73,38 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       break;
     }
     case 'chat-send': {
-      const { sessionKey, message, idempotencyKey } = msg;
+      const { sessionKey, message, idempotencyKey, attachments } = msg;
       if (!isCanonicalSessionKey(sessionKey)) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' } }));
         break;
       }
-      if (typeof message !== 'string' || !message.trim()) {
-        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'message required' } }));
+      // Allow either message or attachments (but at least one required)
+      if (typeof message !== 'string' && (!attachments || !Array.isArray(attachments) || attachments.length === 0)) {
+        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'message or attachments required' } }));
         break;
+      }
+      // Validate attachments if present
+      if (attachments && Array.isArray(attachments)) {
+        const validationError = validateAttachments(attachments);
+        if (validationError) {
+          ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: validationError }));
+          break;
+        }
+        // Check attachment rate limit
+        const rateLimitResult = checkAttachmentRateLimit(ws);
+        if (!rateLimitResult.allowed) {
+          ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: rateLimitResult.error }));
+          break;
+        }
       }
       if (!gatewayWS || !gatewayWS.connected) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
         break;
       }
       try {
-        const result = await gatewayWS.request('chat.send', { sessionKey, message, idempotencyKey });
+        // Build content blocks
+        const content = buildContentBlocks(message, attachments);
+        const result = await gatewayWS.request('chat.send', { sessionKey, content, idempotencyKey });
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, runId: result.runId, status: result.status, ok: true }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: normalizeGatewayError(err) }));
@@ -103,24 +154,31 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       break;
     }
     case 'chat-new': {
-      const { sessionKey: rawKey, agentId, source } = msg;
-      const key = rawKey || (agentId ? `agent:${agentId}:main` : null);
-      console.log('[chat-new] received:', { rawKey, agentId, source, resolvedKey: key });
-      if (!key) {
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: { code: 'INVALID', message: 'sessionKey or agentId required' } }));
-        break;
-      }
-      if (!gatewayWS || !gatewayWS.connected) {
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
+      const { model, agentId } = msg;
+      const gwConfig = getGatewayConfig();
+      if (!gwConfig.token) {
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: 'Gateway token not configured' }));
         break;
       }
       try {
-        const result = await gatewayWS.request('sessions.reset', { key, reason: 'new' });
-        console.log('[chat-new] reset OK:', { key: result.key || key });
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey: result.key || key, source }));
+        const gwRes = await fetch(`http://127.0.0.1:${gwConfig.port}/tools/invoke`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gwConfig.token}` },
+          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({
+            tool: 'sessions_spawn',
+            args: { task: 'New chat session from HUD', agentId: agentId || undefined, model: model || undefined, mode: 'session', label: `hud-${Date.now()}` }
+          })
+        });
+        const body = await gwRes.json();
+        const sessionKey = body?.result?.details?.childSessionKey;
+        if (sessionKey) {
+          ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey }));
+        } else {
+          ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: body?.error?.message || 'Unknown error' }));
+        }
       } catch (err) {
-        console.log('[chat-new] reset error:', err.message || err);
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: normalizeGatewayError(err), source }));
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: err.message }));
       }
       break;
     }
@@ -166,6 +224,77 @@ function cleanupChatSubscriptions(ws) {
   }
 }
 
+// Attachment helpers
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB server-side limit
+const ALLOWED_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+function validateAttachments(attachments) {
+  if (!Array.isArray(attachments)) {
+    return { code: 'INVALID', message: 'attachments must be an array' };
+  }
+  
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    
+    // Must be image type
+    if (att.type !== 'image') {
+      return { code: 'INVALID_ATTACHMENT_TYPE', message: 'only image attachments are supported, got: ' + att.type };
+    }
+    
+    if (!att.source || !att.source.type) {
+      return { code: 'INVALID', message: 'attachment missing source' };
+    }
+
+    // Validate media_type - must be in allowlist
+    if (!att.source.media_type) {
+      return { code: 'INVALID_MEDIA_TYPE', message: 'attachment missing media_type' };
+    }
+    if (!ALLOWED_MEDIA_TYPES.includes(att.source.media_type)) {
+      return { code: 'INVALID_MEDIA_TYPE', message: 'media_type not allowed: ' + att.source.media_type };
+    }
+    
+    // For base64, check size
+    if (att.source.type === 'base64') {
+      if (!att.source.data) {
+        return { code: 'INVALID', message: 'attachment missing data' };
+      }
+      // Approximate size: base64 is ~1.33x the original size
+      const approxSize = Math.ceil(att.source.data.length * 0.75);
+      if (approxSize > MAX_ATTACHMENT_SIZE) {
+        return { code: 'ATTACHMENT_TOO_LARGE', message: 'attachment exceeds 10MB limit' };
+      }
+    }
+  }
+  
+  return null; // valid
+}
+
+function buildContentBlocks(message, attachments) {
+  const content = [];
+  
+  // Add text message as content block
+  if (message && message.trim()) {
+    content.push({ type: 'text', text: message });
+  }
+  
+  // Add attachments as image content blocks
+  if (attachments && Array.isArray(attachments)) {
+    for (const att of attachments) {
+      content.push({
+        type: 'image',
+        source: {
+          type: att.source.type,
+          media_type: att.source.media_type,
+          data: att.source.data,
+          url: att.source.url
+        }
+      });
+    }
+  }
+  
+  return content;
+}
+
 module.exports = {
   handleChatMessage,
   isChatMessage,
@@ -173,4 +302,9 @@ module.exports = {
   cleanupChatSubscriptions,
   chatSubscriptions,
   clientChatSubs,
+  // Rate limiting exports for testing
+  checkAttachmentRateLimit,
+  MAX_ATTACHMENTS_PER_MINUTE,
+  RATE_LIMIT_WINDOW_MS,
+  connectionAttachmentTimestamps,
 };

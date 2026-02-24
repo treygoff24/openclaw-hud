@@ -95,9 +95,6 @@
         hudDiagLog(CHAT_LOG_PREFIX, 'queue_enqueue', payload);
       }
       hudDiagLog(CHAT_LOG_PREFIX, 'send_deferred', payload);
-      if (typeof window._connectWs === 'function') {
-        window._connectWs();
-      }
     }
   }
 
@@ -109,6 +106,7 @@
     pendingAcks: new Map(),
     cachedModels: null,
     sendWs: sendWs,
+    currentMessages: [],
   };
 
   window._flushChatWsQueue = function() {
@@ -133,12 +131,8 @@
   };
 
   window.openChatPane = function(agentId, sessionId, label, sessionKey) {
-    if (!agentId) {
-      console.warn('[HUD-CHAT] openChatPane aborted: missing agentId');
-      return;
-    }
+    if (!agentId) return;
     if (!isCanonicalSessionKey(sessionKey)) {
-      console.warn('[HUD-CHAT] openChatPane aborted: non-canonical sessionKey', { agentId, sessionId, sessionKey });
       throw new Error('openChatPane requires canonical sessionKey from /api/sessions');
     }
     const displaySessionId = sessionId || sessionKey.split(':').slice(2).join(':');
@@ -153,6 +147,25 @@
     const titleEl = document.getElementById('chat-title');
     if (titleEl) titleEl.textContent = agentId + ' // ' + (label || displaySessionId.slice(0, 8));
 
+    // Create or update export button
+    let exportBtn = document.getElementById('chat-export-btn');
+    if (!exportBtn) {
+      exportBtn = document.createElement('button');
+      exportBtn.id = 'chat-export-btn';
+      exportBtn.className = 'chat-export-btn';
+      exportBtn.setAttribute('aria-label', 'Export session to markdown');
+      exportBtn.title = 'Export session to markdown';
+      exportBtn.textContent = '⬇ Export';
+      exportBtn.onclick = function() {
+        window.exportChatSession();
+      };
+      const header = document.querySelector('.chat-header');
+      const closeBtn = document.getElementById('chat-close');
+      if (header && closeBtn) {
+        header.insertBefore(exportBtn, closeBtn);
+      }
+    }
+
     const liveEl = document.getElementById('chat-live');
     if (liveEl) liveEl.classList.remove('visible');
 
@@ -165,6 +178,7 @@
 
     state.currentSession = { agentId, sessionId: sessionId || '', label, sessionKey };
     state.subscribedKey = sessionKey;
+    state.currentMessages = [];
     localStorage.setItem('hud-chat-session', JSON.stringify(state.currentSession));
 
     const messagesEl = document.getElementById('chat-messages');
@@ -207,11 +221,17 @@
     state.currentSession = null;
     state.activeRuns.clear();
     
-    // Clean up virtual scroller and other resources (guard against null)
-    try { if (window.VirtualScroller) window.VirtualScroller.destroy(); } catch(e) {}
-    try { if (window.ProgressiveToolRenderer) window.ProgressiveToolRenderer.destroy(); } catch(e) {}
-    try { if (window.WebSocketMessageBatcher) window.WebSocketMessageBatcher.destroy(); } catch(e) {}
-
+    // Clean up virtual scroller and other resources
+    if (window.VirtualScroller) {
+      window.VirtualScroller.destroy();
+    }
+    if (window.ProgressiveToolRenderer) {
+      window.ProgressiveToolRenderer.destroy();
+    }
+    if (window.WebSocketMessageBatcher) {
+      window.WebSocketMessageBatcher.destroy();
+    }
+    
     if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
     localStorage.removeItem('hud-chat-session');
   };
@@ -301,12 +321,106 @@
     }
   });
 
-  // Escape key — only close if chat pane is actually open
+  // Escape key
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       if (e.defaultPrevented) return;
       const activeModal = document.querySelector('.modal-overlay.active');
-      if (!activeModal && window.ChatState.subscribedKey) window.closeChatPane();
+      if (!activeModal && window.ChatState && window.ChatState.subscribedKey) window.closeChatPane();
     }
   });
+
+  // Message caching helpers
+  const MAX_CACHED_MESSAGES = 500;
+  const DEDUP_RECENT_WINDOW = 10;
+
+  window.ChatState.addMessage = function(msg) {
+    if (!msg || !msg.role) return;
+    const messages = window.ChatState.currentMessages;
+    // Check for duplicates - only check recent messages (within last 10)
+    // Duplicates from streaming typically arrive back-to-back
+    const startIndex = Math.max(0, messages.length - DEDUP_RECENT_WINDOW);
+    const isDuplicate = messages.slice(startIndex).some(function(existing) {
+      if (existing.timestamp && msg.timestamp && existing.timestamp === msg.timestamp) {
+        return true;
+      }
+      // Compare content if no timestamp match
+      const existingContent = typeof existing.content === 'string' ? existing.content : JSON.stringify(existing.content);
+      const msgContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      return existing.role === msg.role && existingContent === msgContent;
+    });
+    if (!isDuplicate) {
+      messages.push(msg);
+      // Cap the cache size - evict oldest messages if over limit
+      if (messages.length > MAX_CACHED_MESSAGES) {
+        messages.splice(0, messages.length - MAX_CACHED_MESSAGES);
+      }
+    }
+  };
+
+  window.ChatState.setMessages = function(messages) {
+    if (!Array.isArray(messages)) {
+      window.ChatState.currentMessages = [];
+      return;
+    }
+    // Cap the cache to MAX_CACHED_MESSAGES, keeping the most recent
+    if (messages.length > MAX_CACHED_MESSAGES) {
+      window.ChatState.currentMessages = messages.slice(messages.length - MAX_CACHED_MESSAGES);
+    } else {
+      window.ChatState.currentMessages = messages.slice();
+    }
+  };
+
+  // Export session to markdown
+  window.exportChatSession = function() {
+    const state = window.ChatState;
+    if (!state.currentMessages || state.currentMessages.length === 0) {
+      alert('No messages to export');
+      return;
+    }
+
+    const session = state.currentSession;
+    const title = session ? (session.label || session.sessionKey || 'chat') : 'chat';
+
+    let markdown = '# ' + title + '\n\n';
+
+    var userMessage = null;
+    state.currentMessages.forEach(function(msg) {
+      if (msg.role === 'user') {
+        userMessage = msg;
+      } else if (msg.role === 'assistant') {
+        if (userMessage) {
+          markdown += '## User\n';
+          markdown += window.ChatMessage.extractText(userMessage) + '\n\n';
+          userMessage = null;
+        }
+        markdown += '## Assistant\n';
+        var content = msg.content;
+        if (Array.isArray(content)) {
+          markdown += window.CopyUtils.buildContentBlocksMarkdown(content);
+        } else {
+          markdown += window.ChatMessage.extractText(msg) + '\n';
+        }
+        markdown += '\n';
+      }
+    });
+
+    // Handle orphaned user message at end
+    if (userMessage) {
+      markdown += '## User\n';
+      markdown += window.ChatMessage.extractText(userMessage) + '\n\n';
+    }
+
+    // Trigger download
+    var blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = title + '.md';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 })();

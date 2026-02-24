@@ -4,7 +4,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const { setupWebSocket } = require('./ws/log-streaming');
 const { GatewayWS } = require('./lib/gateway-ws');
-const { getGatewayConfig, loadDeviceIdentity } = require('./lib/helpers');
+const { getGatewayConfig } = require('./lib/helpers');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,12 +14,9 @@ const PORT = process.env.PORT || 3777;
 
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
-const deviceIdentity = loadDeviceIdentity();
-console.log('[HUD-GW] config:', { port: gwConfig.port, hasToken: !!gwConfig.token, tokenLen: gwConfig.token ? gwConfig.token.length : 0, hasDevice: !!deviceIdentity });
 const gatewayWS = new GatewayWS({
   url: `ws://127.0.0.1:${gwConfig.port || 18789}`,
   token: gwConfig.token,
-  deviceIdentity,
   reconnect: { enabled: true, baseDelayMs: 1000, maxDelayMs: 30000, jitter: true }
 });
 
@@ -45,7 +42,6 @@ setInterval(() => broadcastAll({ type: 'tick', timestamp: Date.now() }), 10000);
 // Gateway status broadcasts
 gatewayWS.on('connected', () => broadcastAll({ type: 'gateway-status', status: 'connected' }));
 gatewayWS.on('disconnected', () => broadcastAll({ type: 'gateway-status', status: 'disconnected' }));
-gatewayWS.on('error', (err) => console.error('[HUD-GW] error:', err.message));
 
 // Connect (non-blocking)
 gatewayWS.connect().catch(err => console.error('Gateway WS initial connect failed:', err));
@@ -54,8 +50,8 @@ gatewayWS.connect().catch(err => console.error('Gateway WS initial connect faile
 setupWebSocket(wss, gatewayWS);
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n  ╔══════════════════════════════════════════╗`);
-  console.log(`  ║  🔮 OPENCLAW HUD — KIMI K2.5 EDITION    ║`);
-  console.log(`  ║  http://localhost:${PORT}                  ║`);
-  console.log(`  ╚══════════════════════════════════════════╝\n`);
+  console.log(`\n  ╔════════════════════════════════╗`);
+  console.log(`  ║  🔮 OPENCLAW HUD              ║`);
+  console.log(`  ║  http://localhost:${PORT}        ║`);
+  console.log(`  ╚════════════════════════════════╝\n`);
 });

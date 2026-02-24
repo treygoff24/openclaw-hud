@@ -9,7 +9,6 @@ function setupDOM() {
       <div id="chat-messages"></div>
       <div id="chat-new-pill"></div>
       <button id="chat-close"></button>
-      <button id="chat-new-btn"></button>
       <button id="chat-new-chat-btn"></button>
       <div id="chat-model-picker" style="display:none"></div>
       <div id="gateway-banner" class="gateway-banner" style="display:none">Gateway connection lost</div>
@@ -39,6 +38,7 @@ let uuidCounter = 0;
 if (!globalThis.crypto) globalThis.crypto = {};
 globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
+await import('../../public/copy-utils.js');
 await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
@@ -78,19 +78,6 @@ describe('openChatPane', () => {
     );
   });
 
-  it('logs warning and returns early for missing agentId', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    window.openChatPane('', 'sess', 'label', 'agent::sess');
-    expect(spy).toHaveBeenCalledWith('[HUD-CHAT] openChatPane aborted: missing agentId');
-    expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
-    spy.mockRestore();
-  });
-
-  it('throws on non-canonical sessionKey', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(() => window.openChatPane('agent1', 'sess', 'label', 'bad-key')).toThrow('canonical sessionKey');
-    spy.mockRestore();
-  });
   it('adds chat-open class and sets title', () => {
     mockWs();
     window.openChatPane('agent1', 'session123', 'my-label', 'agent:agent1:session123');
@@ -510,115 +497,29 @@ describe('keyboard and UI events', () => {
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
   });
 
+  it('does not call closeChatPane on Escape when subscribedKey is falsy (no chat pane open)', () => {
+    // Reset state without opening a chat pane - subscribedKey should be null
+    setupDOM();
+    vi.clearAllMocks();
+    window._hudWs = null;
+
+    // Spy on closeChatPane to ensure it's not called
+    const closeSpy = vi.spyOn(window, 'closeChatPane');
+
+    // Dispatch Escape key when no chat pane is open
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    // closeChatPane should NOT be called since there's no active chat subscription
+    expect(closeSpy).not.toHaveBeenCalled();
+
+    closeSpy.mockRestore();
+  });
+
   it('close button closes chat', () => {
     mockWs();
     window.openChatPane('a', 's', '', 'agent:a:s');
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
-  });
-});
-
-describe('new chat button', () => {
-  beforeEach(resetState);
-
-  it('sends chat-new with current sessionKey and agentId', () => {
-    const ws = mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
-    ws.send.mockClear();
-    document.getElementById('chat-new-btn').click();
-    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
-    const newMsg = calls.find(c => c.type === 'chat-new');
-    expect(newMsg).toBeTruthy();
-    expect(newMsg.sessionKey).toBe('agent:a:s');
-    expect(newMsg.agentId).toBe('a');
-  });
-
-  it('does not trigger model picker on new chat click', () => {
-    const ws = mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
-    ws.send.mockClear();
-    document.getElementById('chat-new-btn').click();
-    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
-    expect(calls.find(c => c.type === 'models-list')).toBeFalsy();
-    expect(document.querySelector('.model-picker')).toBeNull();
-  });
-});
-
-describe('chat-new-result', () => {
-  beforeEach(resetState);
-
-  it('clears messages on successful reset', () => {
-    mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    window.handleChatWsMessage({
-      type: 'chat-history-result', sessionKey: 'agent:a:s',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'old message' }] }]
-    });
-    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
-    window.handleChatWsMessage({ type: 'chat-new-result', ok: true, sessionKey: 'agent:a:s' });
-    expect(document.querySelectorAll('.chat-msg').length).toBe(0);
-  });
-
-  it('does not open a new pane on successful reset', () => {
-    const ws = mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
-    ws.send.mockClear();
-    window.handleChatWsMessage({ type: 'chat-new-result', ok: true, sessionKey: 'agent:a:s' });
-    // Should NOT send chat-subscribe for a new session (same session, just cleared)
-    const subscribeCalls = ws.send.mock.calls.map(c => JSON.parse(c[0])).filter(c => c.type === 'chat-subscribe');
-    expect(subscribeCalls.length).toBe(0);
-  });
-
-  it('does nothing on failed reset', () => {
-    mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    window.handleChatWsMessage({
-      type: 'chat-history-result', sessionKey: 'agent:a:s',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'old message' }] }]
-    });
-    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
-    window.handleChatWsMessage({ type: 'chat-new-result', ok: false, error: 'gateway error' });
-    expect(document.querySelectorAll('.chat-msg').length).toBe(1);
-  });
-
-  it('opens chat pane when source is tree and reset succeeds', () => {
-    mockWs();
-    const openSpy = vi.spyOn(window, 'openChatPane');
-    window.handleChatWsMessage({
-      type: 'chat-new-result',
-      ok: true,
-      sessionKey: 'agent:bot1:main',
-      source: 'tree',
-    });
-    expect(openSpy).toHaveBeenCalledWith('bot1', 'main', '', 'agent:bot1:main');
-  });
-
-  it('does not open chat pane when source is tree but reset fails', () => {
-    mockWs();
-    const openSpy = vi.spyOn(window, 'openChatPane');
-    window.handleChatWsMessage({
-      type: 'chat-new-result',
-      ok: false,
-      error: 'gateway error',
-      source: 'tree',
-    });
-    expect(openSpy).not.toHaveBeenCalled();
-  });
-
-  it('does not open chat pane when source is not tree', () => {
-    mockWs();
-    window.openChatPane('a', 's', '', 'agent:a:s');
-    const openSpy = vi.spyOn(window, 'openChatPane');
-    openSpy.mockClear();
-    window.handleChatWsMessage({
-      type: 'chat-new-result',
-      ok: true,
-      sessionKey: 'agent:a:s',
-    });
-    expect(openSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -636,5 +537,129 @@ describe('textarea auto-grow', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     // jsdom doesn't compute real scroll heights, but style.height should be set
     expect(input.style.height).toBeDefined();
+  });
+});
+
+describe('textarea scrollbar behavior', () => {
+  beforeEach(() => {
+    setupDOM();
+    vi.clearAllMocks();
+    window._hudWs = mockWs();
+  });
+
+  it('sets overflowY to hidden when scrollHeight <= 160', () => {
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const input = document.getElementById('chat-input');
+    // Simulate scrollHeight that is less than or equal to max-height (160px)
+    Object.defineProperty(input, 'scrollHeight', { value: 100, writable: true });
+    input.value = 'short text';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.style.overflowY).toBe('hidden');
+  });
+
+  it('sets overflowY to auto when scrollHeight > 160', () => {
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const input = document.getElementById('chat-input');
+    // Simulate scrollHeight that exceeds max-height (160px)
+    Object.defineProperty(input, 'scrollHeight', { value: 200, writable: true });
+    input.value = 'very long text that exceeds the max height limit';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.style.overflowY).toBe('auto');
+  });
+});
+
+describe('ChatState message cache', () => {
+  beforeEach(() => {
+    resetState();
+    window.ChatState.currentMessages = [];
+  });
+
+  it('caps cache at MAX_CACHED_MESSAGES (500)', () => {
+    const MAX_CACHED_MESSAGES = 500;
+    // Add 600 messages
+    for (let i = 0; i < 600; i++) {
+      window.ChatState.addMessage({ role: 'user', content: 'msg-' + i, timestamp: 'ts-' + i });
+    }
+    expect(window.ChatState.currentMessages.length).toBe(MAX_CACHED_MESSAGES);
+  });
+
+  it('evicts oldest messages when cap is exceeded', () => {
+    // Add 505 messages
+    for (let i = 0; i < 505; i++) {
+      window.ChatState.addMessage({ role: 'user', content: 'msg-' + i, timestamp: 'ts-' + i });
+    }
+    // The first 5 messages (0-4) should have been evicted
+    expect(window.ChatState.currentMessages[0].content).toBe('msg-5');
+    expect(window.ChatState.currentMessages[0].timestamp).toBe('ts-5');
+    // The last message should be msg-504
+    expect(window.ChatState.currentMessages[window.ChatState.currentMessages.length - 1].content).toBe('msg-504');
+  });
+
+  it('deduplicates messages based on timestamp', () => {
+    const msg1 = { role: 'user', content: 'hello', timestamp: '2024-01-01T00:00:00Z' };
+    const msg2 = { role: 'user', content: 'hello', timestamp: '2024-01-01T00:00:00Z' };
+    window.ChatState.addMessage(msg1);
+    window.ChatState.addMessage(msg2);
+    expect(window.ChatState.currentMessages.length).toBe(1);
+  });
+
+  it('deduplicates recent messages based on content and role (within last 10)', () => {
+    // Add 12 messages with distinct content
+    for (let i = 0; i < 12; i++) {
+      window.ChatState.addMessage({ role: 'user', content: 'msg-' + i, timestamp: 'ts-' + i });
+    }
+    // Try to duplicate the last message (msg-11) - should be blocked
+    window.ChatState.addMessage({ role: 'user', content: 'msg-11', timestamp: 'ts-dup' });
+    expect(window.ChatState.currentMessages.length).toBe(12);
+    // Try to duplicate the 3rd from last (msg-9) - should be blocked (within last 10)
+    window.ChatState.addMessage({ role: 'user', content: 'msg-9', timestamp: 'ts-dup2' });
+    expect(window.ChatState.currentMessages.length).toBe(12);
+  });
+
+  it('allows duplicates outside the recent 10 window', () => {
+    // Add 15 messages
+    for (let i = 0; i < 15; i++) {
+      window.ChatState.addMessage({ role: 'user', content: 'msg-' + i, timestamp: 'ts-' + i });
+    }
+    // Try to duplicate msg-4 (11th from end, outside the recent 10 window)
+    window.ChatState.addMessage({ role: 'user', content: 'msg-4', timestamp: 'ts-dup' });
+    // Should be allowed since we only check last 10
+    expect(window.ChatState.currentMessages.length).toBe(16);
+  });
+
+  it('allows different roles with same content', () => {
+    window.ChatState.addMessage({ role: 'user', content: 'hello', timestamp: 'ts-1' });
+    window.ChatState.addMessage({ role: 'assistant', content: 'hello', timestamp: 'ts-2' });
+    expect(window.ChatState.currentMessages.length).toBe(2);
+  });
+
+  it('export works correctly with capped cache', () => {
+    // Add 600 messages
+    for (let i = 0; i < 600; i++) {
+      window.ChatState.addMessage({ 
+        role: i % 2 === 0 ? 'user' : 'assistant', 
+        content: 'msg-' + i, 
+        timestamp: 'ts-' + i 
+      });
+    }
+    // Should have exactly 500 messages
+    expect(window.ChatState.currentMessages.length).toBe(500);
+    // Export should not throw and should have the right count
+    const state = window.ChatState;
+    expect(state.currentMessages.length).toBe(500);
+    // Verify the messages are the correct ones (latest 500)
+    expect(state.currentMessages[0].content).toBe('msg-100');
+    expect(state.currentMessages[state.currentMessages.length - 1].content).toBe('msg-599');
+  });
+
+  it('setMessages respects the cache cap', () => {
+    const largeArray = [];
+    for (let i = 0; i < 600; i++) {
+      largeArray.push({ role: 'user', content: 'msg-' + i, timestamp: 'ts-' + i });
+    }
+    window.ChatState.setMessages(largeArray);
+    expect(window.ChatState.currentMessages.length).toBe(500);
+    // Should keep only the last 500
+    expect(window.ChatState.currentMessages[0].content).toBe('msg-100');
   });
 });

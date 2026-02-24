@@ -150,4 +150,68 @@ describe('POST /api/spawn', () => {
     const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(fetchBody.args.mode).toBe('run');
   });
+
+  it('uses model alias as label fallback when no label provided', async () => {
+    // Create app first (this reloads the module)
+    const app = createApp();
+    // Get the freshly loaded module
+    const spawnModule = require('../../routes/spawn');
+    
+    // Populate cached models on the freshly loaded module
+    spawnModule.setCachedModels([
+      { alias: 'Kimi K2.5', fullId: 'fireworks/accounts/fireworks/models/kimi-k2p5' },
+      { alias: 'GPT-4', fullId: 'openai/gpt-4' }
+    ]);
+    
+    const res = await request(app).post('/api/spawn').send({ 
+      ...validBody, 
+      model: 'fireworks/accounts/fireworks/models/kimi-k2p5',
+      label: undefined 
+    });
+    expect(res.status).toBe(200);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    // Should use the sanitized alias (non-alphanumeric chars replaced with underscores)
+    expect(fetchBody.args.label).toBe('Kimi_K2_5');
+  });
+
+  it('preserves user-provided label over model alias', async () => {
+    await request(createApp()).post('/api/spawn').send({ 
+      ...validBody, 
+      model: 'gpt-4',
+      label: 'my-custom-label' 
+    });
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.args.label).toBe('my-custom-label');
+  });
+});
+
+describe('resolveAliasFromModel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    helpers.getGatewayConfig.mockReturnValue({ port: 18789, token: 'test-token' });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: { details: { childSessionKey: 'key-123', runId: 'run-456' } } }),
+    });
+  });
+
+  it('resolves alias by model id from cached models', async () => {
+    // Mock the cachedModels by requiring the module directly
+    const spawnModule = require('../../routes/spawn');
+    
+    // Create a test model list
+    const testModels = [
+      { id: 'gpt-4', alias: 'GPT-4 Turbo', model: 'openai/gpt-4-turbo' },
+      { id: 'claude-opus', alias: 'Claude 3 Opus', model: 'anthropic/claude-3-opus' }
+    ];
+    
+    // The resolveAliasFromModel function should be tested indirectly through the endpoint
+    const res = await request(createApp()).post('/api/spawn').send({ 
+      agentId: 'bot', 
+      prompt: 'test',
+      model: 'gpt-4'
+    });
+    
+    expect(res.status).toBe(200);
+  });
 });

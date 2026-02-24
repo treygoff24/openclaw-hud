@@ -2,6 +2,70 @@
 (function() {
   'use strict';
 
+  // createCopyButton and buildContentBlocksMarkdown are provided by
+  // window.CopyUtils (copy-utils.js, loaded before this script).
+
+  function createMessageCopyButton(text) {
+    return window.CopyUtils.createCopyButton(text, 'Copy message');
+  }
+
+  function createCopyTurnButton(assistantMsg) {
+    var btn = window.CopyUtils.createCopyButton(function() {
+      return buildTurnMarkdown(assistantMsg);
+    }, 'Copy entire turn');
+    btn.classList.add('copy-turn-btn');
+    return btn;
+  }
+
+  function buildTurnMarkdown(assistantMsg) {
+    var state = window.ChatState;
+    var messages = state.currentMessages || [];
+
+    // Find the index of this assistant message in the cached messages
+    var assistantIndex = -1;
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'assistant') {
+        // Match by content comparison
+        var msgContent = typeof messages[i].content === 'string' ? messages[i].content : JSON.stringify(messages[i].content);
+        var asstContent = typeof assistantMsg.content === 'string' ? assistantMsg.content : JSON.stringify(assistantMsg.content);
+        if (msgContent === asstContent) {
+          assistantIndex = i;
+          break;
+        }
+      }
+    }
+
+    // Look backwards to find the preceding user message
+    var userMsg = null;
+    if (assistantIndex > 0) {
+      for (var j = assistantIndex - 1; j >= 0; j--) {
+        if (messages[j].role === 'user') {
+          userMsg = messages[j];
+          break;
+        }
+      }
+    }
+
+    var markdown = '';
+
+    // Add user message
+    if (userMsg) {
+      markdown += '## User\n';
+      markdown += extractText(userMsg) + '\n\n';
+    }
+
+    // Add assistant message
+    markdown += '## Assistant\n';
+    var content = assistantMsg.content;
+    if (Array.isArray(content)) {
+      markdown += window.CopyUtils.buildContentBlocksMarkdown(content);
+    } else {
+      markdown += extractText(assistantMsg) + '\n';
+    }
+
+    return markdown;
+  }
+
   function extractText(message) {
     if (typeof message === 'string') return message;
     if (message && Array.isArray(message.content)) {
@@ -86,6 +150,10 @@
       thinkDiv.textContent = block.thinking || '';
       return thinkDiv;
     }
+    // Image block
+    if (block.type === 'image') {
+      return renderImageBlock(block);
+    }
     // Unknown block type
     if (block.type !== 'text') {
       var unknownDiv = document.createElement('div');
@@ -104,6 +172,47 @@
       contentDiv.textContent = text;
     }
     return contentDiv;
+  }
+
+  function renderImageBlock(block) {
+    var container = document.createElement('div');
+    container.className = 'chat-image';
+    
+    var source = block.source;
+    if (!source) {
+      var placeholder = document.createElement('div');
+      placeholder.className = 'chat-image-placeholder';
+      placeholder.textContent = 'Image (data not available)';
+      container.appendChild(placeholder);
+      return container;
+    }
+    
+    var img = document.createElement('img');
+    img.alt = 'Image';
+    
+    if (source.type === 'base64') {
+      if (!source.data) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'chat-image-placeholder';
+        var sizeInfo = source.media_type ? ' (' + source.media_type + ')' : '';
+        placeholder.textContent = 'Image' + sizeInfo + ' (data not available)';
+        container.appendChild(placeholder);
+        return container;
+      }
+      img.src = 'data:' + source.media_type + ';base64,' + source.data;
+    } else if (source.type === 'url') {
+      img.src = source.url;
+    } else {
+      // Unknown source type
+      var placeholder = document.createElement('div');
+      placeholder.className = 'chat-image-placeholder';
+      placeholder.textContent = 'Image (unknown source type: ' + source.type + ')';
+      container.appendChild(placeholder);
+      return container;
+    }
+    
+    container.appendChild(img);
+    return container;
   }
 
   function renderHistoryMessage(msg) {
@@ -125,10 +234,35 @@
       return div;
     }
 
+    var headerRow = document.createElement('div');
+    headerRow.className = 'chat-msg-header';
+
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
-    roleSpan.textContent = role;
-    div.appendChild(roleSpan);
+    if (role === 'assistant') {
+      var session = window.ChatState?.currentSession;
+      roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+    } else {
+      roleSpan.textContent = role;
+    }
+    headerRow.appendChild(roleSpan);
+
+    // Add copy button for assistant and user messages (not tool)
+    if (role === 'assistant' || role === 'user') {
+      var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+      var textContent = blocks
+        .filter(function(b) { return b.type === 'text'; })
+        .map(function(b) { return b.text || ''; })
+        .join('\n');
+      var copyBtn = createMessageCopyButton(textContent);
+      headerRow.appendChild(copyBtn);
+    }
+
+    // Add copy turn button for assistant messages (copies entire turn: user + assistant)
+    if (role === 'assistant') {
+      var copyTurnBtn = createCopyTurnButton(msg);
+      headerRow.appendChild(copyTurnBtn);
+    }
 
     // Timestamp element
     if (msg.timestamp) {
@@ -136,10 +270,12 @@
       timeSpan.className = 'chat-msg-time';
       timeSpan.textContent = formatTimestamp(msg.timestamp);
       timeSpan.title = formatAbsoluteTime(msg.timestamp);
-      div.appendChild(timeSpan);
+      headerRow.appendChild(timeSpan);
     }
 
-    var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+    div.appendChild(headerRow);
+
+    blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
 
     // Collect tool_use blocks for potential grouping
     var toolUseEls = [];
@@ -171,7 +307,8 @@
     div.className = 'chat-msg assistant streaming';
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role assistant';
-    roleSpan.textContent = 'assistant';
+    var session = window.ChatState?.currentSession;
+    roleSpan.textContent = session?.label || session?.agentId || 'assistant';
     div.appendChild(roleSpan);
     var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';

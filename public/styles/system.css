@@ -7,14 +7,14 @@
 }
 .sys-label {
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 2px;
   color: var(--text-dim);
   text-transform: uppercase;
 }
 .sys-value {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--fs-xxl);
   color: var(--cyan);
 }
 
@@ -26,12 +26,12 @@
   }
 
   .sys-label {
-    font-size: 10px;
+    font-size: var(--fs-sm);
     letter-spacing: 1.2px;
   }
 
   .sys-value {
-    font-size: 13px;
+    font-size: var(--fs-lg);
     word-break: break-word;
   }
 }

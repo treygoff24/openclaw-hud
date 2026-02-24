@@ -19,6 +19,7 @@ window.ChatCommands = {
 };
 
 await import('../../public/chat-markdown.js');
+await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
 await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');

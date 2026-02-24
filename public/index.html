@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OPENCLAW HUD // KIMI K2.5</title>
+<title>OPENCLAW HUD</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/main.css">
@@ -17,7 +17,6 @@
 <header class="hud-header" role="banner">
   <div>
     <div class="logo-glitch" data-text="OPENCLAW">OPENCLAW</div>
-    <div class="hud-subtitle">KIMI K2.5 // COMMAND CENTER</div>
   </div>
   <div class="header-right">
     <div class="stat-block">
@@ -70,7 +69,7 @@
   <div class="row row-2-wide">
     <section class="panel" id="p-tree" aria-labelledby="tree-heading">
       <div class="corner-deco tl"></div><div class="corner-deco tr"></div><div class="corner-deco bl"></div><div class="corner-deco br"></div>
-      <div class="panel-header" id="tree-heading"><span>SESSION TREE</span> <div style="display:flex;align-items:center;gap:8px;"><button class="spawn-btn" id="new-session-btn" aria-label="New main agent session">+ NEW</button><button class="spawn-btn" id="open-spawn-btn" aria-label="Spawn subagent session">SPAWN</button><span class="count" id="tree-count" aria-live="polite" aria-atomic="true">0</span></div></div>
+      <div class="panel-header" id="tree-heading"><span>SESSION TREE</span> <div style="display:flex;align-items:center;gap:12px;"><button class="spawn-btn" id="open-spawn-btn" aria-label="Launch new session">+ NEW</button><span class="count" id="tree-count" aria-live="polite" aria-atomic="true">0</span></div></div>
       <div class="panel-body" id="tree-body" role="tree" aria-label="Session tree"></div>
     </section>
 
@@ -317,6 +316,7 @@
 
 <!-- Chat pane -->
 <script src="lazy-loader.js"></script>
+<script src="copy-utils.js"></script>
 <script src="chat-markdown.js"></script>
 <script src="chat-ws-batcher.js"></script>
 <script src="chat-progressive-render.js"></script>
@@ -324,6 +324,7 @@
 <script src="chat-message.js"></script>
 <script src="chat-messages.js"></script>
 <script src="chat-input.js"></script>
+<script src="chat-commands.js"></script>
 <script src="chat-ws-handler.js"></script>
 <!-- Main entry point - load before chat-pane.js so its Escape handler runs first -->
 <script src="app.js"></script>

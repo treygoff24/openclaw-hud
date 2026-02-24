@@ -280,7 +280,7 @@ describe('WebSocket log-streaming', () => {
     expect(msg.ok).toBe(true);
     expect(msg.runId).toBe('r1');
     expect(msg.idempotencyKey).toBe('ik1');
-    expect(mockGateway.request).toHaveBeenCalledWith('chat.send', { sessionKey: 'agent:test:main', message: 'hi', idempotencyKey: 'ik1' });
+    expect(mockGateway.request).toHaveBeenCalledWith('chat.send', { sessionKey: 'agent:test:main', content: [{ type: 'text', text: 'hi' }], idempotencyKey: 'ik1' });
   });
 
   it('chat-send with gateway disconnected sends error', async () => {

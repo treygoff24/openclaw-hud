@@ -2,6 +2,11 @@
 (function() {
   'use strict';
 
+  // createCopyButton is provided by window.CopyUtils (copy-utils.js)
+  function createCopyButton(copyText) {
+    return window.CopyUtils.createCopyButton(copyText, 'Copy to clipboard');
+  }
+
   var TOOL_ICONS = {
     browser: '🌐', Read: '📁', Write: '📁', read: '📁', write: '📁',
     exec: '⚡', web_search: '🔍', web_fetch: '🔍', image: '🖼️',
@@ -22,6 +27,10 @@
     wrapper.className = 'chat-tool-use expanded';
     wrapper.dataset.toolUseId = block.id || '';
 
+    // Create header container
+    var headerContainer = document.createElement('div');
+    headerContainer.className = 'chat-tool-use-header-row';
+
     var bodyId = 'chat-tool-use-body-' + Math.random().toString(36).slice(2, 10);
     var header = document.createElement('button');
     header.type = 'button';
@@ -31,6 +40,13 @@
     var icon = getToolIcon(block.name);
     var preview = getArgPreview(block.input);
     header.textContent = icon + ' ' + block.name + (preview ? ' "' + preview + '"' : '');
+
+    // Create copy button for tool use
+    var copyData = JSON.stringify({ name: block.name, input: block.input || {} }, null, 2);
+    var copyBtn = createCopyButton(copyData);
+
+    headerContainer.appendChild(header);
+    headerContainer.appendChild(copyBtn);
 
     var body = document.createElement('div');
     body.className = 'chat-tool-use-body';
@@ -42,7 +58,7 @@
       header.setAttribute('aria-expanded', wrapper.classList.contains('expanded') ? 'true' : 'false');
     };
 
-    wrapper.appendChild(header);
+    wrapper.appendChild(headerContainer);
     wrapper.appendChild(body);
     return wrapper;
   }
@@ -55,9 +71,12 @@
     var raw = typeof block.content === 'string' ? block.content : (block.content != null ? JSON.stringify(block.content, null, 2) : '');
     
     // Use progressive rendering for large content (>10KB)
-    const PROGRESSIVE_THRESHOLD = 10000;
+    var PROGRESSIVE_THRESHOLD = 10000;
     if (raw.length > PROGRESSIVE_THRESHOLD && window.ProgressiveToolRenderer) {
       window.ProgressiveToolRenderer.render(wrapper, raw);
+      // Add copy button for progressive renders
+      var copyBtn = createCopyButton(raw);
+      wrapper.appendChild(copyBtn);
       return wrapper;
     }
     
@@ -65,10 +84,18 @@
     var truncated = raw.length > 1000;
     var preview = truncated ? raw.slice(0, 1000) : raw;
 
+    var contentContainer = document.createElement('div');
+    contentContainer.className = 'chat-tool-result-container';
+
     var contentEl = document.createElement('div');
-    contentEl.className = 'chat-tool-result-content';
+    contentEl.className = 'chat-tool-result-content code-block';
     contentEl.textContent = preview;
-    wrapper.appendChild(contentEl);
+    contentContainer.appendChild(contentEl);
+
+    // Add copy button for tool result
+    var copyBtn = createCopyButton(raw);
+    contentContainer.appendChild(copyBtn);
+    wrapper.appendChild(contentContainer);
 
     if (truncated) {
       var more = document.createElement('button');

@@ -14,5 +14,5 @@ noscript {
 noscript::before {
   content: '⚠ JavaScript is required to run the OpenClaw HUD. Please enable JavaScript in your browser settings.';
   display: block;
-  font-size: 16px;
+  font-size: var(--fs-huge);
 }

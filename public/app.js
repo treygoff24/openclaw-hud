@@ -140,33 +140,82 @@
   }
   HUD.showToast = showToast;
 
-  // Fetch all data
-  async function fetchAll() {
+  // Per-panel error boundary - wraps render functions to catch errors gracefully
+  function renderPanelSafe(panelName, panelEl, renderFn, data) {
+    if (!panelEl) {
+      console.warn(`Panel element not found: ${panelName}`);
+      return;
+    }
     try {
-      const [agents, sessions, cron, config, usage, activity, tree, models] = await Promise.all([
-        fetch('/api/agents').then(r => r.json()),
-        fetch('/api/sessions').then(r => r.json()),
-        fetch('/api/cron').then(r => r.json()),
-        fetch('/api/config').then(r => r.json()),
-        fetch('/api/model-usage').then(r => r.json()),
-        fetch('/api/activity').then(r => r.json()),
-        fetch('/api/session-tree').then(r => r.json()),
-        fetch('/api/models').then(r => r.json()),
-      ]);
-      window._modelAliases = models;
-      window._allSessions = sessions;
-      HUD.agents.render(agents);
-      HUD.sessions.render(sessions);
-      HUD.cron.render(cron);
-      HUD.system.render(config);
-      HUD.models.render(usage);
-      HUD.activity.render(activity);
-      HUD.sessionTree.render(tree);
-      if (!hasAttemptedChatSessionRestore && typeof window.restoreSavedChatSession === 'function') {
+      renderFn(panelEl, data);
+    } catch (err) {
+      console.error(`Panel render failed: ${panelName}`, err);
+      panelEl.innerHTML = `
+        <div class="panel-error">
+          <span class="panel-error-msg">—</span>
+          <button class="panel-retry-btn" onclick="retryPanel('${panelName}')" title="Retry">↻</button>
+        </div>`;
+    }
+  }
+  window.renderPanelSafe = renderPanelSafe;
+
+  // Retry a specific panel by re-fetching all data
+  function retryPanel(panelName) {
+    console.log(`Retrying panel: ${panelName}`);
+    fetchAll();
+  }
+  window.retryPanel = retryPanel;
+
+  // Fetch all data with resilience - uses Promise.allSettled so individual failures don't blank all panels
+  async function fetchAll() {
+    const endpoints = [
+      { name: 'agents', url: '/api/agents' },
+      { name: 'sessions', url: '/api/sessions' },
+      { name: 'cron', url: '/api/cron' },
+      { name: 'config', url: '/api/config' },
+      { name: 'model-usage', url: '/api/model-usage' },
+      { name: 'activity', url: '/api/activity' },
+      { name: 'session-tree', url: '/api/session-tree' },
+      { name: 'models', url: '/api/models' },
+    ];
+
+    try {
+      // Use Promise.allSettled so one failure doesn't reject all
+      const results = await Promise.allSettled(
+        endpoints.map(e => fetch(e.url).then(r => r.json()).catch(err => {
+          console.warn(`Endpoint ${e.name} failed:`, err);
+          return null; // Return null for failed endpoints
+        }))
+      );
+
+      // Extract data or null for each endpoint
+      const data = {};
+      results.forEach((result, index) => {
+        data[endpoints[index].name] = result.status === 'fulfilled' ? result.value : null;
+      });
+
+      // Store global data
+      window._modelAliases = data.models || [];
+      window._allSessions = data.sessions || [];
+
+      // Render each panel with error boundaries
+      renderPanelSafe('agents', document.getElementById('agents-list'), (el, d) => HUD.agents.render(d), data.agents);
+      renderPanelSafe('sessions', document.getElementById('sessions-list'), (el, d) => HUD.sessions.render(d), data.sessions);
+      renderPanelSafe('cron', document.getElementById('cron-list'), (el, d) => HUD.cron.render(d), data.cron);
+      renderPanelSafe('system', document.getElementById('system-info'), (el, d) => HUD.system.render(d), data.config);
+      renderPanelSafe('models', document.getElementById('model-usage'), (el, d) => HUD.models.render(d), data['model-usage']);
+      renderPanelSafe('activity', document.getElementById('activity-feed'), (el, d) => HUD.activity.render(d), data.activity);
+      renderPanelSafe('session-tree', document.getElementById('tree-body'), (el, d) => HUD.sessionTree.render(d), data['session-tree']);
+
+      // Restore chat session only once
+      if (!hasAttemptedChatSessionRestore && typeof window.restoreSavedChatSession === 'function' && data.sessions) {
         hasAttemptedChatSessionRestore = true;
-        window.restoreSavedChatSession(sessions);
+        window.restoreSavedChatSession(data.sessions);
       }
-      setConnectionStatus(true);
+
+      // Set connection status based on whether any data was retrieved
+      const hasAnyData = results.some(r => r.status === 'fulfilled' && r.value !== null);
+      setConnectionStatus(hasAnyData);
     } catch (err) {
       console.error('Fetch error:', err);
       setConnectionStatus(false);
@@ -195,10 +244,12 @@
   const WS_RECONNECT_BASE_MS = 500;
   const WS_RECONNECT_MAX_MS = 5000;
   const WS_RECONNECT_JITTER_MS = 250;
+  const WS_POST_OPEN_RECONNECT_MS = 2000;
   let wsReconnectAttempts = 0;
   let wsReconnectTimer = null;
   let wsEverOpened = false;
   let wsConnectAttempt = 0;
+
   function clearWsReconnectTimer() {
     if (wsReconnectTimer) {
       clearTimeout(wsReconnectTimer);
@@ -206,21 +257,43 @@
     }
   }
 
-  function scheduleWsReconnect(trigger) {
+  function scheduleWsReconnect(trigger, wasPreviouslyOpened) {
+    // Don't stack reconnection timers
     if (wsReconnectTimer) return;
-    const exp = Math.min(wsReconnectAttempts, 6);
-    const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
-    const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
-    const delayMs = backoff + jitter;
-    const reconnectAttempt = wsReconnectAttempts + 1;
-    hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
-      trigger: trigger || 'unknown',
-      reconnectAttempt: reconnectAttempt,
-      delayMs: delayMs,
-      backoffMs: backoff,
-      jitterMs: jitter
-    });
-    wsReconnectAttempts += 1;
+    
+    let delayMs;
+    let reconnectAttempt;
+    
+    if (wasPreviouslyOpened) {
+      // Post-open disconnect: use short fixed delay for quick reconnection
+      // No jitter for post-open - we want predictable fast reconnection
+      delayMs = WS_POST_OPEN_RECONNECT_MS;
+      reconnectAttempt = wsReconnectAttempts + 1;
+      wsReconnectAttempts += 1;
+      hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
+        trigger: trigger || 'unknown',
+        reconnectAttempt: reconnectAttempt,
+        delayMs: delayMs,
+        type: 'post_open'
+      });
+    } else {
+      // Pre-open failure: use exponential backoff
+      const exp = Math.min(wsReconnectAttempts, 6);
+      const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
+      const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
+      delayMs = backoff + jitter;
+      reconnectAttempt = wsReconnectAttempts + 1;
+      wsReconnectAttempts += 1;
+      hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
+        trigger: trigger || 'unknown',
+        reconnectAttempt: reconnectAttempt,
+        delayMs: delayMs,
+        backoffMs: backoff,
+        jitterMs: jitter,
+        type: 'pre_open'
+      });
+    }
+    
     wsReconnectTimer = setTimeout(() => {
       wsReconnectTimer = null;
       hudDiagLog(WS_LOG_PREFIX, 'reconnect_fired', {
@@ -237,7 +310,7 @@
     }
 
     const attempt = ++wsConnectAttempt;
-    const wsUrl = HUD.utils.wsUrl();
+    const wsUrl = HUD.utils.wsUrl(location);
     hudDiagLog(WS_LOG_PREFIX, 'connect_attempt', {
       attempt: attempt,
       url: wsUrl
@@ -253,7 +326,7 @@
       });
       startPolling();
       setConnectionStatus(false);
-      scheduleWsReconnect('constructor_error');
+      scheduleWsReconnect('constructor_error', wsEverOpened);
       return;
     }
 
@@ -289,21 +362,24 @@
         code: evt && typeof evt.code === 'number' ? evt.code : '',
         reason: evt && typeof evt.reason === 'string' ? evt.reason : '',
         wasClean: evt && typeof evt.wasClean === 'boolean' ? evt.wasClean : '',
-        opened: opened
+        opened: opened,
+        wsEverOpened: wsEverOpened
       });
-      scheduleWsReconnect(opened ? 'close_after_open' : 'close_before_open');
+      // Schedule reconnection - always try to reconnect regardless of whether
+      // this was a pre-open or post-open close
+      scheduleWsReconnect(opened ? 'close_after_open' : 'close_before_open', wsEverOpened);
     };
     ws.onerror = () => {
       setConnectionStatus(false);
       hudDiagLog(WS_LOG_PREFIX, 'error', {
         attempt: attempt,
         url: wsUrl,
-        opened: opened
+        opened: opened,
+        wsEverOpened: wsEverOpened
       });
-      if (!opened) scheduleWsReconnect('error_before_open');
+      if (!opened) scheduleWsReconnect('error_before_open', wsEverOpened);
     };
   }
 
-  window._connectWs = connectWs;
   connectWs();
 })();

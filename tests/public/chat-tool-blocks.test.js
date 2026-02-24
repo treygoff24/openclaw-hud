@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 
+await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
 
 describe('ChatToolBlocks', () => {

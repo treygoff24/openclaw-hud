@@ -30,6 +30,10 @@ HUD.sessionTree = (function() {
       const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
       const dotClass = statusMap[node.status] || 'status-dot-gray';
       const label = node.label || node.key;
+      const sessionKey = node.sessionKey;
+      if (!sessionKey || typeof sessionKey !== 'string') {
+        throw new Error('sessionTree.render requires canonical sessionKey for each node');
+      }
       const kids = children[node.key] || [];
       const hasKids = kids.length > 0;
       const collapsed = collapseState[node.key] === true;
@@ -39,7 +43,7 @@ HUD.sessionTree = (function() {
       const statusLabel = node.status || 'unknown';
 
       let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}" aria-label="Session ${escapeHtml(label)}, ${statusLabel}, agent ${escapeHtml(node.agentId || 'unknown')}">
-        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(node.sessionKey || node.key || '')}" data-label="${escapeHtml(label)}" tabindex="0" role="button">
+        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(label)}" tabindex="0" role="button">
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
           <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
           <div class="${dotClass}" aria-hidden="true"></div>
@@ -87,8 +91,8 @@ HUD.sessionTree = (function() {
       window.makeFocusable(node, () => {
         const agent = node.dataset.agent;
         const session = node.dataset.session;
-        if (agent && session) {
-          openChatPane(agent, session, node.dataset.label || '');
+        if (agent && node.dataset.sessionKey) {
+          openChatPane(agent, session || '', node.dataset.label || '', node.dataset.sessionKey);
         }
       });
     });

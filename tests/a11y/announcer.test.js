@@ -191,8 +191,7 @@ describe('ARIA Labels and Roles', () => {
   it('should have aria-label on buttons without visible text', () => {
     expect(html).toMatch(/id="chat-send-btn"[^>]*aria-label="Send message"/);
     expect(html).toMatch(/id="chat-stop-btn"[^>]*aria-label="Stop generation"/);
-    expect(html).toMatch(/id="new-session-btn"[^>]*aria-label="New main agent session"/);
-    expect(html).toMatch(/id="open-spawn-btn"[^>]*aria-label="Spawn subagent session"/);
+    expect(html).toMatch(/id="open-spawn-btn"[^>]*aria-label="Launch new session"/);
     expect(html).toMatch(/id="spawn-modal-close"[^>]*aria-label="Close spawn dialog"/);
     expect(html).toMatch(/id="cron-modal-close"[^>]*aria-label="Close cron editor"/);
   });

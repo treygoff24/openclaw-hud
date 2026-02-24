@@ -2,7 +2,7 @@
 .model-bar-row { margin-bottom: 10px; }
 .model-bar-label {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-lg);
   color: var(--text-label);
   margin-bottom: 4px;
   display: flex;
@@ -35,13 +35,13 @@
 }
 .model-agents {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-base);
   color: var(--text-dim);
   margin-top: 3px;
 }
 .token-breakdown {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-base);
   color: var(--text-secondary, #aaa);
   margin-top: 2px;
 }
