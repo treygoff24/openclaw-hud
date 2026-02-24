@@ -605,14 +605,14 @@
     const contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
     
-    // Format the result with proper line breaks
-    const formatted = result
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>');
+    // Use safe DOM API with textContent to prevent XSS
+    // textContent automatically escapes all HTML entities
+    // <pre> preserves whitespace and newlines
+    const pre = document.createElement('pre');
+    pre.className = 'command-output';
+    pre.textContent = result;
+    contentDiv.appendChild(pre);
     
-    contentDiv.innerHTML = `<pre class="command-output">${formatted}</pre>`;
     div.appendChild(contentDiv);
     
     container.appendChild(div);
