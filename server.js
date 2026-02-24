@@ -33,6 +33,7 @@ app.use(require('./routes/agents'));
 app.use(require('./routes/sessions'));
 app.use(require('./routes/cron'));
 app.use(require('./routes/spawn'));
+app.use(require('./routes/model-usage'));
 app.use(require('./routes/activity'));
 
 // WebSocket: push ticks every 10s
