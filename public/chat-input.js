@@ -676,6 +676,9 @@
               e.preventDefault();
               return;
             }
+            // Dismiss autocomplete before falling through to send
+            removeAutocomplete();
+            removeArgumentHints();
           }
           break;
         case 'Escape':
