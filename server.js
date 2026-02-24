@@ -50,8 +50,8 @@ gatewayWS.connect().catch(err => console.error('Gateway WS initial connect faile
 setupWebSocket(wss, gatewayWS);
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n  ╔══════════════════════════════════════════╗`);
-  console.log(`  ║  🔮 OPENCLAW HUD — KIMI K2.5 EDITION    ║`);
-  console.log(`  ║  http://localhost:${PORT}                  ║`);
-  console.log(`  ╚══════════════════════════════════════════╝\n`);
+  console.log(`\n  ╔════════════════════════════════╗`);
+  console.log(`  ║  🔮 OPENCLAW HUD              ║`);
+  console.log(`  ║  http://localhost:${PORT}        ║`);
+  console.log(`  ╚════════════════════════════════╝\n`);
 });
