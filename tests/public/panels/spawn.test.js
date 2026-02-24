@@ -95,6 +95,18 @@ describe('spawn.newSession', () => {
   });
 });
 
+describe('spawn.init', () => {
+  it('does not throw when #new-session-btn is missing', () => {
+    const spawnModal = document.getElementById('spawn-modal');
+    const newSessionBtn = document.getElementById('new-session-btn');
+    newSessionBtn?.remove();
+    expect(() => HUD.spawn.init()).not.toThrow();
+    if (spawnModal && newSessionBtn) {
+      spawnModal.appendChild(newSessionBtn);
+    }
+  });
+});
+
 describe('spawn.open', () => {
   it('opens the spawn modal', () => {
     HUD.spawn.open();

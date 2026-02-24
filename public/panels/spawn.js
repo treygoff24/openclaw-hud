@@ -114,7 +114,10 @@ HUD.spawn = (function() {
   }
 
   function init() {
-    $('#new-session-btn').addEventListener('click', newSession);
+    const newSessionBtn = $('#new-session-btn');
+    if (newSessionBtn) {
+      newSessionBtn.addEventListener('click', newSession);
+    }
     $('#open-spawn-btn').addEventListener('click', open);
     $('#spawn-cancel-btn').addEventListener('click', close);
     $('#spawn-modal-close').addEventListener('click', close);
