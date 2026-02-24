@@ -1,291 +1,337 @@
-# Weekly Usage Source-of-Truth + Sunday Archive Implementation Plan
+# Weekly Live Usage — Replanned for Post-Modularization Codebase (c5574ea)
 
-> **For Claude:** Spawn `task-builder` agent to implement this plan task-by-task.
-
-**Goal:** Replace HUD’s ad-hoc model usage aggregation with canonical OpenClaw weekly usage data (Sun–Sat, inclusive), show all models with >0 weekly usage, and archive immutable weekly snapshots every Sunday.
-
-**Architecture:** HUD stops scraping local JSONL session files for the model pane. Instead, backend calls OpenClaw `sessions.usage` with explicit weekly boundaries and timezone, derives model rows from canonical aggregates, and exposes a weekly API contract (`meta + models + totals + archive`). A Sunday cron-triggered snapshot job persists weekly rollups for longitudinal tracking.
-
-**Tech Stack:** Node/Express (openclaw-hud), OpenClaw gateway JSON-RPC (`sessions.usage`), Cron scheduler (`cron` jobs), Vitest/Playwright.
+**Date:** 2026-02-24  
+**Repo:** `/Users/treygoff/Development/openclaw-hud`  
+**Context:** Replanned after large modularization merge (`c5574ea`, chat-input/chat-pane/ws/frontend splits)
 
 ---
 
-## Scope and acceptance criteria
+## Mission (unchanged)
 
-- Weekly window is **Sunday 00:00:00.000 → Saturday 23:59:59.999** in configured timezone.
-- Model list includes **every model with >0 weekly usage** (token-based).
-- Model/token/cost data comes from **OpenClaw canonical usage pipeline** (`sessions.usage`) rather than HUD filesystem scraping.
-- Weekly data **resets each Sunday** by design of requested week window.
-- Weekly snapshot is **saved/archived every Sunday** and retrievable for history.
-- No hardcoded “phantom” model rows in usage pane.
+Ship one trustworthy model-usage experience in HUD:
 
----
-
-### Task 1: Add weekly window utilities and config
-
-**Parallel:** no  
-**Blocked by:** none  
-**Owned files:** `server.js`, `lib/helpers.js`, `README.md`
-
-**Files:**
-- Modify: `server.js`
-- Modify: `lib/helpers.js`
-- Modify: `README.md`
-
-**Step 1: Add timezone and weekly settings env surface**
-- Add config constants for:
-  - `HUD_USAGE_TZ` (default `America/Chicago`)
-  - `HUD_WEEK_START_DAY` (fixed Sunday; keep constant)
-  - `HUD_ARCHIVE_DIR` default under `~/.openclaw/cron/usage-archive/weekly`
-
-**Step 2: Add reusable week boundary helpers**
-- In `lib/helpers.js`, add helpers to compute:
-  - current week Sunday start
-  - corresponding Saturday end
-  - optional week selection by `weekStart=YYYY-MM-DD`
-- Return both date strings and epoch bounds for diagnostics.
-
-**Step 3: Add tests for boundary calculations**
-- Add/extend helper tests for:
-  - exact Sunday start inclusion
-  - exact Saturday end inclusion
-  - DST-transition week behavior in configured TZ
-
-**Step 4: Validate**
-- Run unit tests for helper module.
-
-**Step 5: Commit**
-- `feat: add weekly window helper/config for usage reporting`
+1. **Single operative mode only** (no mode switch).
+2. **Live week-to-now** on every refresh: Sunday 00:00 (TZ) → request time.
+3. **Costs repriced from current `~/.openclaw/openclaw.json`** (including zero-priced models).
+4. **Include all models with `totalTokens > 0`** for the live week.
+5. **Week resets naturally on Sunday** (window logic).
+6. **Sunday snapshots archived immutably** for history only (never live source).
 
 ---
 
-### Task 2: Build canonical weekly usage backend endpoint (OpenClaw-driven)
+## What changed in architecture (important re-targeting)
 
-**Parallel:** no  
-**Blocked by:** Task 1  
-**Owned files:** `routes/config.js`, `lib/openclaw-client.js`, `tests/routes/model-usage-weekly.test.js`
+### Backend ownership (updated)
+- Do **not** keep piling weekly usage logic into `routes/config.js`.
+- Introduce dedicated route boundary:
+  - `routes/model-usage.js` (new)
+- Introduce dedicated gateway/RPC seam:
+  - `lib/usage-rpc.js` (new, wraps existing gateway request path)
+- Shared domain modules:
+  - `lib/pricing.js` (new)
+  - `lib/cache.js` (new)
+  - `lib/usage-archive.js` (new)
 
-**Files:**
-- Create: `lib/openclaw-client.js`
-- Modify: `routes/config.js`
-- Create: `tests/routes/model-usage-weekly.test.js`
-
-**Step 1: Add OpenClaw RPC client wrapper**
-- Implement a minimal server-side helper for gateway calls used by HUD:
-  - method: `sessions.usage`
-  - params: `startDate`, `endDate`, `mode: "gateway"`, `limit`
-- Include error handling + timeout.
-
-**Step 2: Add `GET /api/model-usage/weekly`**
-- New endpoint contract:
-  - Query: `weekStart?`, `tz?`
-  - Response:
-    - `meta` `{ period, weekStart, weekEnd, tz, generatedAt, source: "sessions.usage" }`
-    - `models[]` rows from canonical aggregates
-    - `totals`
-    - `archive` info for this week if exists
-
-**Step 3: Derive models list from canonical aggregates**
-- Map `sessions.usage.aggregates.byModel` to response rows.
-- Filter condition: `totalTokens > 0`.
-- Include full token fields + `totalCost` + provider/model identifiers.
-
-**Step 4: Preserve backward compatibility temporarily**
-- Keep existing `/api/model-usage` route for one migration cycle but mark deprecated in response `meta`.
-
-**Step 5: Add tests**
-- Integration tests with mocked OpenClaw response:
-  - includes all >0 models
-  - excludes zero-usage rows
-  - uses correct Sunday/Saturday boundaries
-  - returns `meta.source = sessions.usage`
-
-**Step 6: Commit**
-- `feat: add canonical weekly model usage endpoint backed by sessions.usage`
+### Frontend ownership (updated)
+- `public/app.js` is facade; don’t wire feature logic there.
+- Live usage flow belongs in:
+  - `public/app/data.js` (endpoint fetch wiring)
+  - `public/panels/models.js` (contract adapter + rendering)
+- Refresh orchestration already good:
+  - Polling: `public/app/polling.js`
+  - WS tick refresh: `public/app/ws.js`
 
 ---
 
-### Task 3: Remove hardcoded/hot-window usage path from UI flow
+## Canonical data & pricing policy
 
-**Parallel:** yes  
-**Blocked by:** Task 2  
-**Owned files:** `public/app.js`, `public/panels/models.js`, `public/index.html`
-
-**Files:**
-- Modify: `public/app.js`
-- Modify: `public/panels/models.js`
-- Modify: `public/index.html`
-
-**Step 1: Switch frontend fetch to weekly endpoint**
-- Replace usage call path from `/api/model-usage` to `/api/model-usage/weekly`.
-- Pass optional `weekStart` and `tz` if controls are present.
-
-**Step 2: Update renderer for new shape**
-- Render `models[]` rather than object map.
-- Display weekly range from `meta.weekStart`–`meta.weekEnd`.
-- Show token columns that include both cache read + cache write.
-
-**Step 3: Add weekly context label in UI**
-- Add explicit text like: `Week of YYYY-MM-DD (Sun–Sat, TZ)`.
-
-**Step 4: Add UI tests**
-- Ensure all >0 weekly models render.
-- Ensure no hardcoded model stubs are injected into usage panel.
-
-**Step 5: Commit**
-- `feat: migrate model usage pane to weekly canonical endpoint`
+1. Canonical usage rows come from OpenClaw `sessions.usage` for live week window.
+2. HUD display costs are **always** computed from current config pricing in `openclaw.json`.
+3. HUD does **not** trust transcript logged `message.usage.cost.total` for display totals.
+4. If provider/model pricing missing: set cost to 0 and emit diagnostics metadata.
 
 ---
 
-### Task 4: Remove misleading hardcoded model entries and unify config source path
+## Live endpoint contract (freeze this early)
 
-**Parallel:** yes  
-**Blocked by:** Task 2  
-**Owned files:** `routes/config.js`, `tests/routes/config-models.test.js`
+`GET /api/model-usage/live-weekly`
 
-**Files:**
-- Modify: `routes/config.js`
-- Create/Modify: `tests/routes/config-models.test.js`
+Response:
 
-**Step 1: Remove unconditional alias injection in `/api/models`**
-- Delete hardcoded additions that fabricate model options unrelated to actual config/state.
+```json
+{
+  "meta": {
+    "period": "live-weekly",
+    "tz": "America/Chicago",
+    "weekStart": "ISO",
+    "now": "ISO",
+    "generatedAt": "ISO",
+    "source": "sessions.usage+config-reprice",
+    "missingPricingModels": ["optional list"]
+  },
+  "models": [
+    {
+      "provider": "string",
+      "model": "string",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "totalTokens": 0,
+      "totalCost": 0
+    }
+  ],
+  "totals": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "totalTokens": 0,
+    "totalCost": 0
+  }
+}
+```
 
-**Step 2: Unify config loading strategy**
-- Make `/api/models` use same primary/fallback loading policy as `/api/config`.
-
-**Step 3: Add regression tests**
-- Verify models list reflects real config only.
-- Verify no phantom `haiku` / `vulcan (codex)` insertion unless explicitly configured.
-
-**Step 4: Commit**
-- `fix: remove hardcoded model aliases and unify models config source`
-
----
-
-### Task 5: Implement Sunday weekly archive writer
-
-**Parallel:** no  
-**Blocked by:** Task 2  
-**Owned files:** `lib/usage-archive.js`, `routes/config.js`, `tests/lib/usage-archive.test.js`
-
-**Files:**
-- Create: `lib/usage-archive.js`
-- Modify: `routes/config.js`
-- Create: `tests/lib/usage-archive.test.js`
-
-**Step 1: Define archive record format**
-- JSON schema:
-  - `weekKey`, `weekStart`, `weekEnd`, `tz`, `generatedAt`
-  - `totals`
-  - `models[]`
-  - `sourceMeta` (gateway method + params)
-
-**Step 2: Add write/read helpers**
-- Write immutable snapshot to:
-  - `${HUD_ARCHIVE_DIR}/${YYYY}/${weekStart}.json`
-- Add `readWeeklySnapshot(weekStart, tz)` helper.
-
-**Step 3: Add endpoint accessor**
-- Add `GET /api/model-usage/archive?weekStart=...` for historical retrieval.
-
-**Step 4: Add tests**
-- write/read round-trip
-- idempotency behavior (no accidental overwrite)
-- path hygiene
-
-**Step 5: Commit**
-- `feat: add weekly usage archive persistence and retrieval`
+Rules:
+- `models[]` must include only rows with `totalTokens > 0`.
+- `generatedAt` reflects cache behavior (stable within TTL, refreshed after).
 
 ---
 
-### Task 6: Schedule Sunday archive job (cron)
+## Execution waves (final)
 
-**Parallel:** no  
-**Blocked by:** Task 5  
-**Owned files:** `docs/ops/weekly-usage-archive.md`, `scripts/setup-weekly-archive-cron.sh`
+## Wave 0 — Foundation (serial)
 
-**Files:**
-- Create: `scripts/setup-weekly-archive-cron.sh`
-- Create: `docs/ops/weekly-usage-archive.md`
+### T1. Week window + runtime config boundary
+**Parallel:** No  
+**Blocked by:** none
 
-**Step 1: Define cron job payload**
-- Schedule: Sunday in desired TZ (e.g., 00:05 local).
-- Job action triggers internal request to snapshot previous/completed week.
+**Files**
+- `lib/helpers.js` (modify)
+- `server.js` (modify)
+- `tests/lib/helpers.test.js` (modify/expand)
 
-**Step 2: Add setup script and docs**
-- Script should install/update cron via OpenClaw cron API/CLI.
-- Document job id, schedule, rerun procedure, and failure recovery.
+**Work**
+- Add `getLiveWeekWindow(tz, nowMs?)` (Sunday 00:00 to now).
+- Add envs:
+  - `HUD_USAGE_TZ` default `America/Chicago`
+  - `HUD_USAGE_CACHE_TTL_MS` default `15000`
+- Validate DST and week boundary behavior.
 
-**Step 3: Add observability hooks**
-- Log success/failure with week key, model count, total tokens/cost.
-
-**Step 4: Commit**
-- `chore: add sunday weekly usage archive cron setup and runbook`
-
----
-
-### Task 7: End-to-end validation + rollout
-
-**Parallel:** no  
-**Blocked by:** Tasks 3, 4, 5, 6  
-**Owned files:** `e2e/dashboard-weekly-usage.spec.js`, `docs/plans/rollout-weekly-usage.md`
-
-**Files:**
-- Create/Modify: `e2e/dashboard-weekly-usage.spec.js`
-- Create: `docs/plans/rollout-weekly-usage.md`
-
-**Step 1: Add E2E scenarios**
-- Weekly range visible and correct.
-- Full model inclusion (>0 usage).
-- Costs/tokens match canonical backend payload.
-
-**Step 2: Add rollout checklist**
-- Deploy backend endpoint
-- migrate frontend fetch
-- keep legacy endpoint one release
-- remove legacy endpoint after verification
-
-**Step 3: Manual validation checklist**
-- Compare HUD weekly totals with direct `sessions.usage` call for same week.
-- Verify archive file created on Sunday and retrievable in UI/API.
-
-**Step 4: Commit**
-- `test: add e2e and rollout checklist for weekly usage source-of-truth migration`
+**Quality gate (required)**
+- `npm test -- tests/lib/helpers.test.js`
 
 ---
 
-## Test command matrix
+## Wave 1 — Backend core contract (serial)
 
-- Unit/integration:
-  - `npm test -- tests/routes/model-usage-weekly.test.js`
-  - `npm test -- tests/routes/config-models.test.js`
-  - `npm test -- tests/lib/usage-archive.test.js`
-  - `npm test -- tests/public/panels/models.test.js`
-- E2E:
-  - `npm run test:e2e -- e2e/dashboard-weekly-usage.spec.js`
+### T2a. Create dedicated usage RPC + route seam
+**Parallel:** No  
+**Blocked by:** T1
+
+**Files**
+- `lib/usage-rpc.js` (new)
+- `routes/model-usage.js` (new)
+- `server.js` (wire route)
+
+**Work**
+- Wrap gateway request for `sessions.usage` in `lib/usage-rpc.js`.
+- Add new route module to own model-usage endpoints.
+
+**Quality gate (required)**
+- route/module load tests pass.
+
+### T2b. Implement `/api/model-usage/live-weekly` using week window
+**Parallel:** No  
+**Blocked by:** T2a
+
+**Files**
+- `routes/model-usage.js` (modify)
+- `tests/routes/model-usage-live-weekly.test.js` (new)
+
+**Work**
+- Call `sessions.usage` with Sun→now.
+- Return frozen contract (`meta/models/totals`).
+- Keep legacy `/api/model-usage` temporarily (deprecation path).
+
+**Quality gate (required)**
+- `npm test -- tests/routes/model-usage-live-weekly.test.js`
+
+### T3. Repricing engine (config-authoritative)
+**Parallel:** No  
+**Blocked by:** T2b
+
+**Files**
+- `lib/pricing.js` (new)
+- `routes/model-usage.js` (modify)
+- `tests/lib/pricing.test.js` (new)
+- `tests/routes/model-usage-pricing.test.js` (new)
+
+**Work**
+- Resolve rates from active `openclaw.json`.
+- Recompute every model row cost from token buckets.
+- Ignore transcript logged costs in HUD response.
+- Emit `missingPricingModels` diagnostics.
+
+**Quality gate (required)**
+- `npm test -- tests/lib/pricing.test.js tests/routes/model-usage-pricing.test.js`
 
 ---
 
-## Risks and mitigations
+## Wave 2 — Parallel tracks (after T2b contract freeze)
 
-- **Risk:** Week boundary drift due to timezone handling.  
-  **Mitigation:** centralize boundary helper + test DST edge weeks.
+### T4. TTL cache + refresh bypass
+**Parallel:** Yes  
+**Blocked by:** T2b
 
-- **Risk:** Perceived jump in totals after removing 10-file sampling.  
-  **Mitigation:** add UI note for first release (“now sourced from full canonical weekly usage”).
+**Files**
+- `lib/cache.js` (new)
+- `routes/model-usage.js` (modify)
+- `tests/lib/cache.test.js` (new)
+- `tests/routes/model-usage-cache.test.js` (new)
 
-- **Risk:** Gateway query latency for large windows.  
-  **Mitigation:** one-week window only + optional short-lived server cache keyed by week/tz.
+**Work**
+- Cache key: `(weekStartIso, tz, pricingFingerprint)`.
+- Default TTL 15s.
+- `?refresh=1` bypass.
 
-- **Risk:** Historical snapshots overwritten accidentally.  
-  **Mitigation:** immutable write semantics + explicit overwrite flag only for admin repair.
+**Quality gate (required)**
+- `npm test -- tests/lib/cache.test.js tests/routes/model-usage-cache.test.js`
+
+### T5. Frontend migration to live-weekly contract
+**Parallel:** Yes  
+**Blocked by:** T2b (final wiring), T3 (final cost semantics)
+
+**Files**
+- `public/app/data.js` (modify)
+- `public/panels/models.js` (modify)
+- `tests/public/panels/models.test.js` (modify)
+- `tests/public/fetch-resilience.test.js` (modify)
+- `tests/public/models-live-weekly.test.js` (new, optional if panel tests cover all)
+
+**Work**
+- Swap endpoint to `/api/model-usage/live-weekly` in data controller.
+- Adapt renderer from legacy map to `{ meta, models[], totals }`.
+- Render label: `This week (Sun → now, TZ)` from `meta`.
+- Preserve empty state.
+
+**Quality gate (required)**
+- `npm test -- tests/public/panels/models.test.js`
+
+### T6. `/api/models` phantom model cleanup (gated)
+**Parallel:** Yes  
+**Blocked by:** T2b
+
+**Files**
+- `routes/config.js` (modify)
+- `tests/routes/config.test.js` (modify)
+
+**Work**
+- Remove hardcoded alias/model injection only after regression guard coverage.
+- Ensure spawn/model-picker dependencies still pass.
+
+**Quality gate (required)**
+- `npm test -- tests/routes/config.test.js`
+
+---
+
+## Wave 3 — Integration lock (serial)
+
+### T7. Integrate + verify live behavior
+**Parallel:** No  
+**Blocked by:** T3, T4, T5 (T6 strongly recommended)
+
+**Files**
+- `e2e/models-live-weekly.spec.js` (new)
+- `docs/plans/rollout-live-weekly.md` (new)
+
+**Work**
+- Verify week-to-now refresh behavior via polling + WS tick.
+- Verify zero-cost pricing behavior from config edits after TTL.
+- Verify inclusive model rows (`totalTokens > 0`).
+
+**Quality gate (required)**
+- `npm run test:e2e -- e2e/models-live-weekly.spec.js`
+
+---
+
+## Wave 4 — Sunday archive (serial)
+
+### T8. Immutable historical snapshot pipeline
+**Parallel:** No  
+**Blocked by:** T3 (repricing finalized)
+
+**Files**
+- `lib/usage-archive.js` (new)
+- `routes/model-usage.js` (modify: historical read endpoint)
+- `scripts/setup-weekly-archive-cron.sh` (new)
+- `tests/lib/usage-archive.test.js` (new)
+- `docs/weekly-usage-archive.md` (new)
+
+**Work**
+- Sunday job writes just-ended week snapshot immutably.
+- Historical endpoint reads archive only.
+- Ensure live route never reads archive.
+
+**Quality gate (required)**
+- `npm test -- tests/lib/usage-archive.test.js`
+
+---
+
+## Wave 5 — Deprecation cleanup (serial)
+
+### T9. Remove legacy route + finalize rollout
+**Parallel:** No  
+**Blocked by:** T7 + T8 + parity window
+
+**Files**
+- `routes/config.js` / `routes/model-usage.js` (modify)
+- `docs/plans/rollout-live-weekly.md` (update)
+
+**Work**
+- Monitor parity for 24h.
+- Remove deprecated `/api/model-usage` path.
+- Confirm single source path in docs + tests.
+
+**Quality gate (required)**
+- full targeted suite passes.
+
+---
+
+## Required validation bundle (merge-blocking)
+
+```bash
+npm test -- tests/lib/helpers.test.js \
+  tests/lib/pricing.test.js \
+  tests/lib/cache.test.js \
+  tests/routes/model-usage-live-weekly.test.js \
+  tests/routes/model-usage-pricing.test.js \
+  tests/routes/model-usage-cache.test.js \
+  tests/routes/config.test.js \
+  tests/public/panels/models.test.js
+
+npm run test:e2e -- e2e/models-live-weekly.spec.js
+```
+
+---
+
+## Top rollout risks + mitigation
+
+1. **Contract drift (`map` vs `models[]`)** → dual-shape adapter until FE fully migrated.
+2. **Route merge churn** → isolate usage logic in `routes/model-usage.js` early.
+3. **Stale costs after config edit** → pricing fingerprint in cache key + `refresh=1`.
+4. **Sunday/DST errors** → deterministic boundary tests in helpers.
+5. **Missing pricing silent failures** → explicit `missingPricingModels` metadata.
+6. **Archive contaminates live pane** → separate service functions + integration assertion.
+7. **/api/models cleanup regressions** → gate with route regression coverage before removal.
 
 ---
 
 ## Definition of done
 
-- HUD model usage pane shows weekly Sun–Sat data from canonical OpenClaw usage source.
-- Every model with >0 weekly usage appears.
-- Costs align with canonical usage computation behavior.
-- Week changes naturally every Sunday.
-- Weekly snapshots are archived every Sunday and queryable for historical analysis.
+- One live weekly usage mode exists and is the only mode.
+- Frontend consumes `/api/model-usage/live-weekly` via modular data/panel seams.
+- Costs match current `openclaw.json` pricing, including zero-cost models.
+- All models with weekly usage (`totalTokens > 0`) are displayed.
+- Sunday reset and immutable weekly archives both work.
+- Legacy route removed after parity validation.
