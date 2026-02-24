@@ -154,10 +154,11 @@ describe('Focus Indicators in CSS', () => {
 describe('Modal Keyboard Support', () => {
   it('should close on Escape key', () => {
     const fs = require('fs');
-    const appContent = fs.readFileSync('./public/app.js', 'utf8');
+    const appUiContent = fs.readFileSync('./public/app/ui.js', 'utf8');
     
-    expect(appContent).toMatch(/e\.key === 'Escape'/);
-    expect(appContent).toMatch(/closeModal/);
+    expect(appUiContent).toMatch(/event\.key !== 'Escape'/);
+    expect(appUiContent).toMatch(/#spawn-modal/);
+    expect(appUiContent).toMatch(/#cron-modal/);
   });
 
   it('should have dialog role and aria-modal', () => {

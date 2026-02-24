@@ -338,7 +338,16 @@
 <script src="chat-commands/local-exec.js"></script>
 <script src="chat-commands.js"></script>
 <script src="chat-ws-handler.js"></script>
-<!-- Main entry point - load before chat-pane.js so its Escape handler runs first -->
+<!-- App runtime modules -->
+<script src="app/diagnostics.js"></script>
+<script src="app/status.js"></script>
+<script src="app/ui.js"></script>
+<script src="app/data.js"></script>
+<script src="app/polling.js"></script>
+<script src="app/ws.js"></script>
+<script src="app/bootstrap.js"></script>
+
+<!-- Main facade entry point - load before chat-pane.js so its Escape handler runs first -->
 <script src="app.js"></script>
 
 <script src="keyboard-shortcuts.js"></script>

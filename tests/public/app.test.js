@@ -59,6 +59,8 @@ window.escapeHtml = function(s) {
   d.textContent = String(s);
   return d.innerHTML;
 };
+const openChatPaneMock = vi.fn();
+window.openChatPane = openChatPaneMock;
 
 // Mock fetch for all API calls
 window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
@@ -110,6 +112,25 @@ await import('../../public/chat-commands/local-exec.js');
 await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
+// Load panels before app runtime (app bootstrap initializes panel modules)
+await import('../../public/panels/activity.js');
+await import('../../public/panels/sessions.js');
+await import('../../public/panels/agents.js');
+await import('../../public/panels/cron.js');
+await import('../../public/panels/models.js');
+await import('../../public/panels/session-tree.js');
+await import('../../public/panels/system.js');
+await import('../../public/panels/spawn.js');
+// Load app runtime modules before facade
+await import('../../public/app/diagnostics.js');
+await import('../../public/app/status.js');
+await import('../../public/app/ui.js');
+await import('../../public/app/data.js');
+await import('../../public/app/polling.js');
+await import('../../public/app/ws.js');
+await import('../../public/app/bootstrap.js');
+await import('../../public/app.js');
+// Load chat pane modules after facade to mirror index.html load order
 await import('../../public/chat-pane/constants.js');
 await import('../../public/chat-pane/diagnostics.js');
 await import('../../public/chat-pane/session-metadata.js');
@@ -122,16 +143,6 @@ await import('../../public/chat-pane/ws-bridge.js');
 await import('../../public/chat-pane/export.js');
 await import('../../public/chat-pane.js');
 const restoreSavedChatSessionSpy = vi.spyOn(window, 'restoreSavedChatSession');
-// Load panels
-await import('../../public/panels/activity.js');
-await import('../../public/panels/sessions.js');
-await import('../../public/panels/agents.js');
-await import('../../public/panels/cron.js');
-await import('../../public/panels/models.js');
-await import('../../public/panels/session-tree.js');
-await import('../../public/panels/system.js');
-await import('../../public/panels/spawn.js');
-await import('../../public/app.js');
 
 describe('app.js initialization', () => {
   it('sets up HUD.fetchAll', () => {
@@ -185,14 +196,8 @@ describe('clock and uptime', () => {
 });
 
 describe('event delegation', () => {
-  let openChatSpy;
-
   beforeEach(() => {
-    openChatSpy = vi.spyOn(window, 'openChatPane');
-  });
-
-  afterEach(() => {
-    openChatSpy.mockRestore();
+    openChatPaneMock.mockClear();
   });
 
   it('opens cron editor on cron row click', () => {
@@ -224,7 +229,7 @@ describe('event delegation', () => {
     const treeNode = document.querySelector('[data-tree-key]');
     expect(treeNode).not.toBeNull();
     treeNode.click();
-    expect(openChatSpy).toHaveBeenCalledWith('a', 's1', 'test', 'agent:a:s1');
+    expect(openChatPaneMock).toHaveBeenCalledWith('a', 's1', 'test', 'agent:a:s1');
   });
 
   it('forwards canonical session key when clicking session row', () => {
@@ -235,7 +240,7 @@ describe('event delegation', () => {
     const row = document.querySelector('.session-row');
     expect(row).not.toBeNull();
     row.click();
-    expect(openChatSpy).toHaveBeenCalledWith('a', 'internal-session-1', 'main', 'agent:a:main');
+    expect(openChatPaneMock).toHaveBeenCalledWith('a', 'internal-session-1', 'main', 'agent:a:main');
   });
 
   it('handles tree toggle click', () => {
