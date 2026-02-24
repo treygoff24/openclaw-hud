@@ -331,10 +331,16 @@
   });
 
   // Message caching helpers
+  const MAX_CACHED_MESSAGES = 500;
+  const DEDUP_RECENT_WINDOW = 10;
+
   window.ChatState.addMessage = function(msg) {
     if (!msg || !msg.role) return;
-    // Check for duplicates based on content and timestamp
-    const isDuplicate = window.ChatState.currentMessages.some(function(existing) {
+    const messages = window.ChatState.currentMessages;
+    // Check for duplicates - only check recent messages (within last 10)
+    // Duplicates from streaming typically arrive back-to-back
+    const startIndex = Math.max(0, messages.length - DEDUP_RECENT_WINDOW);
+    const isDuplicate = messages.slice(startIndex).some(function(existing) {
       if (existing.timestamp && msg.timestamp && existing.timestamp === msg.timestamp) {
         return true;
       }
@@ -344,12 +350,25 @@
       return existing.role === msg.role && existingContent === msgContent;
     });
     if (!isDuplicate) {
-      window.ChatState.currentMessages.push(msg);
+      messages.push(msg);
+      // Cap the cache size - evict oldest messages if over limit
+      if (messages.length > MAX_CACHED_MESSAGES) {
+        messages.splice(0, messages.length - MAX_CACHED_MESSAGES);
+      }
     }
   };
 
   window.ChatState.setMessages = function(messages) {
-    window.ChatState.currentMessages = Array.isArray(messages) ? messages.slice() : [];
+    if (!Array.isArray(messages)) {
+      window.ChatState.currentMessages = [];
+      return;
+    }
+    // Cap the cache to MAX_CACHED_MESSAGES, keeping the most recent
+    if (messages.length > MAX_CACHED_MESSAGES) {
+      window.ChatState.currentMessages = messages.slice(messages.length - MAX_CACHED_MESSAGES);
+    } else {
+      window.ChatState.currentMessages = messages.slice();
+    }
   };
 
   // Export session to markdown
