@@ -71,4 +71,48 @@ describe('GET /api/agents', () => {
     expect(res.body[0].sessions).toEqual([]);
     expect(res.body[0].sessionCount).toBe(0);
   });
+
+  it('enriches agent sessions with role, alias, model, and fullSlug metadata', async () => {
+    helpers.getModelAliasMap = vi.fn(() => ({
+      'anthropic/claude-sonnet-4': { alias: 'sonnet' },
+      'openai/gpt-4o': { alias: 'gpt4o' }
+    }));
+    helpers.safeReaddir.mockReturnValue(['agent-a']);
+    const now = Date.now();
+    helpers.safeJSON.mockImplementation((fp) => {
+      if (!fp.includes('agent-a')) return null;
+      return {
+        'main': {
+          sessionId: 'main-session',
+          updatedAt: now - 1000,
+          model: 'anthropic/claude-sonnet-4'
+        },
+        'sub-task': {
+          sessionId: 'sub-session',
+          updatedAt: now,
+          spawnedBy: 'main',
+          spawnDepth: 1,
+          model: 'openai/gpt-4o',
+          label: ''
+        }
+      };
+    });
+
+    const res = await request(createApp()).get('/api/agents');
+    const sessions = res.body[0].sessions;
+    const sub = sessions.find(s => s.key === 'sub-task');
+    const main = sessions.find(s => s.key === 'main');
+
+    expect(sub.sessionRole).toBe('subagent');
+    expect(sub.sessionAlias).toBe('sub-task');
+    expect(sub.modelLabel).toBe('gpt4o');
+    expect(sub.fullSlug).toBe('agent:agent-a:sub-task');
+    expect(sub.key).toBe('sub-task');
+
+    expect(main.sessionRole).toBe('main');
+    expect(main.sessionAlias).toBe('main');
+    expect(main.modelLabel).toBe('sonnet');
+    expect(main.fullSlug).toBe('agent:agent-a:main');
+    expect(main.sessionKey).toBe(main.fullSlug);
+  });
 });

@@ -1,47 +1,20 @@
 const path = require('path');
 const { Router } = require('express');
-const { OPENCLAW_HOME, safeJSON, safeReaddir, safeRead, getSessionStatus } = require('../lib/helpers');
+const {
+  OPENCLAW_HOME,
+  safeJSON,
+  safeReaddir,
+  safeRead,
+  getSessionStatus,
+  canonicalizeSessionKey,
+  canonicalizeRelationshipKey,
+  enrichSessionMetadata
+} = require('../lib/helpers');
 
 const router = Router();
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
-const AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
-const LEGACY_SESSION_KEY_RE = /^[a-zA-Z0-9:_-]+$/;
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
-
-function canonicalizeSessionKey(agentId, storedKey) {
-  if (!AGENT_ID_RE.test(agentId)) {
-    throw new Error(`Invalid agentId "${agentId}" for session key canonicalization`);
-  }
-  if (typeof storedKey !== 'string' || !storedKey.trim()) {
-    throw new Error('Session key must be a non-empty string');
-  }
-  if (CANONICAL_SESSION_KEY_RE.test(storedKey)) {
-    const [, keyAgentId] = storedKey.split(':');
-    if (keyAgentId !== agentId) {
-      throw new Error(`Canonical session key "${storedKey}" does not match agent "${agentId}"`);
-    }
-    return storedKey;
-  }
-  if (!LEGACY_SESSION_KEY_RE.test(storedKey)) {
-    throw new Error(`Invalid legacy session key "${storedKey}"`);
-  }
-  return `agent:${agentId}:${storedKey}`;
-}
-
-function canonicalizeRelationshipKey(agentId, spawnedBy) {
-  if (typeof spawnedBy !== 'string' || !spawnedBy.trim()) {
-    return null;
-  }
-  if (CANONICAL_SESSION_KEY_RE.test(spawnedBy)) {
-    return spawnedBy;
-  }
-  try {
-    return canonicalizeSessionKey(agentId, spawnedBy);
-  } catch {
-    return null;
-  }
-}
 
 function mergeCanonicalSessionEntry(allSessions, candidate) {
   const existing = allSessions[candidate.sessionKey];
@@ -72,7 +45,9 @@ router.get('/api/sessions', (req, res) => {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);
         const s = { agentId, key, sessionKey, ...val };
+        const displayMeta = enrichSessionMetadata(sessionKey, val, { sessionKey });
         s.status = getSessionStatus(s);
+        Object.assign(s, displayMeta);
         all.push(s);
       } catch (err) {
         invalid.push({ agentId, key, error: err.message });
@@ -141,6 +116,7 @@ router.get('/api/session-tree', (req, res) => {
 
   const result = Object.values(allSessions).map(s => {
     const parent = s.canonicalSpawnedBy ? allSessions[s.canonicalSpawnedBy] : null;
+    const displayMeta = enrichSessionMetadata(s.key, s, { sessionKey: s.sessionKey });
     return {
       key: s.key,
       sessionKey: s.sessionKey,
@@ -153,7 +129,8 @@ router.get('/api/session-tree', (req, res) => {
       lastChannel: s.lastChannel || null,
       groupChannel: s.groupChannel || null,
       childCount: childCounts[s.sessionKey] || 0,
-      status: getSessionStatus(s)
+      status: getSessionStatus(s),
+      ...displayMeta
     };
   });
 
