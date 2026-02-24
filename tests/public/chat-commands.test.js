@@ -442,6 +442,41 @@ describe('chat-input.js autocomplete integration', () => {
     expect(dropdown.style.position).toBe('absolute');
   });
 
+  it('dismisses autocomplete when Enter sends a message without completing a command', () => {
+    // Reset module state, then open autocomplete
+    input.value = 'x';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    input.value = '/';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    
+    let dropdown = container.querySelector('.slash-autocomplete');
+    expect(dropdown).not.toBeNull();
+    expect(dropdown.style.display).not.toBe('none');
+    
+    // Manually force the dropdown to be visible with no items to simulate
+    // the race condition where completeSelected() returns false
+    // We do this by clearing the dropdown items from DOM and setting display
+    dropdown.innerHTML = '';
+    dropdown.style.display = 'block';
+    
+    // Set input to a regular message. Don't fire input event to keep
+    // autocomplete dropdown visible in module state.
+    input.value = 'hello world';
+    
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      shiftKey: false,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
+    
+    // Autocomplete dropdown should be dismissed after Enter sends
+    const dropdownAfter = container.querySelector('.slash-autocomplete');
+    const isHidden = !dropdownAfter || dropdownAfter.style.display === 'none';
+    expect(isHidden).toBe(true);
+  });
+
   it('allows Shift+Enter for newline when autocomplete open', () => {
     input.value = '/';
     input.dispatchEvent(new InputEvent('input', { bubbles: true }));
