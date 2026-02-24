@@ -78,7 +78,7 @@ describe('GatewayWS', () => {
       await gw.connect();
       expect(connectMsg.params.minProtocol).toBe(3);
       expect(connectMsg.params.maxProtocol).toBe(3);
-      expect(connectMsg.params.client.id).toBe('openclaw-control-ui');
+      expect(connectMsg.params.client.id).toBe('gateway-client');
       expect(connectMsg.params.auth.token).toBe('tk123');
       gw.close();
       await new Promise(r => wss.close(r));
