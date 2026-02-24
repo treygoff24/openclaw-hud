@@ -12,6 +12,9 @@ const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 3777;
 
+process.env.HUD_USAGE_TZ = process.env.HUD_USAGE_TZ || 'America/Chicago';
+process.env.HUD_USAGE_CACHE_TTL_MS = process.env.HUD_USAGE_CACHE_TTL_MS || '15000';
+
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
 const gatewayWS = new GatewayWS({

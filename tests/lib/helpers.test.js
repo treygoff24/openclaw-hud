@@ -11,6 +11,10 @@ afterAll(() => {
   fs.rmSync(TMPDIR, { recursive: true, force: true });
 });
 
+function toIso(ms) {
+  return new Date(ms).toISOString();
+}
+
 const {
   safeRead,
   safeJSON,
@@ -19,6 +23,7 @@ const {
   stripSecrets,
   getSessionStatus,
   getGatewayConfig,
+  getLiveWeekWindow,
   OPENCLAW_HOME
 } = await import('../../lib/helpers.js');
 
@@ -176,6 +181,33 @@ describe('getSessionStatus', () => {
 
   it('boundary: exactly at 1 hour is stale', () => {
     expect(getSessionStatus({ updatedAt: Date.now() - ONE_HOUR })).toBe('stale');
+  });
+});
+
+// --------------- getLiveWeekWindow ---------------
+describe('getLiveWeekWindow', () => {
+  const tz = 'America/Chicago';
+
+  it('returns current Sunday boundary when now is Sunday', () => {
+    const now = Date.parse('2026-02-22T21:45:00-06:00'); // 2026-02-22 21:45Z = Sunday 15:45-06:00
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-02-22T00:00:00-06:00'));
+    expect(window.toMs).toBe(now);
+  });
+
+  it('returns previous Sunday for Saturday edge', () => {
+    const now = Date.parse('2026-02-21T23:15:00-06:00'); // Saturday evening
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-02-15T00:00:00-06:00'));
+    expect(window.toMs).toBe(now);
+  });
+
+  it('handles DST transition week calculation sanely', () => {
+    const now = Date.parse('2026-03-09T12:00:00-05:00'); // after DST begins in America/Chicago
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-03-08T00:00:00-06:00'));
+    expect(toIso(window.fromMs)).toBe('2026-03-08T06:00:00.000Z');
+    expect(window.toMs).toBe(now);
   });
 });
 
