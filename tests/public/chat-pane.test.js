@@ -38,6 +38,7 @@ let uuidCounter = 0;
 if (!globalThis.crypto) globalThis.crypto = {};
 globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
+await import('../../public/copy-utils.js');
 await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');

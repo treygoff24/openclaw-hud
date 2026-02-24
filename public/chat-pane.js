@@ -378,18 +378,7 @@
         markdown += '## Assistant\n';
         var content = msg.content;
         if (Array.isArray(content)) {
-          content.forEach(function(block) {
-            if (block.type === 'text') {
-              markdown += block.text + '\n';
-            } else if (block.type === 'tool_use') {
-              markdown += '\n```json\n';
-              markdown += 'Tool: ' + block.name + '\n';
-              markdown += JSON.stringify(block.input, null, 2) + '\n';
-              markdown += '```\n\n';
-            } else if (block.type === 'thinking') {
-              markdown += '\n> Thinking: ' + block.thinking + '\n\n';
-            }
-          });
+          markdown += window.CopyUtils.buildContentBlocksMarkdown(content);
         } else {
           markdown += window.ChatMessage.extractText(msg) + '\n';
         }

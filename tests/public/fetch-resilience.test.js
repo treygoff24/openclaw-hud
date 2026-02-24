@@ -105,6 +105,7 @@ await import('../../public/panels/models.js');
 await import('../../public/panels/session-tree.js');
 await import('../../public/panels/system.js');
 await import('../../public/panels/spawn.js');
+await import('../../public/copy-utils.js');
 await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
