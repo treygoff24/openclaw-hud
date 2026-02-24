@@ -137,6 +137,7 @@ describe('CopyUtils', () => {
 
         expect(btn.textContent).toContain('Copy turn');
         expect(btn.innerHTML).toContain('<svg');
+        expect(btn.innerHTML).not.toContain('polyline'); // CHECK_ICON uses polyline; COPY_ICON uses rect+path
       });
 
       it('resets class, icon, and title after 2000ms', async () => {
@@ -160,6 +161,36 @@ describe('CopyUtils', () => {
 
         expect(btn.classList.contains('copied')).toBe(true);
         expect(btn.innerHTML).toBe(window.CopyUtils.CHECK_ICON);
+      });
+
+      it('shows copiedLabel during copied state when provided', async () => {
+        const btn = window.CopyUtils.createCopyButton('text', 'Copy turn', { visibleLabel: 'Copy turn', copiedLabel: 'Copied!' });
+        await btn.click();
+
+        expect(btn.textContent).toContain('Copied!');
+        expect(btn.textContent).not.toContain('Copy turn');
+      });
+
+      it('empty copiedLabel suppresses label during copied state', async () => {
+        const btn = window.CopyUtils.createCopyButton('text', 'Copy turn', { visibleLabel: 'Copy turn', copiedLabel: '' });
+        await btn.click();
+
+        expect(btn.textContent).not.toContain('Copy turn');
+        expect(btn.innerHTML).toContain('polyline'); // CHECK_ICON is present
+      });
+
+      it('copiedLabel without visibleLabel shows label only during copied state', async () => {
+        const btn = window.CopyUtils.createCopyButton('text', 'Copy', { copiedLabel: 'Done!' });
+
+        expect(btn.textContent).not.toContain('Done!');
+
+        await btn.click();
+        expect(btn.textContent).toContain('Done!');
+
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+
+        expect(btn.textContent).not.toContain('Done!');
       });
     });
 

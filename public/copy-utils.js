@@ -29,7 +29,7 @@
     var label = ariaLabel || 'Copy to clipboard';
     var opts = options || {};
     var visibleLabel = typeof opts.visibleLabel === 'string' ? opts.visibleLabel : '';
-    var copiedLabel = typeof opts.copiedLabel === 'string' ? opts.copiedLabel : '';
+    var copiedLabel = typeof opts.copiedLabel === 'string' ? opts.copiedLabel : null;
 
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -43,7 +43,7 @@
       var text = typeof getText === 'function' ? getText() : getText;
       navigator.clipboard.writeText(text).then(function() {
         btn.classList.add('copied');
-        setButtonContent(btn, CHECK_ICON, copiedLabel || visibleLabel);
+        setButtonContent(btn, CHECK_ICON, copiedLabel !== null ? copiedLabel : visibleLabel);
         btn.title = 'Copied!';
         setTimeout(function() {
           btn.classList.remove('copied');
