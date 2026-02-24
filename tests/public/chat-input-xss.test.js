@@ -43,6 +43,11 @@ window.HUD = {
 };
 
 // Load the input module
+await import('../../public/chat-commands.js');
+await import('../../public/chat-input/attachments.js');
+await import('../../public/chat-input/autocomplete.js');
+await import('../../public/chat-input/send-flow.js');
+await import('../../public/chat-input/model-picker.js');
 await import('../../public/chat-input.js');
 
 describe('chat-input.js XSS prevention', () => {

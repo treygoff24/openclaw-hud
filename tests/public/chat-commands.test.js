@@ -35,12 +35,16 @@ window.HUD = {
   showToast: vi.fn(),
 };
 
-// Load the commands module first, then input module
+// Load order matters: chat-input depends on ChatCommands being initialized first.
 await import('../../public/chat-commands.js');
 
 // Clear any existing event listeners and re-setup
 document.getElementById('chat-input').value = '';
 
+await import('../../public/chat-input/attachments.js');
+await import('../../public/chat-input/autocomplete.js');
+await import('../../public/chat-input/send-flow.js');
+await import('../../public/chat-input/model-picker.js');
 await import('../../public/chat-input.js');
 
 describe('chat-commands.js', () => {
