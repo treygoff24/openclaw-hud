@@ -11,14 +11,6 @@ const {
 
 const router = Router();
 
-function safeCanonicalizeSessionKey(agentId, key) {
-  try {
-    return canonicalizeSessionKey(agentId, key);
-  } catch {
-    return `agent:${agentId}:${key}`;
-  }
-}
-
 router.get('/api/agents', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir).filter(f => {
@@ -28,9 +20,14 @@ router.get('/api/agents', (req, res) => {
   const result = agents.map(id => {
     const sessFile = path.join(agentsDir, id, 'sessions', 'sessions.json');
     const sessions = safeJSON(sessFile) || {};
-    const sessionList = Object.entries(sessions).map(([key, val]) => {
-      const sessionKey = safeCanonicalizeSessionKey(id, key);
-      return {
+    const sessionList = Object.entries(sessions).reduce((acc, [key, val]) => {
+      let sessionKey;
+      try {
+        sessionKey = canonicalizeSessionKey(id, key);
+      } catch {
+        return acc;
+      }
+      acc.push({
         key,
         sessionKey,
         sessionId: val.sessionId,
@@ -41,8 +38,9 @@ router.get('/api/agents', (req, res) => {
         lastChannel: val.lastChannel,
         groupChannel: val.groupChannel,
         ...enrichSessionMetadata(sessionKey, { ...val, sessionKey }, { sessionKey })
-      };
-    });
+      });
+      return acc;
+    }, []);
     sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const activeSessions = sessionList.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < 3600000).length;
     return { id, sessions: sessionList, sessionCount: sessionList.length, activeSessions };

@@ -36,9 +36,12 @@
   }
 
   function deriveModelLabel(session) {
+    // Prefer backend-enriched modelLabel (already alias-resolved) over raw model ID
+    const enriched = toText(session && session.modelLabel);
+    if (enriched) return enriched;
+
     const rawModel = firstNonEmpty([
       session && session.model,
-      session && session.modelLabel,
       session && session.modelName,
       session && session.activeModel,
       session && session.lastModel,

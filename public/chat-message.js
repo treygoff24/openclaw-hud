@@ -1,27 +1,11 @@
 // Chat Message Module — message rendering functions
 (function() {
   'use strict';
-  const normalizeLabel = (window.HUD && HUD.labelSanitizer && typeof HUD.labelSanitizer.normalizeLabel === 'function')
-    ? HUD.labelSanitizer.normalizeLabel
-    : function(value, fallback) {
-      if (value == null) return fallback || '';
-      return String(value);
-    };
 
   // createCopyButton and buildContentBlocksMarkdown are provided by
   // window.CopyUtils (copy-utils.js, loaded before this script).
   function resolveSenderDisplay(session) {
-    if (window.ChatSenderResolver && typeof window.ChatSenderResolver.resolveChatSenderDisplay === 'function') {
-      return window.ChatSenderResolver.resolveChatSenderDisplay(session);
-    }
-
-    var normalized = session || {};
-    var role = normalized.spawnDepth === 0 && !normalized.spawnedBy ? 'main' : 'subagent';
-    if (normalized.spawnDepth > 0 || normalized.spawnedBy) role = 'subagent';
-
-    return {
-      displayName: role === 'main' ? 'Ren' : (normalizeLabel(normalized.label || normalized.sessionId, normalized.agentId || 'assistant'))
-    };
+    return window.ChatSenderResolver.resolveChatSenderDisplay(session);
   }
 
   function createMessageCopyButton(text) {

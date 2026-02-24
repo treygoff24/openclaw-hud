@@ -2,12 +2,9 @@
 (function() {
   'use strict';
   const CHAT_LOG_PREFIX = '[HUD-CHAT]';
-  const normalizeLabel = (window.HUD && HUD.labelSanitizer && typeof HUD.labelSanitizer.normalizeLabel === 'function')
-    ? HUD.labelSanitizer.normalizeLabel
-    : function(value, fallback) {
-      if (value == null) return fallback || '';
-      return String(value);
-    };
+  function normalizeLabel(value, fallback) {
+    return HUD.labelSanitizer.normalizeLabel(value, fallback);
+  }
 
   if (!window.__hudDiagLog) {
     window.__hudDiagLog = function(prefix, event, fields) {
@@ -43,37 +40,23 @@
     return typeof sessionKey === 'string' && CANONICAL_SESSION_KEY_RE.test(sessionKey);
   }
 
-  function getSenderResolver() {
-    return window.ChatSenderResolver && typeof window.ChatSenderResolver.resolveChatSenderDisplay === 'function'
-      ? window.ChatSenderResolver
-      : null;
-  }
-
   function findSessionMetadata(agentId, sessionId, sessionKey) {
     const sessions = Array.isArray(window._allSessions) ? window._allSessions : [];
-    let match = null;
     for (const session of sessions) {
       if (!session || typeof session !== 'object') continue;
-      if (session.sessionKey === sessionKey) {
-        match = session;
-        break;
-      }
+      if (session.sessionKey === sessionKey) return session;
     }
-    if (!match && agentId && sessionId) {
+    if (agentId && sessionId) {
       for (const session of sessions) {
         if (!session || typeof session !== 'object') continue;
-        if (session.agentId === agentId && session.sessionId === sessionId) {
-          match = session;
-          break;
-        }
+        if (session.agentId === agentId && session.sessionId === sessionId) return session;
       }
     }
-    return match;
+    return null;
   }
 
   function enrichSessionMetadata(agentId, sessionId, label, sessionKey) {
     const sessionMeta = findSessionMetadata(agentId, sessionId, sessionKey) || {};
-    const resolver = getSenderResolver();
     const resolveTarget = Object.assign({}, sessionMeta, {
       agentId: sessionMeta.agentId || agentId,
       sessionId: sessionMeta.sessionId || sessionId || '',
@@ -83,14 +66,7 @@
       spawnedBy: sessionMeta.spawnedBy
     });
 
-    const sender = resolver ? resolver.resolveChatSenderDisplay(resolveTarget) : {
-      displayName: label || normalizeLabel(label, agentId),
-      role: (typeof sessionMeta.spawnDepth === 'number' && sessionMeta.spawnDepth > 0) ? 'subagent' :
-        (typeof sessionMeta.spawnedBy === 'string' && sessionMeta.spawnedBy) ? 'subagent' :
-          (typeof sessionMeta.spawnDepth === 'number' && sessionMeta.spawnDepth === 0 ? 'main' : 'unknown'),
-      alias: normalizeLabel(sessionMeta.label || label, null) || null,
-      model: sessionMeta.model || null
-    };
+    const sender = window.ChatSenderResolver.resolveChatSenderDisplay(resolveTarget);
 
     return {
       sessionMeta: sessionMeta,

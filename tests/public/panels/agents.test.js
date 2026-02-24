@@ -30,8 +30,9 @@ window.makeFocusable = function(el, handler) {
   });
 };
 
-// Load sessions panel first (agents depends on HUD.sessions)
+// Load utilities and sessions panel first (agents depends on HUD.sessions)
 await import('../../../public/utils.js');
+await import('../../../public/session-labels.js');
 await import('../../../public/panels/sessions.js');
 await import('../../../public/panels/agents.js');
 

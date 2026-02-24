@@ -36,6 +36,8 @@ window.ChatToolBlocks = {
   })
 };
 
+await import('../../public/label-sanitizer.js');
+await import('../../public/chat-sender-resolver.js');
 await import('../../public/chat-markdown.js');
 await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
