@@ -113,6 +113,14 @@ HUD.spawn = (function() {
     $('#spawn-modal').addEventListener('click', (e) => {
       if (e.target.id === 'spawn-modal') close();
     });
+
+    // Auto-populate label field with model alias when label is empty
+    $('#spawn-model').addEventListener('change', function() {
+      const labelField = $('#spawn-label');
+      if (!labelField.value.trim()) {
+        labelField.value = this.selectedOptions[0]?.text || '';
+      }
+    });
   }
 
   return { open, close, launch, init };

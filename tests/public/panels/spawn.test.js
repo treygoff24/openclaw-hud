@@ -60,6 +60,62 @@ describe('spawn.open', () => {
   });
 });
 
+describe('spawn.model change auto-populates label', () => {
+  it('auto-populates label field with selected model alias when label is empty', () => {
+    window._modelAliases = [
+      { alias: 'Claude Opus', fullId: 'anthropic/claude-3-opus' },
+      { alias: 'GPT-4', fullId: 'openai/gpt-4' }
+    ];
+    HUD.spawn.open();
+    const labelField = document.getElementById('spawn-label');
+    const modelSelect = document.getElementById('spawn-model');
+    
+    // Label should be empty initially
+    labelField.value = '';
+    
+    // Change model selection
+    modelSelect.value = 'anthropic/claude-3-opus';
+    modelSelect.dispatchEvent(new Event('change'));
+    
+    // The option text includes the alias and the model ID in parentheses
+    expect(labelField.value).toBe('Claude Opus (claude-3-opus)');
+  });
+
+  it('does not overwrite existing label when model changes', () => {
+    window._modelAliases = [
+      { alias: 'Claude Opus', fullId: 'anthropic/claude-3-opus' },
+      { alias: 'GPT-4', fullId: 'openai/gpt-4' }
+    ];
+    HUD.spawn.open();
+    const labelField = document.getElementById('spawn-label');
+    const modelSelect = document.getElementById('spawn-model');
+    
+    // Set an existing label
+    labelField.value = 'My Custom Task';
+    
+    // Change model selection
+    modelSelect.value = 'anthropic/claude-3-opus';
+    modelSelect.dispatchEvent(new Event('change'));
+    
+    // Label should remain unchanged
+    expect(labelField.value).toBe('My Custom Task');
+  });
+
+  it('does not auto-populate label if selected option has no text', () => {
+    HUD.spawn.open();
+    const labelField = document.getElementById('spawn-label');
+    const modelSelect = document.getElementById('spawn-model');
+    
+    labelField.value = '';
+    
+    // Simulate a case where no option is selected (empty value)
+    modelSelect.value = '';
+    modelSelect.dispatchEvent(new Event('change'));
+    
+    expect(labelField.value).toBe('');
+  });
+});
+
 describe('spawn.close', () => {
   it('closes the modal', () => {
     HUD.spawn.open();

@@ -1,6 +1,7 @@
 const path = require('path');
 const { Router } = require('express');
 const { OPENCLAW_HOME, safeJSON5, stripSecrets, getGatewayConfig } = require('../lib/helpers');
+const spawnRouter = require('./spawn');
 
 const router = Router();
 
@@ -44,6 +45,12 @@ router.get('/api/models', (req, res) => {
     if (!aliases.find(a => a.fullId === am.fullId)) aliases.push(am);
   }
   aliases.unshift({ alias: 'default', fullId: '' });
+  
+  // Update cached models for spawn route label resolution
+  if (spawnRouter.setCachedModels) {
+    spawnRouter.setCachedModels(aliases);
+  }
+  
   res.json(aliases);
 });
 

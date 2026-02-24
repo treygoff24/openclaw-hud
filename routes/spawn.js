@@ -37,8 +37,22 @@ function validateContextFiles(filesText) {
   return { valid: files };
 }
 
+// Cached model list for resolving aliases
+let cachedModels = [];
+
+function resolveAliasFromModel(modelId, modelList) {
+  if (!modelId || !modelList) return undefined;
+  const entry = modelList.find(m => m.id === modelId || m.model === modelId || m.fullId === modelId);
+  return entry?.alias || entry?.name || undefined;
+}
+
 router.post('/api/spawn', express.json(), async (req, res) => {
-  const { agentId, model, label, prompt, contextFiles, timeout, mode } = req.body;
+  const { agentId, model, prompt, contextFiles, timeout, mode } = req.body;
+  
+  // Resolve label from model alias if no label provided (sanitized for valid label format)
+  const resolvedAlias = resolveAliasFromModel(model, cachedModels);
+  const sanitizedAlias = resolvedAlias && resolvedAlias.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const label = req.body.label || sanitizedAlias || undefined;
 
   // Rate limit
   const now = Date.now();
@@ -109,4 +123,7 @@ router.post('/api/spawn', express.json(), async (req, res) => {
   }
 });
 
+// Export router and cachedModels for external updates
 module.exports = router;
+module.exports.cachedModels = cachedModels;
+module.exports.setCachedModels = (models) => { cachedModels = models; };
