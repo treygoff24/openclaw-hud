@@ -93,6 +93,7 @@ function removeClientFromWatcher(filePath, client) {
 
 function setupWebSocket(wss, gatewayWS) {
   const { handleChatMessage, isChatMessage, setupChatEventRouting, cleanupChatSubscriptions } = require('./chat-handlers');
+  const { handleSessionMessage, isSessionMessage } = require('./session-handlers');
 
   setupChatEventRouting(gatewayWS);
 
@@ -106,6 +107,11 @@ function setupWebSocket(wss, gatewayWS) {
 
       if (isChatMessage(msg.type)) {
         try { await handleChatMessage(ws, msg, gatewayWS); } catch(err) { console.error('chat handler error:', err); }
+        return;
+      }
+
+      if (isSessionMessage(msg.type)) {
+        try { await handleSessionMessage(ws, msg); } catch(err) { console.error('session handler error:', err); }
         return;
       }
 
