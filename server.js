@@ -4,7 +4,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const { setupWebSocket } = require('./ws/log-streaming');
 const { GatewayWS } = require('./lib/gateway-ws');
-const { getGatewayConfig } = require('./lib/helpers');
+const { getGatewayConfig, loadDeviceIdentity } = require('./lib/helpers');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,10 +14,12 @@ const PORT = process.env.PORT || 3777;
 
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
-console.log('[HUD-GW] config:', { port: gwConfig.port, hasToken: !!gwConfig.token, tokenLen: gwConfig.token ? gwConfig.token.length : 0 });
+const deviceIdentity = loadDeviceIdentity();
+console.log('[HUD-GW] config:', { port: gwConfig.port, hasToken: !!gwConfig.token, tokenLen: gwConfig.token ? gwConfig.token.length : 0, hasDevice: !!deviceIdentity });
 const gatewayWS = new GatewayWS({
   url: `ws://127.0.0.1:${gwConfig.port || 18789}`,
   token: gwConfig.token,
+  deviceIdentity,
   reconnect: { enabled: true, baseDelayMs: 1000, maxDelayMs: 30000, jitter: true }
 });
 
