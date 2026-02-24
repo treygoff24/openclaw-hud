@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Mock necessary globals before importing modules
-window.escapeHtml = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+window.escapeHtml = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), use: vi.fn() };
 window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 
-// Mock ChatState
 window.ChatState = {
   currentSession: { sessionKey: 'agent:test:main', agentId: 'test-agent' },
   sendWs: vi.fn(),
@@ -14,14 +12,12 @@ window.ChatState = {
   cachedModels: null
 };
 
-// Mock ChatCommands
 window.ChatCommands = {
   search: vi.fn().mockReturnValue([]),
   find: vi.fn().mockReturnValue(null),
   execute: vi.fn().mockReturnValue(null)
 };
 
-// Mock ChatMarkdown
 await import('../../public/chat-markdown.js');
 await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
@@ -29,149 +25,306 @@ await import('../../public/chat-message.js');
 await import('../../public/chat-input.js');
 
 describe('ChatInput Attachments', () => {
-  let fileInput;
-  let chatInput;
-  let chatInputArea;
+  let originalFileReader;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.ChatState.pendingAcks = new Map();
     document.body.innerHTML = `
+      <div id="chat-messages"></div>
       <div id="chat-input-area">
         <textarea id="chat-input" placeholder="Type a message..."></textarea>
         <button id="chat-send-btn">▶</button>
         <button id="chat-attach-btn">📎</button>
       </div>
     `;
-    
-    chatInput = document.getElementById('chat-input');
-    chatInputArea = document.getElementById('chat-input-area');
-    fileInput = document.getElementById('file-input');
-    
-    // Initialize the attachment functionality
-    if (window.ChatInput && window.ChatInput._initAttachments) {
-      window.ChatInput._initAttachments();
+    window.ChatInput._clearAttachments();
+    window.ChatInput._initAttachments();
+  });
+
+  afterEach(() => {
+    if (originalFileReader) {
+      globalThis.FileReader = originalFileReader;
+      originalFileReader = null;
     }
   });
 
-  describe('file input element', () => {
-    it('creates hidden file input element', () => {
-      const fileInput = document.getElementById('file-input');
-      expect(fileInput).not.toBeNull();
-      expect(fileInput.type).toBe('file');
-      expect(fileInput.accept).toBe('image/*');
-      expect(fileInput.multiple).toBe(true);
-      expect(fileInput.style.display).toBe('none');
-    });
+  it('creates hidden file input element', () => {
+    const fileInput = document.getElementById('file-input');
+    expect(fileInput).not.toBeNull();
+    expect(fileInput.type).toBe('file');
+    expect(fileInput.accept).toBe('image/*');
+    expect(fileInput.multiple).toBe(true);
+    expect(fileInput.style.display).toBe('none');
   });
 
-  describe('attach button', () => {
-    it('creates attach button', () => {
-      const attachBtn = document.getElementById('chat-attach-btn');
-      expect(attachBtn).not.toBeNull();
-    });
+  it('triggers file input click when attach button is clicked', () => {
+    const attachBtn = document.getElementById('chat-attach-btn');
+    const fileInput = document.getElementById('file-input');
+    const clickSpy = vi.spyOn(fileInput, 'click');
 
-    it('triggers file input click when attach button is clicked', () => {
-      const attachBtn = document.getElementById('chat-attach-btn');
-      const fileInput = document.getElementById('file-input');
-      
-      const clickSpy = vi.spyOn(fileInput, 'click');
-      attachBtn.click();
-      
-      expect(clickSpy).toHaveBeenCalled();
-    });
+    attachBtn.click();
+
+    expect(clickSpy).toHaveBeenCalled();
   });
 
-  describe('file validation', () => {
-    it('rejects files larger than 5MB', () => {
-      // Create a mock file over 5MB
-      const bigFile = new File(['x'.repeat(6 * 1024 * 1024)], 'big.png', { type: 'image/png' });
-      
-      // Mock alert to capture the error message
-      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-      
-      // Find the validation function and call it
-      if (window.ChatInput && window.ChatInput._validateFile) {
-        const result = window.ChatInput._validateFile(bigFile);
-        expect(result).toBe(false);
-        expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('5MB'));
+  it('rejects files larger than 5MB', () => {
+    const bigFile = new File(['x'.repeat(6 * 1024 * 1024)], 'big.png', { type: 'image/png' });
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+    expect(window.ChatInput._validateFile(bigFile)).toBe(false);
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('5MB'));
+
+    alertSpy.mockRestore();
+  });
+
+  it('accepts valid image files', () => {
+    const validFile = new File(['fake image data'], 'test.png', { type: 'image/png' });
+    Object.defineProperty(validFile, 'size', { value: 1024 * 100 });
+
+    expect(window.ChatInput._validateFile(validFile)).toBe(true);
+  });
+
+  it('parses ready attachments for chat-send payload', () => {
+    window.ChatInput._pendingAttachments.push({
+      id: 'ready-1',
+      file: { name: 'test.png' },
+      dataUrl: 'data:image/png;base64,QUJDREVGRw=='
+    });
+
+    expect(window.ChatInput._getAttachments()).toEqual([
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'QUJDREVGRw=='
+        }
       }
-      
-      alertSpy.mockRestore();
-    });
-
-    it('accepts valid image files', () => {
-      // Create a small valid image file
-      const validFile = new File(['fake image data'], 'test.png', { type: 'image/png' });
-      Object.defineProperty(validFile, 'size', { value: 1024 * 100 }); // 100KB
-      
-      if (window.ChatInput && window.ChatInput._validateFile) {
-        const result = window.ChatInput._validateFile(validFile);
-        expect(result).toBe(true);
-      }
-    });
+    ]);
   });
 
-  describe('pending attachments', () => {
-    it('stores pending attachments in array', () => {
-      if (window.ChatInput && window.ChatInput._pendingAttachments !== undefined) {
-        expect(Array.isArray(window.ChatInput._pendingAttachments)).toBe(true);
-      }
-    });
+  it('guards _getAttachments against pending and malformed attachment data', () => {
+    window.ChatInput._pendingAttachments.push(
+      { id: 'pending', file: { name: 'pending.png' } },
+      { id: 'bad', file: { name: 'bad.png' }, dataUrl: 'not-a-data-url' },
+      null
+    );
 
-    it('can add and remove attachments', () => {
-      const mockFile = new File(['test'], 'test.png', { type: 'image/png' });
-      Object.defineProperty(mockFile, 'size', { value: 1024 });
-      
-      if (window.ChatInput && window.ChatInput._addAttachment) {
-        window.ChatInput._addAttachment(mockFile);
-        expect(window.ChatInput._pendingAttachments.length).toBe(1);
-        
-        window.ChatInput._removeAttachment(0);
-        expect(window.ChatInput._pendingAttachments.length).toBe(0);
-      }
-    });
+    expect(() => window.ChatInput._getAttachments()).not.toThrow();
+    expect(window.ChatInput._getAttachments()).toEqual([]);
   });
 
-  describe('preview thumbnails', () => {
-    it('creates preview element for attachment', () => {
-      if (window.ChatInput && window.ChatInput._createPreviewElement) {
-        const attachment = {
-          file: { name: 'test.png', size: 1024, type: 'image/png' },
-          dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-        };
-        
-        const preview = window.ChatInput._createPreviewElement(attachment, 0);
-        expect(preview).not.toBeNull();
-        expect(preview.className).toContain('attachment-preview');
+  it('send immediately after file select is safe and deterministic while read is pending', async () => {
+    const readers = [];
+    originalFileReader = globalThis.FileReader;
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.onload = null;
+        this.onerror = null;
+        readers.push(this);
       }
-    });
-  });
+      readAsDataURL() {}
+    };
 
-  describe('FileReader conversion', () => {
-    it('converts file to base64 data URL', async () => {
-      if (window.ChatInput && window.ChatInput._fileToBase64) {
-        const mockFile = new File(['hello'], 'test.txt', { type: 'text/plain' });
-        const result = await window.ChatInput._fileToBase64(mockFile);
-        expect(result).toContain('data:');
-        expect(result).toContain('base64,');
+    const fileInput = document.getElementById('file-input');
+    const file = new File(['img-bytes'], 'quick.png', { type: 'image/png' });
+    Object.defineProperty(file, 'size', { value: 1024 });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const input = document.getElementById('chat-input');
+    input.value = 'send now';
+
+    expect(() => window.ChatInput.sendMessage()).not.toThrow();
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.sendWs.mock.calls[0][0]).toMatchObject({
+      type: 'chat-send',
+      message: 'send now'
+    });
+    expect(window.ChatState.sendWs.mock.calls[0][0].attachments).toBeUndefined();
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+
+    readers[0].onload({ target: { result: 'data:image/png;base64,SEVMTE8=' } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    input.disabled = false;
+    input.value = 'send with image';
+    window.ChatInput.sendMessage();
+
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(2);
+    expect(window.ChatState.sendWs.mock.calls[1][0].attachments).toEqual([
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'SEVMTE8='
+        }
       }
-    });
+    ]);
+    expect(window.ChatInput._pendingAttachments).toHaveLength(0);
   });
 
-  describe('drag and drop', () => {
-    it('chat input area has event listeners registered', () => {
-      // The handlers are registered in _initAttachments
-      // We can't fully test drag/drop in jsdom, but we verify initialization works
-      const chatInputArea = document.getElementById('chat-input-area');
-      expect(chatInputArea).not.toBeNull();
+  it('removes failed attachment on FileReader error and keeps send path safe', async () => {
+    const readers = [];
+    originalFileReader = globalThis.FileReader;
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.onload = null;
+        this.onerror = null;
+        this.onabort = null;
+        readers.push(this);
+      }
+      readAsDataURL() {}
+    };
+
+    const fileInput = document.getElementById('file-input');
+    const file = new File(['img-bytes'], 'broken.png', { type: 'image/png' });
+    Object.defineProperty(file, 'size', { value: 1024 });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+    expect(() => readers[0].onerror(new Event('error'))).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(window.ChatInput._pendingAttachments).toHaveLength(0);
+
+    const input = document.getElementById('chat-input');
+    input.value = 'still sends';
+    expect(() => window.ChatInput.sendMessage()).not.toThrow();
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.sendWs.mock.calls[0][0]).toMatchObject({
+      type: 'chat-send',
+      message: 'still sends'
     });
+    expect(window.ChatState.sendWs.mock.calls[0][0].attachments).toBeUndefined();
   });
 
-  describe('paste handling', () => {
-    it('chat input element exists', () => {
-      // The paste handler is registered on the chat-input element
-      const chatInput = document.getElementById('chat-input');
-      expect(chatInput).not.toBeNull();
+  it('removes failed attachment on FileReader abort and keeps send path safe', async () => {
+    const readers = [];
+    originalFileReader = globalThis.FileReader;
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.onload = null;
+        this.onerror = null;
+        this.onabort = null;
+        readers.push(this);
+      }
+      readAsDataURL() {}
+    };
+
+    const fileInput = document.getElementById('file-input');
+    const file = new File(['img-bytes'], 'aborted.png', { type: 'image/png' });
+    Object.defineProperty(file, 'size', { value: 1024 });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+    expect(() => readers[0].onabort(new Event('abort'))).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(window.ChatInput._pendingAttachments).toHaveLength(0);
+
+    const input = document.getElementById('chat-input');
+    input.value = 'after abort';
+    expect(() => window.ChatInput.sendMessage()).not.toThrow();
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.sendWs.mock.calls[0][0]).toMatchObject({
+      type: 'chat-send',
+      message: 'after abort'
     });
+    expect(window.ChatState.sendWs.mock.calls[0][0].attachments).toBeUndefined();
+  });
+
+  it('handles mixed attachment outcomes in one file batch and leaves lifecycle state clean', async () => {
+    const readers = [];
+    originalFileReader = globalThis.FileReader;
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.onload = null;
+        this.onerror = null;
+        this.onabort = null;
+        readers.push(this);
+      }
+      readAsDataURL() {}
+    };
+
+    const fileInput = document.getElementById('file-input');
+    const okFile = new File(['ok-bytes'], 'ok.png', { type: 'image/png' });
+    const brokenFile = new File(['bad-bytes'], 'broken.png', { type: 'image/png' });
+    Object.defineProperty(okFile, 'size', { value: 1024 });
+    Object.defineProperty(brokenFile, 'size', { value: 1024 });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [okFile, brokenFile] });
+
+    expect(() => fileInput.dispatchEvent(new Event('change', { bubbles: true }))).not.toThrow();
+    expect(window.ChatInput._pendingAttachments).toHaveLength(2);
+    expect(readers).toHaveLength(2);
+
+    expect(() => readers[1].onabort(new Event('abort'))).not.toThrow();
+    expect(() => readers[0].onload({ target: { result: 'data:image/png;base64,T0s=' } })).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+    expect(window.ChatInput._pendingAttachments[0].file.name).toBe('ok.png');
+
+    const input = document.getElementById('chat-input');
+    input.value = 'mixed attachment send';
+    expect(() => window.ChatInput.sendMessage()).not.toThrow();
+
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.sendWs.mock.calls[0][0]).toMatchObject({
+      type: 'chat-send',
+      message: 'mixed attachment send',
+      attachments: [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: 'T0s='
+          }
+        }
+      ]
+    });
+    expect(window.ChatInput._pendingAttachments).toHaveLength(0);
+    expect(document.querySelector('.attachment-previews')).toBeNull();
+  });
+
+  it('does not throw or send when only pending attachments exist', () => {
+    window.ChatInput._pendingAttachments.push({
+      id: 'pending-only',
+      file: { name: 'pending-only.png' }
+    });
+
+    expect(() => window.ChatInput.sendMessage()).not.toThrow();
+    expect(window.ChatState.sendWs).not.toHaveBeenCalled();
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+  });
+
+  it('sends ready attachments and keeps unread ones queued', () => {
+    window.ChatInput._pendingAttachments.push(
+      { id: 'pending', file: { name: 'pending.png' } },
+      { id: 'ready', file: { name: 'ready.png' }, dataUrl: 'data:image/png;base64,UkVBRFk=' }
+    );
+
+    const input = document.getElementById('chat-input');
+    input.value = 'mixed send';
+    window.ChatInput.sendMessage();
+
+    expect(window.ChatState.sendWs).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.sendWs.mock.calls[0][0].attachments).toEqual([
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'UkVBRFk='
+        }
+      }
+    ]);
+    expect(window.ChatInput._pendingAttachments).toHaveLength(1);
+    expect(window.ChatInput._pendingAttachments[0].id).toBe('pending');
   });
 });

@@ -209,6 +209,13 @@
       _fileToBase64(file).then(function(dataUrl) {
         attachment.dataUrl = dataUrl;
         _renderPreviews();
+      }).catch(function() {
+        // Drop failed attachments so they do not remain stuck in pending state.
+        const index = _pendingAttachments.indexOf(attachment);
+        if (index !== -1) {
+          _pendingAttachments.splice(index, 1);
+          _renderPreviews();
+        }
       });
     }
   }
@@ -220,6 +227,9 @@
         resolve(e.target.result);
       };
       reader.onerror = function(e) {
+        reject(e);
+      };
+      reader.onabort = function(e) {
         reject(e);
       };
       reader.readAsDataURL(file);
@@ -278,25 +288,38 @@
   }
 
   function _getAttachments() {
-    return _pendingAttachments.map(function(attachment) {
-      const dataUrl = attachment.dataUrl;
-      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-      if (match) {
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: match[1],
-            data: match[2]
-          }
-        };
+    return _pendingAttachments
+      .map(_attachmentToMessageAttachment)
+      .filter(function(attachment) { return attachment !== null; });
+  }
+
+  function _attachmentToMessageAttachment(attachment) {
+    if (!attachment || typeof attachment.dataUrl !== 'string') return null;
+
+    const match = attachment.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return null;
+
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: match[1],
+        data: match[2]
       }
-      return null;
-    }).filter(function(a) { return a !== null; });
+    };
+  }
+
+  function _clearSentAttachments() {
+    for (let i = _pendingAttachments.length - 1; i >= 0; i--) {
+      if (_attachmentToMessageAttachment(_pendingAttachments[i])) {
+        _pendingAttachments.splice(i, 1);
+      }
+    }
+    _renderPreviews();
   }
 
   function _clearAttachments() {
-    _pendingAttachments = [];
+    _pendingAttachments.length = 0;
     _renderPreviews();
   }
 
@@ -590,8 +613,8 @@
     }
     window.ChatState.sendWs(wsMessage);
     
-    // Clear attachments after sending
-    _clearAttachments();
+    // Only clear attachments that were actually sent; keep unread files pending.
+    _clearSentAttachments();
   }
 
   function showCommandResult(result) {
