@@ -106,6 +106,7 @@
     pendingAcks: new Map(),
     cachedModels: null,
     sendWs: sendWs,
+    currentMessages: [],
   };
 
   window._flushChatWsQueue = function() {
@@ -146,6 +147,25 @@
     const titleEl = document.getElementById('chat-title');
     if (titleEl) titleEl.textContent = agentId + ' // ' + (label || displaySessionId.slice(0, 8));
 
+    // Create or update export button
+    let exportBtn = document.getElementById('chat-export-btn');
+    if (!exportBtn) {
+      exportBtn = document.createElement('button');
+      exportBtn.id = 'chat-export-btn';
+      exportBtn.className = 'chat-export-btn';
+      exportBtn.setAttribute('aria-label', 'Export session to markdown');
+      exportBtn.title = 'Export session to markdown';
+      exportBtn.textContent = '⬇ Export';
+      exportBtn.onclick = function() {
+        window.exportChatSession();
+      };
+      const header = document.querySelector('.chat-header');
+      const closeBtn = document.getElementById('chat-close');
+      if (header && closeBtn) {
+        header.insertBefore(exportBtn, closeBtn);
+      }
+    }
+
     const liveEl = document.getElementById('chat-live');
     if (liveEl) liveEl.classList.remove('visible');
 
@@ -158,6 +178,7 @@
 
     state.currentSession = { agentId, sessionId: sessionId || '', label, sessionKey };
     state.subscribedKey = sessionKey;
+    state.currentMessages = [];
     localStorage.setItem('hud-chat-session', JSON.stringify(state.currentSession));
 
     const messagesEl = document.getElementById('chat-messages');
@@ -308,4 +329,90 @@
       if (!activeModal) window.closeChatPane();
     }
   });
+
+  // Message caching helpers
+  window.ChatState.addMessage = function(msg) {
+    if (!msg || !msg.role) return;
+    // Check for duplicates based on content and timestamp
+    const isDuplicate = window.ChatState.currentMessages.some(function(existing) {
+      if (existing.timestamp && msg.timestamp && existing.timestamp === msg.timestamp) {
+        return true;
+      }
+      // Compare content if no timestamp match
+      const existingContent = typeof existing.content === 'string' ? existing.content : JSON.stringify(existing.content);
+      const msgContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      return existing.role === msg.role && existingContent === msgContent;
+    });
+    if (!isDuplicate) {
+      window.ChatState.currentMessages.push(msg);
+    }
+  };
+
+  window.ChatState.setMessages = function(messages) {
+    window.ChatState.currentMessages = Array.isArray(messages) ? messages.slice() : [];
+  };
+
+  // Export session to markdown
+  window.exportChatSession = function() {
+    const state = window.ChatState;
+    if (!state.currentMessages || state.currentMessages.length === 0) {
+      alert('No messages to export');
+      return;
+    }
+
+    const session = state.currentSession;
+    const title = session ? (session.label || session.sessionKey || 'chat') : 'chat';
+
+    let markdown = '# ' + title + '\n\n';
+
+    var userMessage = null;
+    state.currentMessages.forEach(function(msg) {
+      if (msg.role === 'user') {
+        userMessage = msg;
+      } else if (msg.role === 'assistant') {
+        if (userMessage) {
+          markdown += '## User\n';
+          markdown += window.ChatMessage.extractText(userMessage) + '\n\n';
+          userMessage = null;
+        }
+        markdown += '## Assistant\n';
+        var content = msg.content;
+        if (Array.isArray(content)) {
+          content.forEach(function(block) {
+            if (block.type === 'text') {
+              markdown += block.text + '\n';
+            } else if (block.type === 'tool_use') {
+              markdown += '\n```json\n';
+              markdown += 'Tool: ' + block.name + '\n';
+              markdown += JSON.stringify(block.input, null, 2) + '\n';
+              markdown += '```\n\n';
+            } else if (block.type === 'thinking') {
+              markdown += '\n> Thinking: ' + block.thinking + '\n\n';
+            }
+          });
+        } else {
+          markdown += window.ChatMessage.extractText(msg) + '\n';
+        }
+        markdown += '\n';
+      }
+    });
+
+    // Handle orphaned user message at end
+    if (userMessage) {
+      markdown += '## User\n';
+      markdown += window.ChatMessage.extractText(userMessage) + '\n\n';
+    }
+
+    // Trigger download
+    var blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = title + '.md';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 })();

@@ -13,7 +13,7 @@
     btn.setAttribute('aria-label', 'Copy message');
     btn.innerHTML = COPY_ICON;
     btn.title = 'Copy message';
-    
+
     btn.onclick = function(e) {
       e.stopPropagation();
       navigator.clipboard.writeText(text).then(function() {
@@ -29,8 +29,96 @@
         console.error('Failed to copy:', err);
       });
     };
-    
+
     return btn;
+  }
+
+  function createCopyTurnButton(assistantMsg) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn copy-turn-btn';
+    btn.setAttribute('aria-label', 'Copy entire turn');
+    btn.innerHTML = COPY_ICON;
+    btn.title = 'Copy entire turn';
+
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      var markdown = buildTurnMarkdown(assistantMsg);
+      navigator.clipboard.writeText(markdown).then(function() {
+        btn.classList.add('copied');
+        btn.innerHTML = CHECK_ICON;
+        btn.title = 'Copied!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = COPY_ICON;
+          btn.title = 'Copy entire turn';
+        }, 2000);
+      }).catch(function(err) {
+        console.error('Failed to copy:', err);
+      });
+    };
+
+    return btn;
+  }
+
+  function buildTurnMarkdown(assistantMsg) {
+    var state = window.ChatState;
+    var messages = state.currentMessages || [];
+
+    // Find the index of this assistant message in the cached messages
+    var assistantIndex = -1;
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'assistant') {
+        // Match by content comparison
+        var msgContent = typeof messages[i].content === 'string' ? messages[i].content : JSON.stringify(messages[i].content);
+        var asstContent = typeof assistantMsg.content === 'string' ? assistantMsg.content : JSON.stringify(assistantMsg.content);
+        if (msgContent === asstContent) {
+          assistantIndex = i;
+          break;
+        }
+      }
+    }
+
+    // Look backwards to find the preceding user message
+    var userMsg = null;
+    if (assistantIndex > 0) {
+      for (var j = assistantIndex - 1; j >= 0; j--) {
+        if (messages[j].role === 'user') {
+          userMsg = messages[j];
+          break;
+        }
+      }
+    }
+
+    var markdown = '';
+
+    // Add user message
+    if (userMsg) {
+      markdown += '## User\n';
+      markdown += extractText(userMsg) + '\n\n';
+    }
+
+    // Add assistant message
+    markdown += '## Assistant\n';
+    var content = assistantMsg.content;
+    if (Array.isArray(content)) {
+      content.forEach(function(block) {
+        if (block.type === 'text') {
+          markdown += block.text + '\n';
+        } else if (block.type === 'tool_use') {
+          markdown += '\n```json\n';
+          markdown += 'Tool: ' + block.name + '\n';
+          markdown += JSON.stringify(block.input, null, 2) + '\n';
+          markdown += '```\n\n';
+        } else if (block.type === 'thinking') {
+          markdown += '\n> Thinking: ' + block.thinking + '\n\n';
+        }
+      });
+    } else {
+      markdown += extractText(assistantMsg) + '\n';
+    }
+
+    return markdown;
   }
 
   function extractText(message) {
@@ -178,6 +266,12 @@
         .join('\n');
       var copyBtn = createMessageCopyButton(textContent);
       headerRow.appendChild(copyBtn);
+    }
+
+    // Add copy turn button for assistant messages (copies entire turn: user + assistant)
+    if (role === 'assistant') {
+      var copyTurnBtn = createCopyTurnButton(msg);
+      headerRow.appendChild(copyTurnBtn);
     }
 
     // Timestamp element

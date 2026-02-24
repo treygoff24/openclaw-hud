@@ -77,7 +77,12 @@
     const loading = container.querySelector('.chat-loading');
     const hadLoading = !!loading;
     if (loading) loading.remove();
-    
+
+    // Cache messages in ChatState
+    if (s.setMessages && data.messages) {
+      s.setMessages(data.messages);
+    }
+
     // Handle error case only if we have no messages to display
     if (data.error && !(data.messages && data.messages.length > 0)) {
       const errDiv = document.createElement('div');
@@ -98,16 +103,16 @@
       });
       return;
     }
-    
+
     // Render messages
     (data.messages || []).forEach(function(msg) {
       container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     });
     container.scrollTop = container.scrollHeight;
-    
+
     // Signal that messages are ready for E2E tests
     container.dataset.ready = 'true';
-    
+
     // Announce loaded message
     if (window.A11yAnnouncer) {
       window.A11yAnnouncer.announce('Chat history loaded, ' + (data.messages || []).length + ' messages');
@@ -224,10 +229,18 @@
     const container = document.getElementById('chat-messages');
     if (!container) return;
     const entry = data.entry || data;
-    container.appendChild(window.ChatMessage.renderHistoryMessage({
+
+    // Cache the message
+    var msg = {
       role: entry.role || 'system',
       content: typeof entry.content === 'string' ? [{ type: 'text', text: entry.content }] : entry.content || []
-    }));
+    };
+    if (entry.timestamp) msg.timestamp = entry.timestamp;
+    if (s.addMessage) {
+      s.addMessage(msg);
+    }
+
+    container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     container.scrollTop = container.scrollHeight;
   }
 
