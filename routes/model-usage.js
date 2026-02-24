@@ -1,9 +1,73 @@
 const fs = require('fs');
 const path = require('path');
 const { Router } = require('express');
-const { OPENCLAW_HOME, safeReaddir, safeRead } = require('../lib/helpers');
+const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
+const { requestSessionsUsage } = require('../lib/usage-rpc');
 
 const router = Router();
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function normalizeModelRow(row) {
+  const totals = row?.totals && typeof row.totals === 'object' ? row.totals : {};
+
+  const provider =
+    typeof row?.provider === 'string' && row.provider.trim()
+      ? row.provider
+      : typeof row?.model === 'string' && row.model.includes('/')
+        ? row.model.split('/')[0]
+        : 'unknown';
+  const model =
+    typeof row?.model === 'string' && row.model.trim()
+      ? row.model
+      : 'unknown';
+
+  const inputTokens = toFiniteNumber(totals.inputTokens ?? totals.input ?? row?.inputTokens ?? row?.input);
+  const outputTokens = toFiniteNumber(totals.outputTokens ?? totals.output ?? row?.outputTokens ?? row?.output);
+  const cacheReadTokens = toFiniteNumber(
+    totals.cacheReadTokens ?? totals.cacheRead ?? row?.cacheReadTokens ?? row?.cacheRead,
+  );
+  const cacheWriteTokens = toFiniteNumber(
+    totals.cacheWriteTokens ?? totals.cacheWrite ?? row?.cacheWriteTokens ?? row?.cacheWrite,
+  );
+  const totalTokens = toFiniteNumber(
+    totals.totalTokens ??
+      row?.totalTokens ??
+      row?.total ??
+      inputTokens +
+      outputTokens +
+      cacheReadTokens +
+      cacheWriteTokens,
+  );
+  const totalCost = toFiniteNumber(
+    totals.totalCost ??
+      totals.cost ??
+      totals.cost?.total ??
+      row?.totalCost ??
+      row?.cost?.total,
+  );
+
+  return {
+    provider,
+    model,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens,
+    totalCost,
+  };
+}
+
+function collectUsageRows(payload) {
+  const result = payload?.result;
+  if (Array.isArray(result?.rows)) return result.rows;
+  if (Array.isArray(result?.aggregates?.byModel)) return result.aggregates.byModel;
+  return [];
+}
 
 router.get('/api/model-usage', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
@@ -64,6 +128,61 @@ router.get('/api/model-usage', (req, res) => {
   }
 
   res.json(usage);
+});
+
+router.get('/api/model-usage/live-weekly', async (req, res) => {
+  const tz = process.env.HUD_USAGE_TZ || 'America/Chicago';
+  const nowMs = Date.now();
+  const liveWindow = getLiveWeekWindow(tz, nowMs);
+
+  try {
+    const payload = await requestSessionsUsage({
+      from: liveWindow.fromMs,
+      to: liveWindow.toMs,
+      timezone: tz,
+    });
+
+    const usageRows = collectUsageRows(payload);
+
+    const models = [];
+    const totals = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    };
+
+    for (const row of usageRows) {
+      const modelRow = normalizeModelRow(row);
+      if (modelRow.totalTokens <= 0) continue;
+
+      models.push(modelRow);
+      totals.inputTokens += modelRow.inputTokens;
+      totals.outputTokens += modelRow.outputTokens;
+      totals.cacheReadTokens += modelRow.cacheReadTokens;
+      totals.cacheWriteTokens += modelRow.cacheWriteTokens;
+      totals.totalTokens += modelRow.totalTokens;
+      totals.totalCost += modelRow.totalCost;
+    }
+
+    res.json({
+      meta: {
+        period: 'live-weekly',
+        tz,
+        weekStart: new Date(liveWindow.fromMs).toISOString(),
+        now: new Date(liveWindow.toMs).toISOString(),
+        generatedAt: new Date(nowMs).toISOString(),
+        source: 'sessions.usage+config-reprice',
+        missingPricingModels: [],
+      },
+      models,
+      totals,
+    });
+  } catch (err) {
+    res.status(502).json({ error: `Failed to load live weekly usage: ${err.message}` });
+  }
 });
 
 module.exports = router;
