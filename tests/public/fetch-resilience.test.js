@@ -97,6 +97,8 @@ Object.defineProperty(window, 'localStorage', {
 
 // Load all panels and app.js
 await import('../../public/utils.js');
+await import('../../public/label-sanitizer.js');
+await import('../../public/session-labels.js');
 await import('../../public/panels/activity.js');
 await import('../../public/panels/sessions.js');
 await import('../../public/panels/agents.js');
@@ -107,10 +109,41 @@ await import('../../public/panels/system.js');
 await import('../../public/panels/spawn.js');
 await import('../../public/copy-utils.js');
 await import('../../public/chat-message.js');
+await import('../../public/chat-input/attachments.js');
+await import('../../public/chat-input/autocomplete.js');
+await import('../../public/chat-input/send-flow.js');
+await import('../../public/chat-input/model-picker.js');
+await import('../../public/chat-commands/catalog.js');
+await import('../../public/chat-commands/fuzzy.js');
+await import('../../public/chat-commands/registry.js');
+await import('../../public/chat-commands/help.js');
+await import('../../public/chat-commands/local-exec.js');
+await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
+await import('../../public/chat-ws/runtime.js');
+await import('../../public/chat-ws/history-log.js');
+await import('../../public/chat-ws/stream-events.js');
+await import('../../public/chat-ws/system-events.js');
 await import('../../public/chat-ws-handler.js');
-await import('../../public/chat-pane.js');
+await import('../../public/app/diagnostics.js');
+await import('../../public/app/status.js');
+await import('../../public/app/ui.js');
+await import('../../public/app/data.js');
+await import('../../public/app/polling.js');
+await import('../../public/app/ws.js');
+await import('../../public/app/bootstrap.js');
 await import('../../public/app.js');
+await import('../../public/chat-pane/constants.js');
+await import('../../public/chat-pane/diagnostics.js');
+await import('../../public/chat-pane/session-metadata.js');
+await import('../../public/chat-pane/history-timeout.js');
+await import('../../public/chat-pane/transport.js');
+await import('../../public/chat-pane/state.js');
+await import('../../public/chat-pane/pane-lifecycle.js');
+await import('../../public/chat-pane/session-restore.js');
+await import('../../public/chat-pane/ws-bridge.js');
+await import('../../public/chat-pane/export.js');
+await import('../../public/chat-pane.js');
 
 describe('fetchAll resilient fetching', () => {
   beforeEach(() => {

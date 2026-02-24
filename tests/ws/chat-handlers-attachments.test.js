@@ -259,6 +259,68 @@ describe('chat-handlers attachments', () => {
       expect(sent.ok).toBe(false);
       expect(sent.error.code).toBe('INVALID_MEDIA_TYPE');
     });
+
+    it('chat-send rejects attachments with missing source', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+
+      await mod.handleChatMessage(ws, {
+        type: 'chat-send',
+        sessionKey: MAIN_KEY,
+        message: 'No source',
+        attachments: [
+          { type: 'image' }
+        ],
+        idempotencyKey: 'ik-nosource'
+      }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID');
+      expect(sent.error.message).toBe('attachment missing source');
+    });
+
+    it('chat-send rejects base64 attachments with missing data', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+
+      await mod.handleChatMessage(ws, {
+        type: 'chat-send',
+        sessionKey: MAIN_KEY,
+        message: 'No base64 data',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png' } }
+        ],
+        idempotencyKey: 'ik-nodata'
+      }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID');
+      expect(sent.error.message).toBe('attachment missing data');
+    });
+
+    it('chat-send with whitespace-only message and attachments sends only image blocks', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r9', status: 'queued' });
+
+      await mod.handleChatMessage(ws, {
+        type: 'chat-send',
+        sessionKey: MAIN_KEY,
+        message: '   ',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'tiny' } }
+        ],
+        idempotencyKey: 'ik-whitespace'
+      }, gw);
+
+      const payload = gw.request.mock.calls[0][1];
+      expect(payload.content).toHaveLength(1);
+      expect(payload.content[0].type).toBe('image');
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(true);
+    });
   });
 
   describe('attachment rate limiting', () => {
@@ -403,6 +465,40 @@ describe('chat-handlers attachments', () => {
       
       sent = JSON.parse(ws2.send.mock.calls[0][0]);
       expect(sent.ok).toBe(true);
+    });
+
+    it('evicts old timestamps outside the rate-limit window', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-24T12:00:00.000Z'));
+
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      const attachment = [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }];
+
+      for (let i = 1; i <= 5; i++) {
+        await mod.handleChatMessage(ws, {
+          type: 'chat-send',
+          sessionKey: MAIN_KEY,
+          message: `Image ${i}`,
+          attachments: attachment,
+          idempotencyKey: `window-${i}`
+        }, gw);
+      }
+
+      vi.advanceTimersByTime(mod.RATE_LIMIT_WINDOW_MS + 1);
+
+      await mod.handleChatMessage(ws, {
+        type: 'chat-send',
+        sessionKey: MAIN_KEY,
+        message: 'After window',
+        attachments: attachment,
+        idempotencyKey: 'window-6'
+      }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[5][0]);
+      expect(sent.ok).toBe(true);
+      vi.useRealTimers();
     });
   });
 });
