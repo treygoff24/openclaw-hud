@@ -367,6 +367,21 @@
   width: 12px;
   height: 12px;
 }
+.copy-btn-label {
+  line-height: 1;
+}
+
+.chat-turn-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-dim);
+}
+.chat-turn-actions .copy-turn-btn {
+  opacity: 0.85;
+  padding: 4px 8px;
+}
 
 /* Tool result blocks */
 .chat-tool-result-container {

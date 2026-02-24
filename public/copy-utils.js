@@ -6,35 +6,48 @@
   var COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
   var CHECK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
+  function setButtonContent(btn, icon, visibleLabel) {
+    btn.innerHTML = icon;
+    if (!visibleLabel) return;
+    var label = document.createElement('span');
+    label.className = 'copy-btn-label';
+    label.textContent = visibleLabel;
+    btn.appendChild(label);
+  }
+
   /**
    * Create a copy button with clipboard feedback.
    *
    * @param {string|Function} getText - The text to copy, or a zero-argument
    *   function that returns it (evaluated lazily on each click).
-   * @param {string} [ariaLabel] - Button aria-label and title.  Defaults to
+   * @param {string} [ariaLabel] - Button aria-label and title. Defaults to
    *   'Copy to clipboard'.
+   * @param {{visibleLabel?: string, copiedLabel?: string}} [options]
    * @returns {HTMLButtonElement}
    */
-  function createCopyButton(getText, ariaLabel) {
+  function createCopyButton(getText, ariaLabel, options) {
     var label = ariaLabel || 'Copy to clipboard';
+    var opts = options || {};
+    var visibleLabel = typeof opts.visibleLabel === 'string' ? opts.visibleLabel : '';
+    var copiedLabel = typeof opts.copiedLabel === 'string' ? opts.copiedLabel : '';
 
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'copy-btn';
     btn.setAttribute('aria-label', label);
-    btn.innerHTML = COPY_ICON;
     btn.title = label;
+    setButtonContent(btn, COPY_ICON, visibleLabel);
 
     btn.onclick = function(e) {
       e.stopPropagation();
       var text = typeof getText === 'function' ? getText() : getText;
       navigator.clipboard.writeText(text).then(function() {
         btn.classList.add('copied');
-        btn.innerHTML = CHECK_ICON;
+        setButtonContent(btn, CHECK_ICON, copiedLabel || visibleLabel);
         btn.title = 'Copied!';
         setTimeout(function() {
           btn.classList.remove('copied');
-          btn.innerHTML = COPY_ICON;
+          setButtonContent(btn, COPY_ICON, visibleLabel);
           btn.title = label;
         }, 2000);
       }).catch(function(err) {

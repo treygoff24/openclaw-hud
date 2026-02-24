@@ -73,6 +73,12 @@ describe('CopyUtils', () => {
       expect(btn.type).toBe('button');
     });
 
+    it('renders a visible label when provided in options', () => {
+      const btn = window.CopyUtils.createCopyButton('text', 'Copy entire turn', { visibleLabel: 'Copy turn' });
+      expect(btn.textContent).toContain('Copy turn');
+      expect(btn.innerHTML).toContain('<svg');
+    });
+
     describe('when getText is a string', () => {
       it('copies the string to clipboard on click', async () => {
         const btn = window.CopyUtils.createCopyButton('hello world', 'Copy');
@@ -120,6 +126,17 @@ describe('CopyUtils', () => {
         const btn = window.CopyUtils.createCopyButton('text', 'Copy label');
         await btn.click();
         expect(btn.title).toBe('Copied!');
+      });
+
+      it('preserves visible label after copied state resets', async () => {
+        const btn = window.CopyUtils.createCopyButton('text', 'Copy label', { visibleLabel: 'Copy turn' });
+        await btn.click();
+
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+
+        expect(btn.textContent).toContain('Copy turn');
+        expect(btn.innerHTML).toContain('<svg');
       });
 
       it('resets class, icon, and title after 2000ms', async () => {

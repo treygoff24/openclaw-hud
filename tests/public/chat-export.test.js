@@ -177,6 +177,9 @@ describe('8b: Per-turn copy button', () => {
     expect(assistantMsg).not.toBeNull();
     const copyTurnBtn = assistantMsg.querySelector('.copy-turn-btn');
     expect(copyTurnBtn).not.toBeNull();
+    const turnActions = assistantMsg.querySelector('.chat-turn-actions');
+    expect(turnActions).not.toBeNull();
+    expect(turnActions.contains(copyTurnBtn)).toBe(true);
   });
 
   it('copy turn button has correct aria-label', () => {
@@ -192,6 +195,25 @@ describe('8b: Per-turn copy button', () => {
     });
     const copyTurnBtn = document.querySelector('.chat-msg.assistant .copy-turn-btn');
     expect(copyTurnBtn.getAttribute('aria-label')).toBe('Copy entire turn');
+    expect(copyTurnBtn.textContent).toContain('Copy turn');
+  });
+
+  it('does not render copy turn button in assistant message header', () => {
+    mockWs();
+    window.openChatPane('agent1', 'session1', 'label', 'agent:agent1:session1');
+    window.handleChatWsMessage({
+      type: 'chat-history-result',
+      sessionKey: 'agent:agent1:session1',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'User question' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Assistant answer' }] }
+      ]
+    });
+
+    const assistantMsg = document.querySelector('.chat-msg.assistant');
+    const header = assistantMsg.querySelector('.chat-msg-header');
+    expect(header.querySelector('.copy-turn-btn')).toBeNull();
+    expect(assistantMsg.querySelector('.chat-turn-actions .copy-turn-btn')).not.toBeNull();
   });
 
   it('copies entire turn as markdown when clicked', async () => {

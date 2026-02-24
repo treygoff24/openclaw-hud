@@ -15,7 +15,7 @@
   function createCopyTurnButton(assistantMsg) {
     var btn = window.CopyUtils.createCopyButton(function() {
       return buildTurnMarkdown(assistantMsg);
-    }, 'Copy entire turn');
+    }, 'Copy entire turn', { visibleLabel: 'Copy turn' });
     btn.classList.add('copy-turn-btn');
     return btn;
   }
@@ -261,11 +261,7 @@
       headerRow.appendChild(copyBtn);
     }
 
-    // Add copy turn button for assistant messages (copies entire turn: user + assistant)
-    if (role === 'assistant') {
-      var copyTurnBtn = createCopyTurnButton(msg);
-      headerRow.appendChild(copyTurnBtn);
-    }
+    var copyTurnBtn = role === 'assistant' ? createCopyTurnButton(msg) : null;
 
     // Timestamp element
     if (msg.timestamp) {
@@ -300,6 +296,13 @@
       div.appendChild(window.ChatToolBlocks.createToolGroup(toolUseEls));
     } else {
       toolUseEls.forEach(function(el) { div.appendChild(el); });
+    }
+
+    if (copyTurnBtn) {
+      var turnActions = document.createElement('div');
+      turnActions.className = 'chat-turn-actions';
+      turnActions.appendChild(copyTurnBtn);
+      div.appendChild(turnActions);
     }
 
     return div;
