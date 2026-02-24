@@ -676,46 +676,6 @@
     return lines.join('\n');
   }
 
-  function renderCommandHelp(cmd) {
-    const lines = [
-      `╔══════════════════════════════════════════════════════════════╗`,
-      `║  /${cmd.name}${' '.repeat(60 - cmd.name.length)}║`,
-      `╠══════════════════════════════════════════════════════════════╣`,
-      ''
-    ];
-    
-    lines.push(cmd.description);
-    lines.push('');
-    
-    if (cmd.aliases.length > 0) {
-      lines.push(`Aliases: ${cmd.aliases.map(a => '/' + a).join(', ')}`);
-      lines.push('');
-    }
-    
-    if (cmd.args && cmd.args.length > 0) {
-      lines.push('Arguments:');
-      for (const arg of cmd.args) {
-        const required = arg.required ? ' (required)' : '';
-        const choices = arg.choices ? ` [choices: ${arg.choices.join(', ')}]` : '';
-        const defaultVal = arg.default !== undefined ? ` [default: ${arg.default}]` : '';
-        lines.push(`  ${arg.name}${required}${choices}${defaultVal}`);
-        lines.push(`    ${arg.description}`);
-      }
-    } else {
-      lines.push('No arguments required.');
-    }
-    
-    if (cmd.local) {
-      lines.push('');
-      lines.push('[This command is handled locally]');
-    }
-    
-    lines.push('');
-    lines.push(`╚══════════════════════════════════════════════════════════════╝`);
-    
-    return lines.join('\n');
-  }
-
   // ============================================
   // Public API
   // ============================================
@@ -727,7 +687,6 @@
     parse: parse,
     execute: execute,
     renderHelp: renderHelp,
-    renderCommandHelp: renderCommandHelp,
     // Expose for testing
     _levenshtein: levenshteinDistance,
     _getFuzzyScore: getFuzzyScore

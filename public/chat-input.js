@@ -11,6 +11,12 @@
   let _fileInputElement = null;
 
   // ============================================
+  // Constants
+  // ============================================
+
+  const MAX_AUTOCOMPLETE_ITEMS = 8;
+
+  // ============================================
   // Autocomplete State
   // ============================================
   
@@ -341,7 +347,7 @@
     const dropdown = createAutocompleteDropdown();
     if (!dropdown) return;
     
-    autocompleteItems = commands.slice(0, 8); // Limit to 8 suggestions
+    autocompleteItems = commands.slice(0, MAX_AUTOCOMPLETE_ITEMS);
     selectedIndex = autocompleteItems.length > 0 ? 0 : -1;
     
     dropdown.innerHTML = '';
