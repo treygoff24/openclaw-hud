@@ -6,6 +6,7 @@ window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), us
 window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 
 await import('../../public/chat-markdown.js');
+await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
 await import('../../public/chat-message.js');
 
