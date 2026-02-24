@@ -188,6 +188,7 @@ function cleanupChatSubscriptions(ws) {
 
 // Attachment helpers
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB server-side limit
+const ALLOWED_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 function validateAttachments(attachments) {
   if (!Array.isArray(attachments)) {
@@ -204,6 +205,14 @@ function validateAttachments(attachments) {
     
     if (!att.source || !att.source.type) {
       return { code: 'INVALID', message: 'attachment missing source' };
+    }
+
+    // Validate media_type - must be in allowlist
+    if (!att.source.media_type) {
+      return { code: 'INVALID_MEDIA_TYPE', message: 'attachment missing media_type' };
+    }
+    if (!ALLOWED_MEDIA_TYPES.includes(att.source.media_type)) {
+      return { code: 'INVALID_MEDIA_TYPE', message: 'media_type not allowed: ' + att.source.media_type };
     }
     
     // For base64, check size
