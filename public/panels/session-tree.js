@@ -94,13 +94,7 @@ HUD.sessionTree = (function() {
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
           <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
           <div class="${dotClass}" aria-hidden="true"></div>
-          <span class="tree-label">
-            <span class="session-label-role">${escapeHtml(meta.roleLabel)}</span>
-            <span class="session-label-sep">·</span>
-            <span class="session-label-model">${escapeHtml(meta.modelLabel)}</span>
-            <span class="session-label-sep">·</span>
-            <span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span>
-          </span>
+          <span class="tree-label"><span class="session-label-role">${escapeHtml(meta.roleLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-model">${escapeHtml(meta.modelLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span></span>
           <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
           ${countBadge}
           <span class="tree-age" aria-hidden="true">${HUD.utils.timeAgo(node.updatedAt)}</span>

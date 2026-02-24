@@ -13,6 +13,7 @@
     var value = String(label).normalize ? String(label).normalize('NFKC') : String(label);
     if (!value) return fallback || '';
 
+    value = value.replace(/\\n/g, ' ');
     value = value.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
     value = value.replace(/[\u0000-\u001f\u007F-\u009F]+/g, ' ');
     value = value.replace(/[\r\n\t]+/g, ' ');

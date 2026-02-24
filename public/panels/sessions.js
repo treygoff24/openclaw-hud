@@ -57,13 +57,7 @@ HUD.sessions = (function() {
       return `<div class="session-row" data-agent="${escapeHtml(s.agentId || '')}" data-session="${escapeHtml(s.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(label || '')}" role="listitem" tabindex="0" title="${escapeHtml(fullContext)}" aria-label="${escapeHtml(fullContext)}" data-index="${index}">
         <div class="${dotClass}" aria-hidden="true"></div>
         <div class="session-agent">${escapeHtml(s.agentId || '?')}</div>
-        <div class="session-label" title="${escapeHtml(fullContext)}">
-          <span class="session-label-role">${escapeHtml(meta.roleLabel)}</span>
-          <span class="session-label-sep">·</span>
-          <span class="session-label-model">${escapeHtml(meta.modelLabel)}</span>
-          <span class="session-label-sep">·</span>
-          <span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span>
-        </div>
+        <div class="session-label" title="${escapeHtml(fullContext)}"><span class="session-label-role">${escapeHtml(meta.roleLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-model">${escapeHtml(meta.modelLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span></div>
         <div class="session-age">${HUD.utils.timeAgo(s.updatedAt)}</div>
       </div>`;
     }).join('');

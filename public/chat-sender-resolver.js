@@ -8,15 +8,25 @@
     return typeof value === 'string' ? value.trim() : '';
   }
 
+  function normalizeWhitespace(value) {
+    return typeof value === 'string'
+      ? value
+          .replace(/\\n/g, ' ')
+          .replace(/[\r\n\t]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      : '';
+  }
+
   function stripWrappingQuotes(value) {
     if (!value) return '';
     var trimmed = safeTrim(value);
-    var collapsed = trimmed.replace(/\s+/g, ' ');
+    var collapsed = normalizeWhitespace(trimmed);
     if (trimmed.length >= 2) {
       var first = trimmed[0];
       var last = trimmed[trimmed.length - 1];
       if ((first === '"' && last === '"') || (first === "'" && last === "'") || (first === '`' && last === '`')) {
-        return safeTrim(trimmed.slice(1, -1)).replace(/\s+/g, ' ');
+        return normalizeWhitespace(trimmed.slice(1, -1));
       }
     }
     return collapsed;
