@@ -2,8 +2,40 @@ const { getGatewayConfig } = require('../lib/helpers');
 
 // Map<sessionKey, Set<WebSocket>> — which browsers want events for which session
 const chatSubscriptions = new Map();
+
+// Attachment rate limiting — per WebSocket connection
+const connectionAttachmentTimestamps = new WeakMap();
+const MAX_ATTACHMENTS_PER_MINUTE = 5;
+const RATE_LIMIT_WINDOW_MS = 60000;
 // Map<WebSocket, Set<sessionKey>> — reverse lookup for cleanup
 const clientChatSubs = new Map();
+
+// Attachment rate limiting — per WebSocket connection
+function checkAttachmentRateLimit(ws) {
+  const now = Date.now();
+  
+  // Get existing timestamps for this connection
+  let timestamps = connectionAttachmentTimestamps.get(ws);
+  if (!timestamps) {
+    timestamps = [];
+    connectionAttachmentTimestamps.set(ws, timestamps);
+  }
+  
+  // Remove timestamps outside the window
+  while (timestamps.length && timestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
+    timestamps.shift();
+  }
+  
+  // Check if limit exceeded
+  if (timestamps.length >= MAX_ATTACHMENTS_PER_MINUTE) {
+    return { allowed: false, error: { code: 'RATE_LIMITED', message: 'Too many attachment uploads' } };
+  }
+  
+  // Add current timestamp
+  timestamps.push(now);
+  return { allowed: true };
+}
+
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
 
 function isCanonicalSessionKey(sessionKey) {
@@ -56,6 +88,12 @@ async function handleChatMessage(ws, msg, gatewayWS) {
         const validationError = validateAttachments(attachments);
         if (validationError) {
           ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: validationError }));
+          break;
+        }
+        // Check attachment rate limit
+        const rateLimitResult = checkAttachmentRateLimit(ws);
+        if (!rateLimitResult.allowed) {
+          ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: rateLimitResult.error }));
           break;
         }
       }
@@ -264,4 +302,9 @@ module.exports = {
   cleanupChatSubscriptions,
   chatSubscriptions,
   clientChatSubs,
+  // Rate limiting exports for testing
+  checkAttachmentRateLimit,
+  MAX_ATTACHMENTS_PER_MINUTE,
+  RATE_LIMIT_WINDOW_MS,
+  connectionAttachmentTimestamps,
 };

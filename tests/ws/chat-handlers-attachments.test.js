@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let mod;
 const MAIN_KEY = 'agent:agent1:main';
@@ -8,6 +8,11 @@ beforeEach(() => {
   const keys = Object.keys(require.cache).filter(k => k.includes('chat-handlers'));
   for (const k of keys) delete require.cache[k];
   mod = require('../../ws/chat-handlers');
+});
+
+afterEach(() => {
+  // Clear any rate limit state
+  vi.restoreAllMocks();
 });
 
 function mockWs(readyState = 1) {
@@ -253,6 +258,151 @@ describe('chat-handlers attachments', () => {
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
       expect(sent.error.code).toBe('INVALID_MEDIA_TYPE');
+    });
+  });
+
+  describe('attachment rate limiting', () => {
+    it('allows normal attachment sends', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'First image',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+        ],
+        idempotencyKey: 'ratetest1' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(true);
+    });
+
+    it('rejects 6th attachment within 60s', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      
+      // First 5 should succeed
+      for (let i = 1; i <= 5; i++) {
+        await mod.handleChatMessage(ws, { 
+          type: 'chat-send', 
+          sessionKey: MAIN_KEY, 
+          message: `Image ${i}`,
+          attachments: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+          ],
+          idempotencyKey: `ratetest-${i}` 
+        }, gw);
+        
+        const sent = JSON.parse(ws.send.mock.calls[i - 1][0]);
+        expect(sent.ok).toBe(true);
+      }
+      
+      // 6th should fail with rate limit error
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'Too many images',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+        ],
+        idempotencyKey: 'ratetest-6' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[5][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('RATE_LIMITED');
+      expect(sent.error.message).toBe('Too many attachment uploads');
+    });
+
+    it('non-attachment messages are not rate limited', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      
+      // First 5 attachment messages should succeed and use rate limit
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      
+      for (let i = 1; i <= 5; i++) {
+        await mod.handleChatMessage(ws, { 
+          type: 'chat-send', 
+          sessionKey: MAIN_KEY, 
+          message: `Image ${i}`,
+          attachments: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+          ],
+          idempotencyKey: `notlimited-${i}` 
+        }, gw);
+      }
+      
+      // Now rate limited, but text-only messages should still work
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'Text message should still work',
+        idempotencyKey: 'notlimited-text' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[5][0]);
+      expect(sent.ok).toBe(true);
+    });
+
+    it('rate limit is per-connection (different ws objects)', async () => {
+      const ws1 = mockWs();
+      const ws2 = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      
+      // Fill up rate limit for ws1
+      for (let i = 1; i <= 5; i++) {
+        await mod.handleChatMessage(ws1, { 
+          type: 'chat-send', 
+          sessionKey: MAIN_KEY, 
+          message: `Image ${i}`,
+          attachments: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+          ],
+          idempotencyKey: `perconn1-${i}` 
+        }, gw);
+      }
+      
+      // ws1 should be rate limited
+      await mod.handleChatMessage(ws1, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'Too many',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+        ],
+        idempotencyKey: 'perconn1-6' 
+      }, gw);
+      
+      let sent = JSON.parse(ws1.send.mock.calls[5][0]);
+      expect(sent.error.code).toBe('RATE_LIMITED');
+      
+      // ws2 should NOT be rate limited (different connection)
+      await mod.handleChatMessage(ws2, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'First image on ws2',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Image } }
+        ],
+        idempotencyKey: 'perconn2-1' 
+      }, gw);
+      
+      sent = JSON.parse(ws2.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(true);
     });
   });
 });
