@@ -2,6 +2,37 @@
 (function() {
   'use strict';
 
+  // SVG icons for copy buttons
+  var COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  var CHECK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+  function createMessageCopyButton(text) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.setAttribute('aria-label', 'Copy message');
+    btn.innerHTML = COPY_ICON;
+    btn.title = 'Copy message';
+    
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      navigator.clipboard.writeText(text).then(function() {
+        btn.classList.add('copied');
+        btn.innerHTML = CHECK_ICON;
+        btn.title = 'Copied!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = COPY_ICON;
+          btn.title = 'Copy message';
+        }, 2000);
+      }).catch(function(err) {
+        console.error('Failed to copy:', err);
+      });
+    };
+    
+    return btn;
+  }
+
   function extractText(message) {
     if (typeof message === 'string') return message;
     if (message && Array.isArray(message.content)) {
@@ -125,6 +156,9 @@
       return div;
     }
 
+    var headerRow = document.createElement('div');
+    headerRow.className = 'chat-msg-header';
+
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
     if (role === 'assistant') {
@@ -133,7 +167,18 @@
     } else {
       roleSpan.textContent = role;
     }
-    div.appendChild(roleSpan);
+    headerRow.appendChild(roleSpan);
+
+    // Add copy button for assistant and user messages (not tool)
+    if (role === 'assistant' || role === 'user') {
+      var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+      var textContent = blocks
+        .filter(function(b) { return b.type === 'text'; })
+        .map(function(b) { return b.text || ''; })
+        .join('\n');
+      var copyBtn = createMessageCopyButton(textContent);
+      headerRow.appendChild(copyBtn);
+    }
 
     // Timestamp element
     if (msg.timestamp) {
@@ -141,10 +186,12 @@
       timeSpan.className = 'chat-msg-time';
       timeSpan.textContent = formatTimestamp(msg.timestamp);
       timeSpan.title = formatAbsoluteTime(msg.timestamp);
-      div.appendChild(timeSpan);
+      headerRow.appendChild(timeSpan);
     }
 
-    var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+    div.appendChild(headerRow);
+
+    blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
 
     // Collect tool_use blocks for potential grouping
     var toolUseEls = [];
