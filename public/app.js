@@ -244,6 +244,7 @@
   const WS_RECONNECT_BASE_MS = 500;
   const WS_RECONNECT_MAX_MS = 5000;
   const WS_RECONNECT_JITTER_MS = 250;
+  const WS_POST_OPEN_RECONNECT_MS = 2000;
   let wsReconnectAttempts = 0;
   let wsReconnectTimer = null;
   let wsEverOpened = false;
@@ -256,21 +257,43 @@
     }
   }
 
-  function scheduleWsReconnect(trigger) {
-    if (wsEverOpened || wsReconnectTimer) return;
-    const exp = Math.min(wsReconnectAttempts, 6);
-    const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
-    const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
-    const delayMs = backoff + jitter;
-    const reconnectAttempt = wsReconnectAttempts + 1;
-    hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
-      trigger: trigger || 'unknown',
-      reconnectAttempt: reconnectAttempt,
-      delayMs: delayMs,
-      backoffMs: backoff,
-      jitterMs: jitter
-    });
-    wsReconnectAttempts += 1;
+  function scheduleWsReconnect(trigger, wasPreviouslyOpened) {
+    // Don't stack reconnection timers
+    if (wsReconnectTimer) return;
+    
+    let delayMs;
+    let reconnectAttempt;
+    
+    if (wasPreviouslyOpened) {
+      // Post-open disconnect: use short fixed delay for quick reconnection
+      // No jitter for post-open - we want predictable fast reconnection
+      delayMs = WS_POST_OPEN_RECONNECT_MS;
+      reconnectAttempt = wsReconnectAttempts + 1;
+      wsReconnectAttempts += 1;
+      hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
+        trigger: trigger || 'unknown',
+        reconnectAttempt: reconnectAttempt,
+        delayMs: delayMs,
+        type: 'post_open'
+      });
+    } else {
+      // Pre-open failure: use exponential backoff
+      const exp = Math.min(wsReconnectAttempts, 6);
+      const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * Math.pow(2, exp));
+      const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
+      delayMs = backoff + jitter;
+      reconnectAttempt = wsReconnectAttempts + 1;
+      wsReconnectAttempts += 1;
+      hudDiagLog(WS_LOG_PREFIX, 'reconnect_scheduled', {
+        trigger: trigger || 'unknown',
+        reconnectAttempt: reconnectAttempt,
+        delayMs: delayMs,
+        backoffMs: backoff,
+        jitterMs: jitter,
+        type: 'pre_open'
+      });
+    }
+    
     wsReconnectTimer = setTimeout(() => {
       wsReconnectTimer = null;
       hudDiagLog(WS_LOG_PREFIX, 'reconnect_fired', {
@@ -303,7 +326,7 @@
       });
       startPolling();
       setConnectionStatus(false);
-      scheduleWsReconnect('constructor_error');
+      scheduleWsReconnect('constructor_error', wsEverOpened);
       return;
     }
 
@@ -339,18 +362,22 @@
         code: evt && typeof evt.code === 'number' ? evt.code : '',
         reason: evt && typeof evt.reason === 'string' ? evt.reason : '',
         wasClean: evt && typeof evt.wasClean === 'boolean' ? evt.wasClean : '',
-        opened: opened
+        opened: opened,
+        wsEverOpened: wsEverOpened
       });
-      if (!opened) scheduleWsReconnect('close_before_open');
+      // Schedule reconnection - always try to reconnect regardless of whether
+      // this was a pre-open or post-open close
+      scheduleWsReconnect(opened ? 'close_after_open' : 'close_before_open', wsEverOpened);
     };
     ws.onerror = () => {
       setConnectionStatus(false);
       hudDiagLog(WS_LOG_PREFIX, 'error', {
         attempt: attempt,
         url: wsUrl,
-        opened: opened
+        opened: opened,
+        wsEverOpened: wsEverOpened
       });
-      if (!opened) scheduleWsReconnect('error_before_open');
+      if (!opened) scheduleWsReconnect('error_before_open', wsEverOpened);
     };
   }
 
