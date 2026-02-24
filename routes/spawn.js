@@ -38,7 +38,7 @@ function validateContextFiles(filesText) {
 }
 
 router.post('/api/spawn', express.json(), async (req, res) => {
-  const { agentId, model, label, prompt, contextFiles, timeout, mode } = req.body;
+  const { agentId, model, label, prompt, contextFiles, timeout } = req.body;
 
   // Rate limit
   const now = Date.now();
@@ -51,8 +51,7 @@ router.post('/api/spawn', express.json(), async (req, res) => {
   if (!prompt?.trim()) return res.status(400).json({ error: 'Prompt is required' });
   if (prompt.length > 50000) return res.status(400).json({ error: 'Prompt too long (max 50,000 chars)' });
   if (!agentId) return res.status(400).json({ error: 'Agent is required' });
-  if (mode && !['run', 'session'].includes(mode)) return res.status(400).json({ error: 'Invalid mode' });
-  if (label && !/^[a-zA-Z0-9_-]{1,64}$/.test(label)) return res.status(400).json({ error: 'Invalid label: alphanumeric, hyphens, underscores only (max 64 chars)' });
+if (label && !/^[a-zA-Z0-9_-]{1,64}$/.test(label)) return res.status(400).json({ error: 'Invalid label: alphanumeric, hyphens, underscores only (max 64 chars)' });
   if (timeout != null && (timeout < 0 || timeout > 7200)) return res.status(400).json({ error: 'Timeout must be 0-7200 seconds' });
 
   // Build task prompt
@@ -80,8 +79,7 @@ router.post('/api/spawn', express.json(), async (req, res) => {
         tool: 'sessions_spawn',
         args: {
           task,
-          mode: mode || 'run',
-          ...((mode === 'session') && { thread: true }),
+          mode: 'run',
           ...(model && { model }),
           ...(label && { label }),
           ...(timeout != null && timeout > 0 && { runTimeoutSeconds: timeout })

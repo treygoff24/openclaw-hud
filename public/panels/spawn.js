@@ -11,7 +11,6 @@ HUD.spawn = (function() {
     $('#spawn-error').style.display = 'none';
     $('#spawn-error').setAttribute('role', 'alert');
     $('#spawn-label').value = '';
-    $('#spawn-mode').value = 'run';
     $('#spawn-timeout').value = '300';
     $('#spawn-files').value = '';
     $('#spawn-prompt').value = '';
@@ -67,7 +66,7 @@ HUD.spawn = (function() {
       agentId: $('#spawn-agent').value,
       model: $('#spawn-model').value || undefined,
       label: $('#spawn-label').value.trim() || undefined,
-      mode: $('#spawn-mode').value,
+      mode: 'run',
       timeout: parseInt($('#spawn-timeout').value) || undefined,
       contextFiles: $('#spawn-files').value || undefined,
       prompt: $('#spawn-prompt').value,

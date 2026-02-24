@@ -54,10 +54,11 @@ describe('POST /api/spawn', () => {
     expect(res.body.error).toContain('Agent is required');
   });
 
-  it('returns 400 for invalid mode', async () => {
-    const res = await request(createApp()).post('/api/spawn').send({ ...validBody, mode: 'invalid' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Invalid mode');
+  it('ignores mode from request body and always uses run', async () => {
+    const res = await request(createApp()).post('/api/spawn').send({ ...validBody, mode: 'session' });
+    expect(res.status).not.toBe(400);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.args.mode).toBe('run');
   });
 
   it('returns 400 for invalid label format', async () => {
@@ -93,11 +94,11 @@ describe('POST /api/spawn', () => {
   });
 
   it('forwards model and label to gateway when provided', async () => {
-    await request(createApp()).post('/api/spawn').send({ ...validBody, model: 'gpt-4', label: 'my-task', mode: 'session' });
+    await request(createApp()).post('/api/spawn').send({ ...validBody, model: 'gpt-4', label: 'my-task' });
     const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(fetchBody.args.model).toBe('gpt-4');
     expect(fetchBody.args.label).toBe('my-task');
-    expect(fetchBody.args.mode).toBe('session');
+    expect(fetchBody.args.mode).toBe('run');
   });
 
   it('returns 502 when gateway returns error', async () => {
@@ -143,10 +144,10 @@ describe('POST /api/spawn', () => {
     expect(res.body.error).toContain('Max 20');
   });
 
-  it('accepts valid mode values', async () => {
-    for (const mode of ['run', 'session']) {
-      const res = await request(createApp()).post('/api/spawn').send({ ...validBody, mode });
-      expect(res.status).not.toBe(400);
-    }
+  it('always uses run mode regardless of request body', async () => {
+    const res = await request(createApp()).post('/api/spawn').send({ ...validBody });
+    expect(res.status).not.toBe(400);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.args.mode).toBe('run');
   });
 });
