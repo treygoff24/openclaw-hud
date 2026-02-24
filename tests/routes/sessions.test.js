@@ -65,36 +65,6 @@ describe('GET /api/sessions', () => {
     expect(res.body).toHaveLength(100);
   });
 
-  it('derives sessionId from canonical key when not in raw data', async () => {
-    const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(['a1']);
-    helpers.safeJSON.mockReturnValue({
-      'agent:a1:abc123': { updatedAt: now, label: 'test' },
-    });
-    const res = await request(createApp()).get('/api/sessions');
-    expect(res.body[0].sessionId).toBe('abc123');
-  });
-
-  it('preserves sessionId from raw data when present', async () => {
-    const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(['a1']);
-    helpers.safeJSON.mockReturnValue({
-      'agent:a1:abc123': { sessionId: 'explicit-id', updatedAt: now },
-    });
-    const res = await request(createApp()).get('/api/sessions');
-    expect(res.body[0].sessionId).toBe('explicit-id');
-  });
-
-  it('handles sessionId with colons in key', async () => {
-    const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(['a1']);
-    helpers.safeJSON.mockReturnValue({
-      'agent:a1:uuid:with:colons': { updatedAt: now },
-    });
-    const res = await request(createApp()).get('/api/sessions');
-    expect(res.body[0].sessionId).toBe('uuid:with:colons');
-  });
-
   it('includes status from getSessionStatus', async () => {
     const now = Date.now();
     helpers.safeReaddir.mockReturnValue(['a1']);
@@ -188,14 +158,160 @@ describe('GET /api/session-tree', () => {
     expect(child.childCount).toBe(0);
   });
 
-  it('derives sessionId from canonical key in tree when not in raw data', async () => {
+  it('resolves mixed legacy/canonical spawnedBy values to the parent key present in payload', async () => {
     const now = Date.now();
     helpers.safeReaddir.mockReturnValue(['a1']);
     helpers.safeJSON.mockReturnValue({
-      'agent:a1:tree-sess': { updatedAt: now, spawnDepth: 0 },
+      'main': { sessionId: 'p', updatedAt: now, spawnDepth: 0 },
+      'child-legacy-key': {
+        sessionId: 'c1',
+        updatedAt: now,
+        spawnedBy: 'agent:a1:main',
+        spawnDepth: 1
+      },
+      'agent:a1:child-canonical-key': {
+        sessionId: 'c2',
+        updatedAt: now,
+        spawnedBy: 'main',
+        spawnDepth: 1
+      }
     });
+
     const res = await request(createApp()).get('/api/session-tree');
-    expect(res.body[0].sessionId).toBe('tree-sess');
+    const parent = res.body.find(s => s.key === 'main');
+    const childWithCanonicalSpawnedBy = res.body.find(s => s.key === 'child-legacy-key');
+    const childWithLegacySpawnedBy = res.body.find(s => s.key === 'agent:a1:child-canonical-key');
+
+    expect(parent.childCount).toBe(2);
+    expect(childWithCanonicalSpawnedBy.spawnedBy).toBe('main');
+    expect(childWithLegacySpawnedBy.spawnedBy).toBe('main');
+    expect(childWithCanonicalSpawnedBy.childCount).toBe(0);
+    expect(childWithLegacySpawnedBy.childCount).toBe(0);
+  });
+
+  it('deterministically prefers canonical entries when legacy and canonical keys collide', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'main': { sessionId: 'legacy-main', label: 'legacy', updatedAt: now, spawnDepth: 0 },
+      'agent:a1:main': { sessionId: 'canonical-main', label: 'canonical', updatedAt: now, spawnDepth: 0 },
+      'child-legacy-link': { sessionId: 'c1', updatedAt: now, spawnedBy: 'main', spawnDepth: 1 },
+      'child-canonical-link': {
+        sessionId: 'c2',
+        updatedAt: now,
+        spawnedBy: 'agent:a1:main',
+        spawnDepth: 1
+      }
+    });
+
+    const res = await request(createApp()).get('/api/session-tree');
+    const parentMatches = res.body.filter(s => s.sessionKey === 'agent:a1:main');
+    const childLegacyLink = res.body.find(s => s.key === 'child-legacy-link');
+    const childCanonicalLink = res.body.find(s => s.key === 'child-canonical-link');
+
+    expect(parentMatches).toHaveLength(1);
+    expect(parentMatches[0].key).toBe('agent:a1:main');
+    expect(parentMatches[0].sessionId).toBe('canonical-main');
+    expect(parentMatches[0].childCount).toBe(2);
+    expect(res.body.some(s => s.key === 'main')).toBe(false);
+    expect(childLegacyLink.spawnedBy).toBe('agent:a1:main');
+    expect(childCanonicalLink.spawnedBy).toBe('agent:a1:main');
+  });
+
+  it('keeps canonical parent deterministic when canonical key appears before legacy alias', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'agent:a1:main': {
+        sessionId: 'canonical-main',
+        label: 'canonical-first',
+        updatedAt: now,
+        spawnDepth: 0
+      },
+      'main': {
+        sessionId: 'legacy-main',
+        label: 'legacy-second',
+        updatedAt: now,
+        spawnDepth: 0
+      },
+      'child-from-legacy-link': {
+        sessionId: 'c1',
+        updatedAt: now,
+        spawnedBy: 'main',
+        spawnDepth: 1
+      },
+      'child-from-canonical-link': {
+        sessionId: 'c2',
+        updatedAt: now,
+        spawnedBy: 'agent:a1:main',
+        spawnDepth: 1
+      }
+    });
+
+    const res = await request(createApp()).get('/api/session-tree');
+    const parentMatches = res.body.filter(s => s.sessionKey === 'agent:a1:main');
+    const childLegacyLink = res.body.find(s => s.key === 'child-from-legacy-link');
+    const childCanonicalLink = res.body.find(s => s.key === 'child-from-canonical-link');
+
+    expect(parentMatches).toHaveLength(1);
+    expect(parentMatches[0].key).toBe('agent:a1:main');
+    expect(parentMatches[0].sessionId).toBe('canonical-main');
+    expect(parentMatches[0].childCount).toBe(2);
+    expect(res.body.some(s => s.key === 'main')).toBe(false);
+    expect(childLegacyLink.spawnedBy).toBe('agent:a1:main');
+    expect(childCanonicalLink.spawnedBy).toBe('agent:a1:main');
+  });
+
+  it('ensures every non-null spawnedBy matches an existing parent key in the same payload', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'main': { sessionId: 'p', updatedAt: now, spawnDepth: 0 },
+      'agent:a1:canonical-parent': { sessionId: 'cp', updatedAt: now, spawnDepth: 0 },
+      'child-from-canonical-input': {
+        sessionId: 'c1',
+        updatedAt: now,
+        spawnedBy: 'agent:a1:main',
+        spawnDepth: 1
+      },
+      'child-from-legacy-input': {
+        sessionId: 'c2',
+        updatedAt: now,
+        spawnedBy: 'canonical-parent',
+        spawnDepth: 1
+      },
+      'orphan': { sessionId: 'o', updatedAt: now, spawnedBy: 'missing-parent', spawnDepth: 1 }
+    });
+
+    const res = await request(createApp()).get('/api/session-tree');
+    const keys = new Set(res.body.map(s => s.key));
+    for (const session of res.body) {
+      if (session.spawnedBy !== null) {
+        expect(keys.has(session.spawnedBy)).toBe(true);
+      }
+    }
+  });
+
+  it('uses computed canonicalSpawnedBy even when payload contains a persisted canonicalSpawnedBy field', async () => {
+    const now = Date.now();
+    helpers.safeReaddir.mockReturnValue(['a1']);
+    helpers.safeJSON.mockReturnValue({
+      'legacy-parent': { sessionId: 'p', updatedAt: now, spawnDepth: 0 },
+      'child': {
+        sessionId: 'c1',
+        updatedAt: now,
+        spawnedBy: 'legacy-parent',
+        canonicalSpawnedBy: 'agent:a1:missing-parent',
+        spawnDepth: 1
+      }
+    });
+
+    const res = await request(createApp()).get('/api/session-tree');
+    const parent = res.body.find(s => s.key === 'legacy-parent');
+    const child = res.body.find(s => s.key === 'child');
+
+    expect(parent.childCount).toBe(1);
+    expect(child.spawnedBy).toBe('legacy-parent');
   });
 
   it('nullifies spawnedBy when parent session does not exist', async () => {

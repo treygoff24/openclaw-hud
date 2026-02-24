@@ -29,6 +29,37 @@ function canonicalizeSessionKey(agentId, storedKey) {
   return `agent:${agentId}:${storedKey}`;
 }
 
+function canonicalizeRelationshipKey(agentId, spawnedBy) {
+  if (typeof spawnedBy !== 'string' || !spawnedBy.trim()) {
+    return null;
+  }
+  if (CANONICAL_SESSION_KEY_RE.test(spawnedBy)) {
+    return spawnedBy;
+  }
+  try {
+    return canonicalizeSessionKey(agentId, spawnedBy);
+  } catch {
+    return null;
+  }
+}
+
+function mergeCanonicalSessionEntry(allSessions, candidate) {
+  const existing = allSessions[candidate.sessionKey];
+  if (!existing) {
+    allSessions[candidate.sessionKey] = candidate;
+    return;
+  }
+
+  const existingIsCanonical = CANONICAL_SESSION_KEY_RE.test(existing.key);
+  const candidateIsCanonical = CANONICAL_SESSION_KEY_RE.test(candidate.key);
+
+  // If both legacy and canonical aliases exist for the same logical session,
+  // always prefer the canonical stored key representation.
+  if (!existingIsCanonical && candidateIsCanonical) {
+    allSessions[candidate.sessionKey] = candidate;
+  }
+}
+
 router.get('/api/sessions', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
@@ -41,9 +72,6 @@ router.get('/api/sessions', (req, res) => {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);
         const s = { agentId, key, sessionKey, ...val };
-        if (!s.sessionId && key.startsWith('agent:')) {
-          s.sessionId = key.split(':').slice(2).join(':');
-        }
         s.status = getSessionStatus(s);
         all.push(s);
       } catch (err) {
@@ -88,11 +116,13 @@ router.get('/api/session-tree', (req, res) => {
     for (const [key, val] of Object.entries(sessions)) {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);
-        const s = { key, sessionKey, agentId, ...val };
-        if (!s.sessionId && key.startsWith('agent:')) {
-          s.sessionId = key.split(':').slice(2).join(':');
-        }
-        allSessions[key] = s;
+        mergeCanonicalSessionEntry(allSessions, {
+          ...val,
+          key,
+          sessionKey,
+          agentId,
+          canonicalSpawnedBy: canonicalizeRelationshipKey(agentId, val.spawnedBy)
+        });
       } catch (err) {
         invalid.push({ agentId, key, error: err.message });
       }
@@ -104,25 +134,28 @@ router.get('/api/session-tree', (req, res) => {
 
   const childCounts = {};
   for (const s of Object.values(allSessions)) {
-    if (s.spawnedBy && allSessions[s.spawnedBy]) {
-      childCounts[s.spawnedBy] = (childCounts[s.spawnedBy] || 0) + 1;
+    if (s.canonicalSpawnedBy && allSessions[s.canonicalSpawnedBy]) {
+      childCounts[s.canonicalSpawnedBy] = (childCounts[s.canonicalSpawnedBy] || 0) + 1;
     }
   }
 
-  const result = Object.values(allSessions).map(s => ({
-    key: s.key,
-    sessionKey: s.sessionKey,
-    agentId: s.agentId,
-    label: s.label || null,
-    sessionId: s.sessionId,
-    spawnedBy: (s.spawnedBy && allSessions[s.spawnedBy]) ? s.spawnedBy : null,
-    spawnDepth: s.spawnDepth || 0,
-    updatedAt: s.updatedAt || 0,
-    lastChannel: s.lastChannel || null,
-    groupChannel: s.groupChannel || null,
-    childCount: childCounts[s.key] || 0,
-    status: getSessionStatus(s)
-  }));
+  const result = Object.values(allSessions).map(s => {
+    const parent = s.canonicalSpawnedBy ? allSessions[s.canonicalSpawnedBy] : null;
+    return {
+      key: s.key,
+      sessionKey: s.sessionKey,
+      agentId: s.agentId,
+      label: s.label || null,
+      sessionId: s.sessionId,
+      spawnedBy: parent ? parent.key : null,
+      spawnDepth: s.spawnDepth || 0,
+      updatedAt: s.updatedAt || 0,
+      lastChannel: s.lastChannel || null,
+      groupChannel: s.groupChannel || null,
+      childCount: childCounts[s.sessionKey] || 0,
+      status: getSessionStatus(s)
+    };
+  });
 
   const filtered = result.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
