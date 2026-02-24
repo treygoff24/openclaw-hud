@@ -1,13 +1,48 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let mod;
 const MAIN_KEY = 'agent:agent1:main';
 const OTHER_KEY = 'agent:agent1:thread-2';
-beforeEach(() => {
-  // Clear cache to get fresh Maps each time
-  const keys = Object.keys(require.cache).filter(k => k.includes('chat-handlers'));
+let tmpOpenclawHome;
+
+function resetModules() {
+  const keys = Object.keys(require.cache).filter(
+    (k) => k.includes('chat-handlers') || k.includes(`${path.sep}lib${path.sep}helpers`)
+  );
   for (const k of keys) delete require.cache[k];
+}
+
+function loadModuleWithHome(openclawHome) {
+  process.env.OPENCLAW_HOME = openclawHome;
+  resetModules();
   mod = require('../../ws/chat-handlers');
+}
+
+function writeLocalHistoryFixture({ sessionKey, sessionId, lines, storeCanonicalKey = false }) {
+  const parts = sessionKey.split(':');
+  const agentId = parts[1];
+  const storedKey = parts.slice(2).join(':');
+  const sessionsDir = path.join(tmpOpenclawHome, 'agents', agentId, 'sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const key = storeCanonicalKey ? sessionKey : storedKey;
+  fs.writeFileSync(path.join(sessionsDir, 'sessions.json'), JSON.stringify({ [key]: { sessionId } }, null, 2));
+  fs.writeFileSync(path.join(sessionsDir, `${sessionId}.jsonl`), lines.join('\n') + '\n');
+}
+
+beforeEach(() => {
+  tmpOpenclawHome = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handlers-'));
+  loadModuleWithHome(tmpOpenclawHome);
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  delete process.env.OPENCLAW_HOME;
+  if (tmpOpenclawHome) {
+    fs.rmSync(tmpOpenclawHome, { recursive: true, force: true });
+  }
 });
 
 function mockWs(readyState = 1) {
@@ -124,6 +159,122 @@ describe('chat-handlers', () => {
       await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.error.code).toBe('UNKNOWN_SESSION_KEY');
+    });
+
+    it('chat-history with disconnected gateway falls back to local history', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-1',
+        lines: [
+          JSON.stringify({ type: 'message', role: 'user', content: 'hello from local', timestamp: '2026-02-24T10:00:00.000Z' }),
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'loaded from disk', timestamp: '2026-02-24T10:00:01.000Z' })
+        ]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(false);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY, limit: 1 }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].role).toBe('assistant');
+      expect(sent.messages[0].content[0].text).toBe('loaded from disk');
+    });
+
+    it('chat-history falls back when gateway returns unknown session', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-2',
+        lines: [
+          JSON.stringify({ type: 'message', role: 'user', content: 'local user prompt' }),
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'local assistant reply' })
+        ]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Session not found');
+      err.code = 'SESSION_NOT_FOUND';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(gw.request).toHaveBeenCalledWith('chat.history', { sessionKey: MAIN_KEY });
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(2);
+      expect(sent.messages[1].content[0].text).toBe('local assistant reply');
+    });
+
+    it('chat-history does not mask non-recoverable gateway errors with local fallback', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-nonrecoverable',
+        lines: [
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'should not be returned' })
+        ]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Gateway auth failed');
+      err.code = 'AUTH_FAILED';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.messages).toEqual([]);
+      expect(sent.error.code).toBe('AUTH_FAILED');
+      expect(sent.error.message).toBe('Gateway auth failed');
+    });
+
+    it('chat-history local fallback with limit parses from tail', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-tail-limit',
+        lines: [
+          JSON.stringify({ type: 'message', role: 'user', content: 'oldest' }),
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'older' }),
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'newer' }),
+          JSON.stringify({ type: 'message', role: 'assistant', content: 'newest' })
+        ]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      const originalParse = JSON.parse;
+      const parseSpy = vi.spyOn(JSON, 'parse');
+      let parseCallCount = 0;
+
+      try {
+        await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY, limit: 1 }, gw);
+      } finally {
+        parseCallCount = parseSpy.mock.calls.length;
+        parseSpy.mockRestore();
+      }
+
+      const sent = originalParse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe('newest');
+      expect(parseCallCount).toBeLessThanOrEqual(3);
+    });
+
+    it('chat-history resolves canonical session keys containing extra colons', async () => {
+      const deepKey = 'agent:agent1:thread:child:leaf';
+      writeLocalHistoryFixture({
+        sessionKey: deepKey,
+        sessionId: 'sess-colon-key',
+        lines: [JSON.stringify({ type: 'message', role: 'assistant', content: 'colon key works' })]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(false);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: deepKey }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe('colon key works');
     });
 
     it('chat-abort returns result', async () => {

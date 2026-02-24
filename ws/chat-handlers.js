@@ -1,4 +1,5 @@
-const { getGatewayConfig } = require('../lib/helpers');
+const path = require('path');
+const { OPENCLAW_HOME, getGatewayConfig, safeJSON, safeRead } = require('../lib/helpers');
 
 // Map<sessionKey, Set<WebSocket>> — which browsers want events for which session
 const chatSubscriptions = new Map();
@@ -37,9 +38,156 @@ function checkAttachmentRateLimit(ws) {
 }
 
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
+const CHAT_HISTORY_LOG_PREFIX = '[CHAT-HISTORY]';
 
 function isCanonicalSessionKey(sessionKey) {
   return typeof sessionKey === 'string' && CANONICAL_SESSION_KEY_RE.test(sessionKey);
+}
+
+function parseCanonicalSessionKey(sessionKey) {
+  const parts = sessionKey.split(':');
+  if (parts.length < 3) return null;
+  return {
+    agentId: parts[1],
+    storedKey: parts.slice(2).join(':')
+  };
+}
+
+function normalizeHistoryLimit(limit) {
+  if (limit === undefined || limit === null || limit === '') return null;
+  const parsed = Number(limit);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function logHistory(event, fields = {}) {
+  const parts = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    parts.push(`${key}=${typeof value === 'string' ? JSON.stringify(value) : String(value)}`);
+  }
+  console.log(`${CHAT_HISTORY_LOG_PREFIX} ${event}${parts.length ? ` ${parts.join(' ')}` : ''}`);
+}
+
+function toMessageContent(content) {
+  if (Array.isArray(content)) return content;
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
+  if (content === undefined || content === null) return [];
+  return [{ type: 'text', text: String(content) }];
+}
+
+function mapLocalHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+
+  const timestamp = (typeof entry.timestamp === 'string' || typeof entry.timestamp === 'number')
+    ? entry.timestamp
+    : undefined;
+
+  if (entry.type === 'tool_use') {
+    return {
+      role: 'assistant',
+      content: [{
+        type: 'tool_use',
+        id: entry.id || '',
+        name: entry.name || 'tool',
+        input: entry.input !== undefined ? entry.input : (entry.content !== undefined ? entry.content : '')
+      }],
+      ...(timestamp ? { timestamp } : {})
+    };
+  }
+
+  if (entry.type === 'tool_result') {
+    return {
+      role: 'tool',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: entry.tool_use_id || '',
+        content: entry.content !== undefined ? entry.content : ''
+      }],
+      ...(timestamp ? { timestamp } : {})
+    };
+  }
+
+  if (entry.type === 'thinking') {
+    return {
+      role: 'assistant',
+      content: [{
+        type: 'thinking',
+        thinking: entry.thinking || entry.content || ''
+      }],
+      ...(timestamp ? { timestamp } : {})
+    };
+  }
+
+  const role = typeof entry.role === 'string'
+    ? entry.role
+    : (entry.message && typeof entry.message.role === 'string' ? entry.message.role : 'system');
+  const rawContent = entry.content !== undefined
+    ? entry.content
+    : (entry.message ? entry.message.content : '');
+
+  return {
+    role,
+    content: toMessageContent(rawContent),
+    ...(timestamp ? { timestamp } : {})
+  };
+}
+
+function loadLocalHistory(sessionKey, requestedLimit) {
+  const parsed = parseCanonicalSessionKey(sessionKey);
+  if (!parsed) throw new Error('Could not parse canonical session key');
+
+  const { agentId, storedKey } = parsed;
+  const sessionsDir = path.join(OPENCLAW_HOME, 'agents', agentId, 'sessions');
+  const sessionsFile = path.join(sessionsDir, 'sessions.json');
+  const sessions = safeJSON(sessionsFile);
+  if (!sessions || typeof sessions !== 'object') {
+    throw new Error('sessions.json not found');
+  }
+
+  const canonicalStoredKey = `agent:${agentId}:${storedKey}`;
+  const sessionMeta = sessions[storedKey] || sessions[canonicalStoredKey];
+  if (!sessionMeta || typeof sessionMeta !== 'object' || typeof sessionMeta.sessionId !== 'string' || !sessionMeta.sessionId) {
+    throw new Error('Session not found in sessions.json');
+  }
+
+  const raw = safeRead(path.join(sessionsDir, `${sessionMeta.sessionId}.jsonl`));
+  if (!raw) throw new Error('Session log not found');
+
+  const limit = normalizeHistoryLimit(requestedLimit);
+
+  // For limit queries, parse from the tail and stop as soon as enough messages are mapped.
+  if (limit) {
+    const messages = [];
+    const lines = raw.split('\n');
+    for (let i = lines.length - 1; i >= 0 && messages.length < limit; i--) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      let parsedLine;
+      try {
+        parsedLine = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const mapped = mapLocalHistoryEntry(parsedLine);
+      if (mapped) messages.unshift(mapped);
+    }
+    return messages;
+  }
+
+  const messages = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let parsedLine;
+    try {
+      parsedLine = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const mapped = mapLocalHistoryEntry(parsedLine);
+    if (mapped) messages.push(mapped);
+  }
+
+  return messages;
 }
 
 function normalizeGatewayError(err) {
@@ -117,21 +265,50 @@ async function handleChatMessage(ws, msg, gatewayWS) {
         ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey: sessionKey || '', messages: [], error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' } }));
         break;
       }
-      if (!gatewayWS || !gatewayWS.connected) {
-        ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey, messages: [], error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
+      const normalizedLimit = normalizeHistoryLimit(limit);
+      logHistory('request', { sessionKey, limit: normalizedLimit || 'default' });
+
+      let gatewayError = null;
+      let shouldFallback = false;
+      if (gatewayWS && gatewayWS.connected) {
+        logHistory('gateway-attempt', { sessionKey });
+        try {
+          const result = await gatewayWS.request('chat.history', { sessionKey, ...(normalizedLimit ? { limit: normalizedLimit } : {}) });
+          const messages = result.messages || [];
+          ws.send(JSON.stringify({
+            type: 'chat-history-result',
+            sessionKey,
+            messages,
+            thinkingLevel: result.thinkingLevel,
+            verboseLevel: result.verboseLevel
+          }));
+          logHistory('gateway-success', { sessionKey, count: messages.length });
+          break;
+        } catch (err) {
+          gatewayError = normalizeGatewayError(err);
+          logHistory('gateway-fail', { sessionKey, code: gatewayError.code });
+          shouldFallback = gatewayError.code === 'UNKNOWN_SESSION_KEY';
+        }
+      } else {
+        gatewayError = { code: 'UNAVAILABLE', message: 'Gateway not connected' };
+        logHistory('gateway-unavailable', { sessionKey });
+        shouldFallback = true;
+      }
+
+      if (!shouldFallback) {
+        ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey, messages: [], error: gatewayError }));
+        logHistory('fallback-skipped', { sessionKey, code: gatewayError?.code || 'UNKNOWN' });
         break;
       }
+
       try {
-        const result = await gatewayWS.request('chat.history', { sessionKey, ...(limit && { limit }) });
-        ws.send(JSON.stringify({ 
-          type: 'chat-history-result', 
-          sessionKey, 
-          messages: result.messages || [], 
-          thinkingLevel: result.thinkingLevel, 
-          verboseLevel: result.verboseLevel 
-        }));
-      } catch (err) {
-        ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey, messages: [], error: normalizeGatewayError(err) }));
+        const fallbackMessages = loadLocalHistory(sessionKey, normalizedLimit);
+        ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey, messages: fallbackMessages }));
+        logHistory('fallback-success', { sessionKey, count: fallbackMessages.length });
+      } catch (fallbackErr) {
+        const errorToSend = gatewayError || { code: 'UNAVAILABLE', message: 'History unavailable' };
+        ws.send(JSON.stringify({ type: 'chat-history-result', sessionKey, messages: [], error: errorToSend }));
+        logHistory('fallback-fail', { sessionKey, reason: fallbackErr.message });
       }
       break;
     }
