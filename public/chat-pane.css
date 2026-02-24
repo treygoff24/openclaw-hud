@@ -352,6 +352,11 @@
 .chat-tool-result:hover .copy-btn {
   opacity: 1;
 }
+.copy-btn:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 2px;
+  opacity: 1;
+}
 .copy-btn:hover {
   border-color: var(--cyan);
   color: var(--cyan);
@@ -376,10 +381,16 @@
   justify-content: flex-end;
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px dashed var(--border-dim);
+  border-top: 1px solid var(--border-dim);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.chat-msg:hover .chat-turn-actions,
+.chat-turn-actions:focus-within {
+  opacity: 1;
 }
 .chat-turn-actions .copy-turn-btn {
-  opacity: 0.85;
+  opacity: 1;
   padding: 4px 8px;
 }
 

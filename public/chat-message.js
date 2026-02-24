@@ -220,6 +220,7 @@
 
   function renderHistoryMessage(msg) {
     var div = document.createElement('div');
+    var blocks;
     var role = msg.role || 'system';
     var roleClass = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'tool' ? 'tool' : 'system';
     div.className = 'chat-msg ' + roleClass;
@@ -230,7 +231,7 @@
     // System messages get special styling
     if (role === 'system') {
       div.className = 'chat-msg system';
-      var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+      blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
       blocks.forEach(function(block) {
         div.appendChild(renderContentBlock(block, role));
       });
@@ -252,7 +253,7 @@
 
     // Add copy button for assistant and user messages (not tool)
     if (role === 'assistant' || role === 'user') {
-      var blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
+      blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content || '') }];
       var textContent = blocks
         .filter(function(b) { return b.type === 'text'; })
         .map(function(b) { return b.text || ''; })

@@ -175,7 +175,7 @@ describe('8b: Per-turn copy button', () => {
     });
     const assistantMsg = document.querySelector('.chat-msg.assistant');
     expect(assistantMsg).not.toBeNull();
-    const copyTurnBtn = assistantMsg.querySelector('.copy-turn-btn');
+    const copyTurnBtn = assistantMsg.querySelector('.chat-turn-actions .copy-turn-btn');
     expect(copyTurnBtn).not.toBeNull();
     const turnActions = assistantMsg.querySelector('.chat-turn-actions');
     expect(turnActions).not.toBeNull();
@@ -212,6 +212,7 @@ describe('8b: Per-turn copy button', () => {
 
     const assistantMsg = document.querySelector('.chat-msg.assistant');
     const header = assistantMsg.querySelector('.chat-msg-header');
+    expect(header).not.toBeNull();
     expect(header.querySelector('.copy-turn-btn')).toBeNull();
     expect(assistantMsg.querySelector('.chat-turn-actions .copy-turn-btn')).not.toBeNull();
   });
@@ -262,6 +263,24 @@ describe('8b: Per-turn copy button', () => {
     expect(copiedText).toContain('```json');
     expect(copiedText).toContain('Tool: exec');
     expect(copiedText).toContain('"command": "ls -la"');
+  });
+
+  it('does not render copy turn button for user messages', () => {
+    mockWs();
+    window.openChatPane('agent1', 'session1', 'label', 'agent:agent1:session1');
+    window.handleChatWsMessage({
+      type: 'chat-history-result',
+      sessionKey: 'agent:agent1:session1',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'User question' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Assistant answer' }] }
+      ]
+    });
+
+    const userMsg = document.querySelector('.chat-msg.user');
+    expect(userMsg).not.toBeNull();
+    expect(userMsg.querySelector('.copy-turn-btn')).toBeNull();
+    expect(userMsg.querySelector('.chat-turn-actions')).toBeNull();
   });
 
   it('shows copied state after copy turn click', async () => {
