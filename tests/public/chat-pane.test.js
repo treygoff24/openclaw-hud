@@ -40,6 +40,7 @@ globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
 
 await import('../../public/copy-utils.js');
 await import('../../public/chat-message.js');
+await import('../../public/label-sanitizer.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
 await import('../../public/chat-pane.js');
@@ -55,6 +56,7 @@ function resetState() {
   try { window.closeChatPane(); } catch(e) {}
   setupDOM();
   vi.clearAllMocks();
+  window._allSessions = [];
   uuidCounter = 0;
 }
 
@@ -83,6 +85,12 @@ describe('openChatPane', () => {
     window.openChatPane('agent1', 'session123', 'my-label', 'agent:agent1:session123');
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(true);
     expect(document.getElementById('chat-title').textContent).toBe('agent1 // my-label');
+  });
+
+  it('sanitizes noisy labels for title', () => {
+    mockWs();
+    window.openChatPane('agent1', 'session123', '  noisy\\nlabel ', 'agent:agent1:session123');
+    expect(document.getElementById('chat-title').textContent).toBe('agent1 // noisy label');
   });
 
   it('uses sessionId prefix when no label', () => {
@@ -117,6 +125,31 @@ describe('openChatPane', () => {
     const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
     expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
     expect(calls.find(c => c.type === 'chat-history' && c.sessionKey === 'agent:agent1:main')).toBeTruthy();
+  });
+
+  it('enriches chat state with sender metadata from _allSessions', () => {
+    window._allSessions = [
+      {
+        sessionId: 'my-sub-session',
+        sessionKey: 'agent:agent1:my-sub-session',
+        agentId: 'agent1',
+        label: 'AGENT:SUB:research-planner',
+        spawnDepth: 1,
+        spawnedBy: 'agent:agent1:main',
+        model: 'gpt-5'
+      }
+    ];
+    const ws = mockWs();
+    window.openChatPane('agent1', 'my-sub-session', 'AGENT:SUB:research-planner', 'agent:agent1:my-sub-session');
+    const current = window.ChatState.currentSession;
+    expect(current.spawnDepth).toBe(1);
+    expect(current.spawnedBy).toBe('agent:agent1:main');
+    expect(current.sessionRole).toBe('subagent');
+    expect(current.sessionAlias).toBe('research-planner');
+    expect(current.model).toBe('gpt-5');
+    expect(current.sessionKey).toBe('agent:agent1:my-sub-session');
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:my-sub-session')).toBeTruthy();
   });
 
   it('shows loading spinner', () => {

@@ -2,6 +2,12 @@
 (function() {
   'use strict';
   const CHAT_LOG_PREFIX = '[HUD-CHAT]';
+  const normalizeLabel = (window.HUD && HUD.labelSanitizer && typeof HUD.labelSanitizer.normalizeLabel === 'function')
+    ? HUD.labelSanitizer.normalizeLabel
+    : function(value, fallback) {
+      if (value == null) return fallback || '';
+      return String(value);
+    };
 
   if (!window.__hudDiagLog) {
     window.__hudDiagLog = function(prefix, event, fields) {
@@ -35,6 +41,71 @@
 
   function isCanonicalSessionKey(sessionKey) {
     return typeof sessionKey === 'string' && CANONICAL_SESSION_KEY_RE.test(sessionKey);
+  }
+
+  function getSenderResolver() {
+    return window.ChatSenderResolver && typeof window.ChatSenderResolver.resolveChatSenderDisplay === 'function'
+      ? window.ChatSenderResolver
+      : null;
+  }
+
+  function findSessionMetadata(agentId, sessionId, sessionKey) {
+    const sessions = Array.isArray(window._allSessions) ? window._allSessions : [];
+    let match = null;
+    for (const session of sessions) {
+      if (!session || typeof session !== 'object') continue;
+      if (session.sessionKey === sessionKey) {
+        match = session;
+        break;
+      }
+    }
+    if (!match && agentId && sessionId) {
+      for (const session of sessions) {
+        if (!session || typeof session !== 'object') continue;
+        if (session.agentId === agentId && session.sessionId === sessionId) {
+          match = session;
+          break;
+        }
+      }
+    }
+    return match;
+  }
+
+  function enrichSessionMetadata(agentId, sessionId, label, sessionKey) {
+    const sessionMeta = findSessionMetadata(agentId, sessionId, sessionKey) || {};
+    const resolver = getSenderResolver();
+    const resolveTarget = Object.assign({}, sessionMeta, {
+      agentId: sessionMeta.agentId || agentId,
+      sessionId: sessionMeta.sessionId || sessionId || '',
+      sessionKey: sessionMeta.sessionKey || sessionKey || '',
+      label: sessionMeta.label || label || '',
+      spawnDepth: sessionMeta.spawnDepth,
+      spawnedBy: sessionMeta.spawnedBy
+    });
+
+    const sender = resolver ? resolver.resolveChatSenderDisplay(resolveTarget) : {
+      displayName: label || normalizeLabel(label, agentId),
+      role: (typeof sessionMeta.spawnDepth === 'number' && sessionMeta.spawnDepth > 0) ? 'subagent' :
+        (typeof sessionMeta.spawnedBy === 'string' && sessionMeta.spawnedBy) ? 'subagent' :
+          (typeof sessionMeta.spawnDepth === 'number' && sessionMeta.spawnDepth === 0 ? 'main' : 'unknown'),
+      alias: normalizeLabel(sessionMeta.label || label, null) || null,
+      model: sessionMeta.model || null
+    };
+
+    return {
+      sessionMeta: sessionMeta,
+      currentSession: {
+        agentId,
+        sessionId: sessionId || '',
+        label,
+        sessionKey,
+        spawnDepth: sessionMeta.spawnDepth,
+        spawnedBy: sessionMeta.spawnedBy || null,
+        sessionRole: sender.role,
+        sessionAlias: sender.alias || null,
+        model: sender.model || null,
+      }
+    };
   }
 
   function clearHistoryLoadTimer() {
@@ -145,7 +216,7 @@
     if (layout) layout.classList.add('chat-open');
 
     const titleEl = document.getElementById('chat-title');
-    if (titleEl) titleEl.textContent = agentId + ' // ' + (label || displaySessionId.slice(0, 8));
+    if (titleEl) titleEl.textContent = agentId + ' // ' + normalizeLabel(label, displaySessionId.slice(0, 8));
 
     // Create or update export button
     let exportBtn = document.getElementById('chat-export-btn');
@@ -176,7 +247,8 @@
       }
     }
 
-    state.currentSession = { agentId, sessionId: sessionId || '', label, sessionKey };
+    const enriched = enrichSessionMetadata(agentId, sessionId, label, sessionKey);
+    state.currentSession = Object.assign({}, enriched.currentSession);
     state.subscribedKey = sessionKey;
     state.currentMessages = [];
     localStorage.setItem('hud-chat-session', JSON.stringify(state.currentSession));
@@ -380,9 +452,10 @@
     }
 
     const session = state.currentSession;
-    const title = session ? (session.label || session.sessionKey || 'chat') : 'chat';
+    const sessionLabel = session ? normalizeLabel(session.label, session.sessionKey || 'chat') : 'chat';
+    const sessionTitle = session ? sessionLabel : 'chat';
 
-    let markdown = '# ' + title + '\n\n';
+    let markdown = '# ' + sessionTitle + '\n\n';
 
     var userMessage = null;
     state.currentMessages.forEach(function(msg) {
@@ -416,7 +489,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = title + '.md';
+    a.download = sessionTitle + '.md';
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();

@@ -1,9 +1,29 @@
 // Chat Message Module — message rendering functions
 (function() {
   'use strict';
+  const normalizeLabel = (window.HUD && HUD.labelSanitizer && typeof HUD.labelSanitizer.normalizeLabel === 'function')
+    ? HUD.labelSanitizer.normalizeLabel
+    : function(value, fallback) {
+      if (value == null) return fallback || '';
+      return String(value);
+    };
 
   // createCopyButton and buildContentBlocksMarkdown are provided by
   // window.CopyUtils (copy-utils.js, loaded before this script).
+
+  function resolveSenderDisplay(session) {
+    if (window.ChatSenderResolver && typeof window.ChatSenderResolver.resolveChatSenderDisplay === 'function') {
+      return window.ChatSenderResolver.resolveChatSenderDisplay(session);
+    }
+
+    var normalized = session || {};
+    var role = normalized.spawnDepth === 0 && !normalized.spawnedBy ? 'main' : 'subagent';
+    if (normalized.spawnDepth > 0 || normalized.spawnedBy) role = 'subagent';
+
+    return {
+      displayName: role === 'main' ? 'Ren' : (normalizeLabel(normalized.label || normalized.sessionId, normalized.agentId || 'assistant'))
+    };
+  }
 
   function createMessageCopyButton(text) {
     return window.CopyUtils.createCopyButton(text, 'Copy message');
@@ -240,8 +260,8 @@
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
     if (role === 'assistant') {
-      var session = window.ChatState?.currentSession;
-      roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+      var sender = resolveSenderDisplay(window.ChatState && window.ChatState.currentSession);
+      roleSpan.textContent = sender && sender.displayName ? sender.displayName : 'assistant';
     } else {
       roleSpan.textContent = role;
     }
@@ -307,8 +327,8 @@
     div.className = 'chat-msg assistant streaming';
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role assistant';
-    var session = window.ChatState?.currentSession;
-    roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+    var streamSession = resolveSenderDisplay(window.ChatState && window.ChatState.currentSession);
+    roleSpan.textContent = streamSession && streamSession.displayName ? streamSession.displayName : 'assistant';
     div.appendChild(roleSpan);
     var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
@@ -322,6 +342,7 @@
     createResultBlock: createResultBlock,
     renderHistoryMessage: renderHistoryMessage,
     createAssistantStreamEl: createAssistantStreamEl,
+    resolveSenderDisplay: resolveSenderDisplay,
     renderContentBlock: renderContentBlock,
   };
 })();
