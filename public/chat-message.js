@@ -127,7 +127,12 @@
 
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
-    roleSpan.textContent = role;
+    if (role === 'assistant') {
+      var session = window.ChatState?.currentSession;
+      roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+    } else {
+      roleSpan.textContent = role;
+    }
     div.appendChild(roleSpan);
 
     // Timestamp element
@@ -171,7 +176,8 @@
     div.className = 'chat-msg assistant streaming';
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role assistant';
-    roleSpan.textContent = 'assistant';
+    var session = window.ChatState?.currentSession;
+    roleSpan.textContent = session?.label || session?.agentId || 'assistant';
     div.appendChild(roleSpan);
     var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
