@@ -43,6 +43,7 @@ setInterval(() => broadcastAll({ type: 'tick', timestamp: Date.now() }), 10000);
 // Gateway status broadcasts
 gatewayWS.on('connected', () => broadcastAll({ type: 'gateway-status', status: 'connected' }));
 gatewayWS.on('disconnected', () => broadcastAll({ type: 'gateway-status', status: 'disconnected' }));
+gatewayWS.on('error', (err) => console.error('[HUD-GW] error:', err.message));
 
 // Connect (non-blocking)
 gatewayWS.connect().catch(err => console.error('Gateway WS initial connect failed:', err));
