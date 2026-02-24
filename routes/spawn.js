@@ -81,6 +81,7 @@ router.post('/api/spawn', express.json(), async (req, res) => {
         args: {
           task,
           mode: mode || 'run',
+          ...((mode === 'session') && { thread: true }),
           ...(model && { model }),
           ...(label && { label }),
           ...(timeout != null && timeout > 0 && { runTimeoutSeconds: timeout })

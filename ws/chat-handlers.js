@@ -118,7 +118,7 @@ async function handleChatMessage(ws, msg, gatewayWS) {
           signal: AbortSignal.timeout(15000),
           body: JSON.stringify({
             tool: 'sessions_spawn',
-            args: { task: 'New chat session from HUD', agentId: agentId || undefined, model: model || undefined, mode: 'session', label: `hud-${Date.now()}` }
+            args: { task: 'New chat session from HUD', agentId: agentId || undefined, model: model || undefined, mode: 'session', thread: true, label: `hud-${Date.now()}` }
           })
         });
         const body = await gwRes.json();
