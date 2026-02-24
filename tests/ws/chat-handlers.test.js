@@ -287,6 +287,116 @@ describe('chat-handlers', () => {
       expect(sent.aborted).toBe(true);
     });
 
+    it('chat-abort with invalid session key returns explicit error', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: 'invalid-key' }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID_SESSION_KEY');
+    });
+
+    it('chat-abort with unavailable gateway returns explicit error', async () => {
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: MAIN_KEY }, gw);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('UNAVAILABLE');
+    });
+
+    it('chat-abort normalizes unknown session errors', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      const err = new Error('Unknown session key');
+      err.code = 'SESSION_NOT_FOUND';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('UNKNOWN_SESSION_KEY');
+      expect(sent.error.message).toBe('Unknown session key');
+    });
+
+    it('chat-abort includes runId when provided', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      gw.request.mockResolvedValue({ aborted: true, runIds: ['r1'] });
+
+      await mod.handleChatMessage(ws, { type: 'chat-abort', sessionKey: MAIN_KEY, runId: 'r1' }, gw);
+
+      expect(gw.request).toHaveBeenCalledWith('chat.abort', { sessionKey: MAIN_KEY, runId: 'r1' });
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(true);
+    });
+
+    it('chat-new returns token error when gateway token is missing', async () => {
+      const ws = mockWs();
+      await mod.handleChatMessage(ws, { type: 'chat-new' }, null);
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent).toEqual({ type: 'chat-new-result', ok: false, error: 'Gateway token not configured' });
+    });
+
+    it('chat-new success returns spawned session key', async () => {
+      const ws = mockWs();
+      fs.writeFileSync(path.join(tmpOpenclawHome, 'openclaw.json'), JSON.stringify({
+        gateway: { port: 19999, auth: { token: 'test-token' } }
+      }));
+      const fetchMock = vi.fn().mockResolvedValue({
+        json: async () => ({ result: { details: { childSessionKey: MAIN_KEY } } })
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await mod.handleChatMessage(ws, { type: 'chat-new', model: 'gpt-5', agentId: 'agent1' }, null);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:19999/tools/invoke');
+      expect(options.headers.Authorization).toBe('Bearer test-token');
+      const parsedBody = JSON.parse(options.body);
+      expect(parsedBody.tool).toBe('sessions_spawn');
+      expect(parsedBody.args.agentId).toBe('agent1');
+      expect(parsedBody.args.model).toBe('gpt-5');
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent).toEqual({ type: 'chat-new-result', ok: true, sessionKey: MAIN_KEY });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('chat-new returns gateway body error when spawn response has no session key', async () => {
+      const ws = mockWs();
+      fs.writeFileSync(path.join(tmpOpenclawHome, 'openclaw.json'), JSON.stringify({
+        gateway: { auth: { token: 'test-token' } }
+      }));
+      const fetchMock = vi.fn().mockResolvedValue({
+        json: async () => ({ error: { message: 'spawn denied' } })
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await mod.handleChatMessage(ws, { type: 'chat-new' }, null);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent).toEqual({ type: 'chat-new-result', ok: false, error: 'spawn denied' });
+      vi.unstubAllGlobals();
+    });
+
+    it('chat-new returns thrown fetch error message', async () => {
+      const ws = mockWs();
+      fs.writeFileSync(path.join(tmpOpenclawHome, 'openclaw.json'), JSON.stringify({
+        gateway: { auth: { token: 'test-token' } }
+      }));
+      const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await mod.handleChatMessage(ws, { type: 'chat-new' }, null);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent).toEqual({ type: 'chat-new-result', ok: false, error: 'network down' });
+      vi.unstubAllGlobals();
+    });
+
     it('models-list returns models', async () => {
       const ws = mockWs();
       const gw = mockGateway();
@@ -340,6 +450,31 @@ describe('chat-handlers', () => {
 
     it('does nothing with null gateway', () => {
       mod.setupChatEventRouting(null); // should not throw
+    });
+
+    it('fans out chat-event to all subscribed ready clients only', async () => {
+      const wsReady1 = mockWs(1);
+      const wsReady2 = mockWs(1);
+      const wsClosed = mockWs(3);
+      const wsOtherSession = mockWs(1);
+      const gw = mockGateway();
+
+      await mod.handleChatMessage(wsReady1, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      await mod.handleChatMessage(wsReady2, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      await mod.handleChatMessage(wsClosed, { type: 'chat-subscribe', sessionKey: MAIN_KEY }, null);
+      await mod.handleChatMessage(wsOtherSession, { type: 'chat-subscribe', sessionKey: OTHER_KEY }, null);
+
+      mod.setupChatEventRouting(gw);
+      const handler = gw.on.mock.calls.find(([event]) => event === 'chat-event')[1];
+      const payload = { sessionKey: MAIN_KEY, seq: 7, state: 'delta' };
+
+      handler(payload);
+
+      const expected = JSON.stringify({ type: 'chat-event', payload });
+      expect(wsReady1.send).toHaveBeenCalledWith(expected);
+      expect(wsReady2.send).toHaveBeenCalledWith(expected);
+      expect(wsClosed.send).not.toHaveBeenCalledWith(expected);
+      expect(wsOtherSession.send).not.toHaveBeenCalledWith(expected);
     });
   });
 
