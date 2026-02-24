@@ -205,6 +205,10 @@
       thinkDiv.textContent = block.thinking || '';
       return thinkDiv;
     }
+    // Image block
+    if (block.type === 'image') {
+      return renderImageBlock(block);
+    }
     // Unknown block type
     if (block.type !== 'text') {
       var unknownDiv = document.createElement('div');
@@ -223,6 +227,47 @@
       contentDiv.textContent = text;
     }
     return contentDiv;
+  }
+
+  function renderImageBlock(block) {
+    var container = document.createElement('div');
+    container.className = 'chat-image';
+    
+    var source = block.source;
+    if (!source) {
+      var placeholder = document.createElement('div');
+      placeholder.className = 'chat-image-placeholder';
+      placeholder.textContent = 'Image (data not available)';
+      container.appendChild(placeholder);
+      return container;
+    }
+    
+    var img = document.createElement('img');
+    img.alt = 'Image';
+    
+    if (source.type === 'base64') {
+      if (!source.data) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'chat-image-placeholder';
+        var sizeInfo = source.media_type ? ' (' + source.media_type + ')' : '';
+        placeholder.textContent = 'Image' + sizeInfo + ' (data not available)';
+        container.appendChild(placeholder);
+        return container;
+      }
+      img.src = 'data:' + source.media_type + ';base64,' + source.data;
+    } else if (source.type === 'url') {
+      img.src = source.url;
+    } else {
+      // Unknown source type
+      var placeholder = document.createElement('div');
+      placeholder.className = 'chat-image-placeholder';
+      placeholder.textContent = 'Image (unknown source type: ' + source.type + ')';
+      container.appendChild(placeholder);
+      return container;
+    }
+    
+    container.appendChild(img);
+    return container;
   }
 
   function renderHistoryMessage(msg) {

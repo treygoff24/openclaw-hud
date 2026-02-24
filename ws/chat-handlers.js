@@ -41,21 +41,32 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       break;
     }
     case 'chat-send': {
-      const { sessionKey, message, idempotencyKey } = msg;
+      const { sessionKey, message, idempotencyKey, attachments } = msg;
       if (!isCanonicalSessionKey(sessionKey)) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID_SESSION_KEY', message: 'canonical sessionKey required' } }));
         break;
       }
-      if (typeof message !== 'string' || !message.trim()) {
-        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'message required' } }));
+      // Allow either message or attachments (but at least one required)
+      if (typeof message !== 'string' && (!attachments || !Array.isArray(attachments) || attachments.length === 0)) {
+        ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'INVALID', message: 'message or attachments required' } }));
         break;
+      }
+      // Validate attachments if present
+      if (attachments && Array.isArray(attachments)) {
+        const validationError = validateAttachments(attachments);
+        if (validationError) {
+          ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: validationError }));
+          break;
+        }
       }
       if (!gatewayWS || !gatewayWS.connected) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: { code: 'UNAVAILABLE', message: 'Gateway not connected' } }));
         break;
       }
       try {
-        const result = await gatewayWS.request('chat.send', { sessionKey, message, idempotencyKey });
+        // Build content blocks
+        const content = buildContentBlocks(message, attachments);
+        const result = await gatewayWS.request('chat.send', { sessionKey, content, idempotencyKey });
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, runId: result.runId, status: result.status, ok: true }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'chat-send-ack', idempotencyKey, ok: false, error: normalizeGatewayError(err) }));
@@ -173,6 +184,68 @@ function cleanupChatSubscriptions(ws) {
     }
     clientChatSubs.delete(ws);
   }
+}
+
+// Attachment helpers
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB server-side limit
+
+function validateAttachments(attachments) {
+  if (!Array.isArray(attachments)) {
+    return { code: 'INVALID', message: 'attachments must be an array' };
+  }
+  
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    
+    // Must be image type
+    if (att.type !== 'image') {
+      return { code: 'INVALID_ATTACHMENT_TYPE', message: 'only image attachments are supported, got: ' + att.type };
+    }
+    
+    if (!att.source || !att.source.type) {
+      return { code: 'INVALID', message: 'attachment missing source' };
+    }
+    
+    // For base64, check size
+    if (att.source.type === 'base64') {
+      if (!att.source.data) {
+        return { code: 'INVALID', message: 'attachment missing data' };
+      }
+      // Approximate size: base64 is ~1.33x the original size
+      const approxSize = Math.ceil(att.source.data.length * 0.75);
+      if (approxSize > MAX_ATTACHMENT_SIZE) {
+        return { code: 'ATTACHMENT_TOO_LARGE', message: 'attachment exceeds 10MB limit' };
+      }
+    }
+  }
+  
+  return null; // valid
+}
+
+function buildContentBlocks(message, attachments) {
+  const content = [];
+  
+  // Add text message as content block
+  if (message && message.trim()) {
+    content.push({ type: 'text', text: message });
+  }
+  
+  // Add attachments as image content blocks
+  if (attachments && Array.isArray(attachments)) {
+    for (const att of attachments) {
+      content.push({
+        type: 'image',
+        source: {
+          type: att.source.type,
+          media_type: att.source.media_type,
+          data: att.source.data,
+          url: att.source.url
+        }
+      });
+    }
+  }
+  
+  return content;
 }
 
 module.exports = {

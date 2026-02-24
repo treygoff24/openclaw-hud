@@ -3,6 +3,14 @@
   'use strict';
 
   // ============================================
+  // Attachment State
+  // ============================================
+  
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB client-side limit
+  let _pendingAttachments = [];
+  let _fileInputElement = null;
+
+  // ============================================
   // Autocomplete State
   // ============================================
   
@@ -67,6 +75,223 @@
       argumentHints.remove();
       argumentHints = null;
     }
+  }
+
+  // ============================================
+  // Attachment Functions
+  // ============================================
+
+  function _initAttachments() {
+    const inputArea = document.getElementById('chat-input-area');
+    if (!inputArea) return;
+    
+    // Create hidden file input
+    _fileInputElement = document.createElement('input');
+    _fileInputElement.id = 'file-input';
+    _fileInputElement.type = 'file';
+    _fileInputElement.accept = 'image/*';
+    _fileInputElement.multiple = true;
+    _fileInputElement.style.display = 'none';
+    inputArea.appendChild(_fileInputElement);
+    
+    // Create attach button if it doesn't exist
+    let attachBtn = document.getElementById('chat-attach-btn');
+    if (!attachBtn) {
+      attachBtn = document.createElement('button');
+      attachBtn.id = 'chat-attach-btn';
+      attachBtn.className = 'chat-attach-btn';
+      attachBtn.title = 'Attach image';
+      attachBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
+      inputArea.appendChild(attachBtn);
+    }
+    
+    // Attach button click triggers file input
+    attachBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      _fileInputElement.click();
+    });
+    
+    // File input change handler
+    _fileInputElement.addEventListener('change', function(e) {
+      handleFiles(e.target.files);
+      _fileInputElement.value = ''; // Reset to allow selecting same file again
+    });
+    
+    // Drag and drop handlers
+    inputArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer.types.includes('Files')) {
+        inputArea.classList.add('drag-over');
+      }
+    });
+    
+    inputArea.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputArea.classList.remove('drag-over');
+    });
+    
+    inputArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputArea.classList.remove('drag-over');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFiles(files);
+      }
+    });
+    
+    // Paste handler for clipboard images
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+      chatInput.addEventListener('paste', function(e) {
+        const items = e.clipboardData.items;
+        if (!items) return;
+        
+        const imageFiles = [];
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              imageFiles.push(file);
+            }
+          }
+        }
+        
+        if (imageFiles.length > 0) {
+          e.preventDefault();
+          handleFiles(imageFiles);
+        }
+      });
+    }
+  }
+
+  function _validateFile(file) {
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File too large. Maximum size is 5MB.');
+      return false;
+    }
+    // Validate it's actually an image
+    if (!file.type.startsWith('image/')) {
+      alert('Only image files are allowed.');
+      return false;
+    }
+    return true;
+  }
+
+  function handleFiles(files) {
+    if (!files || files.length === 0) return;
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      if (!_validateFile(file)) {
+        continue;
+      }
+      
+      // Add to pending attachments
+      const attachment = {
+        file: file,
+        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+      };
+      
+      _pendingAttachments.push(attachment);
+      
+      // Create and show preview
+      _fileToBase64(file).then(function(dataUrl) {
+        attachment.dataUrl = dataUrl;
+        _renderPreviews();
+      });
+    }
+  }
+
+  function _fileToBase64(file) {
+    return new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        resolve(e.target.result);
+      };
+      reader.onerror = function(e) {
+        reject(e);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function _renderPreviews() {
+    // Remove existing previews
+    const existing = document.querySelector('.attachment-previews');
+    if (existing) existing.remove();
+    
+    if (_pendingAttachments.length === 0) return;
+    
+    const inputArea = document.getElementById('chat-input-area');
+    if (!inputArea) return;
+    
+    const previewsContainer = document.createElement('div');
+    previewsContainer.className = 'attachment-previews';
+    
+    _pendingAttachments.forEach(function(attachment, index) {
+      const preview = _createPreviewElement(attachment, index);
+      previewsContainer.appendChild(preview);
+    });
+    
+    // Insert before input area
+    inputArea.parentNode.insertBefore(previewsContainer, inputArea);
+  }
+
+  function _createPreviewElement(attachment, index) {
+    const preview = document.createElement('div');
+    preview.className = 'attachment-preview';
+    
+    const img = document.createElement('img');
+    img.src = attachment.dataUrl;
+    img.alt = attachment.file.name;
+    preview.appendChild(img);
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'attachment-remove';
+    removeBtn.innerHTML = '×';
+    removeBtn.title = 'Remove';
+    removeBtn.onclick = function(e) {
+      e.stopPropagation();
+      _removeAttachment(index);
+    };
+    preview.appendChild(removeBtn);
+    
+    return preview;
+  }
+
+  function _removeAttachment(index) {
+    if (index >= 0 && index < _pendingAttachments.length) {
+      _pendingAttachments.splice(index, 1);
+      _renderPreviews();
+    }
+  }
+
+  function _getAttachments() {
+    return _pendingAttachments.map(function(attachment) {
+      const dataUrl = attachment.dataUrl;
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: match[1],
+            data: match[2]
+          }
+        };
+      }
+      return null;
+    }).filter(function(a) { return a !== null; });
+  }
+
+  function _clearAttachments() {
+    _pendingAttachments = [];
+    _renderPreviews();
   }
 
   // ============================================
@@ -293,7 +518,10 @@
     if (!input) return;
     
     const text = input.value.trim();
-    if (!text) return;
+    const attachments = _getAttachments();
+    
+    // Need either text or attachments
+    if (!text && attachments.length === 0) return;
     
     // Check for slash commands
     if (text.startsWith('/')) {
@@ -326,6 +554,19 @@
     contentDiv.textContent = text;
     div.appendChild(contentDiv);
 
+    // Add image previews to user message
+    if (attachments.length > 0) {
+      const imagesDiv = document.createElement('div');
+      imagesDiv.className = 'chat-msg-images';
+      attachments.forEach(function(att) {
+        const img = document.createElement('img');
+        img.src = 'data:' + att.source.media_type + ';base64,' + att.source.data;
+        img.className = 'chat-msg-image';
+        imagesDiv.appendChild(img);
+      });
+      div.appendChild(imagesDiv);
+    }
+
     const container = document.getElementById('chat-messages');
     if (container) container.appendChild(div);
 
@@ -337,7 +578,14 @@
     removeAutocomplete();
     removeArgumentHints();
 
-    window.ChatState.sendWs({ type: 'chat-send', sessionKey: state.currentSession.sessionKey, message: text, idempotencyKey: idempotencyKey });
+    const wsMessage = { type: 'chat-send', sessionKey: state.currentSession.sessionKey, message: text, idempotencyKey: idempotencyKey };
+    if (attachments.length > 0) {
+      wsMessage.attachments = attachments;
+    }
+    window.ChatState.sendWs(wsMessage);
+    
+    // Clear attachments after sending
+    _clearAttachments();
   }
 
   function showCommandResult(result) {
@@ -491,6 +739,13 @@
     }
   });
 
+  // Initialize attachments when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initAttachments);
+  } else {
+    _initAttachments();
+  }
+
   // ============================================
   // Public API
   // ============================================
@@ -501,6 +756,23 @@
     // Expose for testing
     _showCommandResult: showCommandResult,
     _removeAutocomplete: removeAutocomplete,
-    _removeArgumentHints: removeArgumentHints
+    _removeArgumentHints: removeArgumentHints,
+    // Attachment functions
+    _initAttachments: _initAttachments,
+    _validateFile: _validateFile,
+    _pendingAttachments: _pendingAttachments,
+    _addAttachment: function(file) {
+      const attachment = {
+        file: file,
+        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+      };
+      _pendingAttachments.push(attachment);
+      _renderPreviews();
+    },
+    _removeAttachment: _removeAttachment,
+    _createPreviewElement: _createPreviewElement,
+    _fileToBase64: _fileToBase64,
+    _clearAttachments: _clearAttachments,
+    _getAttachments: _getAttachments
   };
 })();
