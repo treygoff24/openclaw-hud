@@ -4,6 +4,9 @@
 
   // createCopyButton and buildContentBlocksMarkdown are provided by
   // window.CopyUtils (copy-utils.js, loaded before this script).
+  function resolveSenderDisplay(session) {
+    return window.ChatSenderResolver.resolveChatSenderDisplay(session);
+  }
 
   function createMessageCopyButton(text) {
     return window.CopyUtils.createCopyButton(text, 'Copy message');
@@ -240,8 +243,8 @@
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
     if (role === 'assistant') {
-      var session = window.ChatState?.currentSession;
-      roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+      var sender = resolveSenderDisplay(window.ChatState && (window.ChatState.currentSession || window.ChatState));
+      roleSpan.textContent = sender && sender.displayName ? sender.displayName : 'assistant';
     } else {
       roleSpan.textContent = role;
     }
@@ -307,8 +310,8 @@
     div.className = 'chat-msg assistant streaming';
     var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role assistant';
-    var session = window.ChatState?.currentSession;
-    roleSpan.textContent = session?.label || session?.agentId || 'assistant';
+    var streamSession = resolveSenderDisplay(window.ChatState && (window.ChatState.currentSession || window.ChatState));
+    roleSpan.textContent = streamSession && streamSession.displayName ? streamSession.displayName : 'assistant';
     div.appendChild(roleSpan);
     var contentDiv = document.createElement('div');
     contentDiv.className = 'chat-msg-content';
@@ -322,6 +325,7 @@
     createResultBlock: createResultBlock,
     renderHistoryMessage: renderHistoryMessage,
     createAssistantStreamEl: createAssistantStreamEl,
+    resolveSenderDisplay: resolveSenderDisplay,
     renderContentBlock: renderContentBlock,
   };
 })();

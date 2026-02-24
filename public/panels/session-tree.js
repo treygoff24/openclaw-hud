@@ -29,7 +29,8 @@ HUD.sessionTree = (function() {
     function renderNode(node, prefix, isLast, level = 0) {
       const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
       const dotClass = statusMap[node.status] || 'status-dot-gray';
-      const label = node.label || node.key;
+      const meta = window.SessionLabels.getDisplayMeta(node);
+      const rawLabel = node.label || node.key;
       const sessionKey = node.sessionKey;
       if (!sessionKey || typeof sessionKey !== 'string') {
         throw new Error('sessionTree.render requires canonical sessionKey for each node');
@@ -40,14 +41,14 @@ HUD.sessionTree = (function() {
       const toggleChar = hasKids ? (collapsed ? '▸' : '▾') : ' ';
       const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>` : '';
       const ariaExpanded = hasKids ? (collapsed ? 'false' : 'true') : undefined;
-      const statusLabel = node.status || 'unknown';
+      const fullContext = window.SessionLabels.buildSessionAriaLabel(node, meta);
 
-      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}" aria-label="Session ${escapeHtml(label)}, ${statusLabel}, agent ${escapeHtml(node.agentId || 'unknown')}">
-        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(label)}" tabindex="0" role="button">
+      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}">
+        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(rawLabel)}" title="${escapeHtml(fullContext)}" aria-label="${escapeHtml(fullContext)}" tabindex="0" role="button">
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
           <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
           <div class="${dotClass}" aria-hidden="true"></div>
-          <span class="tree-label">${escapeHtml(label)}</span>
+          <span class="tree-label"><span class="session-label-role">${escapeHtml(meta.roleLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-model">${escapeHtml(meta.modelLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span></span>
           <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
           ${countBadge}
           <span class="tree-age" aria-hidden="true">${HUD.utils.timeAgo(node.updatedAt)}</span>

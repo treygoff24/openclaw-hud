@@ -34,7 +34,7 @@ describe('Keyboard Navigation in Panels', () => {
       
       expect(jsContent).toMatch(/role="listitem"/);
       expect(jsContent).toMatch(/tabindex="0"/);
-      expect(jsContent).toMatch(/aria-label="Session/);
+      expect(jsContent).toMatch(/aria-label=/);
     });
 
     it('should call makeFocusable on session rows', () => {

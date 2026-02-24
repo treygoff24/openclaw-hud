@@ -2,6 +2,9 @@
 (function() {
   'use strict';
   const CHAT_LOG_PREFIX = '[HUD-CHAT]';
+  function normalizeLabel(value, fallback) {
+    return HUD.labelSanitizer.normalizeLabel(value, fallback);
+  }
 
   if (!window.__hudDiagLog) {
     window.__hudDiagLog = function(prefix, event, fields) {
@@ -35,6 +38,50 @@
 
   function isCanonicalSessionKey(sessionKey) {
     return typeof sessionKey === 'string' && CANONICAL_SESSION_KEY_RE.test(sessionKey);
+  }
+
+  function findSessionMetadata(agentId, sessionId, sessionKey) {
+    const sessions = Array.isArray(window._allSessions) ? window._allSessions : [];
+    for (const session of sessions) {
+      if (!session || typeof session !== 'object') continue;
+      if (session.sessionKey === sessionKey) return session;
+    }
+    if (agentId && sessionId) {
+      for (const session of sessions) {
+        if (!session || typeof session !== 'object') continue;
+        if (session.agentId === agentId && session.sessionId === sessionId) return session;
+      }
+    }
+    return null;
+  }
+
+  function enrichSessionMetadata(agentId, sessionId, label, sessionKey) {
+    const sessionMeta = findSessionMetadata(agentId, sessionId, sessionKey) || {};
+    const resolveTarget = Object.assign({}, sessionMeta, {
+      agentId: sessionMeta.agentId || agentId,
+      sessionId: sessionMeta.sessionId || sessionId || '',
+      sessionKey: sessionMeta.sessionKey || sessionKey || '',
+      label: sessionMeta.label || label || '',
+      spawnDepth: sessionMeta.spawnDepth,
+      spawnedBy: sessionMeta.spawnedBy
+    });
+
+    const sender = window.ChatSenderResolver.resolveChatSenderDisplay(resolveTarget);
+
+    return {
+      sessionMeta: sessionMeta,
+      currentSession: {
+        agentId,
+        sessionId: sessionId || '',
+        label,
+        sessionKey,
+        spawnDepth: sessionMeta.spawnDepth,
+        spawnedBy: sessionMeta.spawnedBy || null,
+        sessionRole: sender.role,
+        sessionAlias: sender.alias || null,
+        model: sender.model || null,
+      }
+    };
   }
 
   function clearHistoryLoadTimer() {
@@ -145,7 +192,7 @@
     if (layout) layout.classList.add('chat-open');
 
     const titleEl = document.getElementById('chat-title');
-    if (titleEl) titleEl.textContent = agentId + ' // ' + (label || displaySessionId.slice(0, 8));
+    if (titleEl) titleEl.textContent = agentId + ' // ' + normalizeLabel(label, displaySessionId.slice(0, 8));
 
     // Create or update export button
     let exportBtn = document.getElementById('chat-export-btn');
@@ -176,7 +223,8 @@
       }
     }
 
-    state.currentSession = { agentId, sessionId: sessionId || '', label, sessionKey };
+    const enriched = enrichSessionMetadata(agentId, sessionId, label, sessionKey);
+    state.currentSession = Object.assign({}, enriched.currentSession);
     state.subscribedKey = sessionKey;
     state.currentMessages = [];
     localStorage.setItem('hud-chat-session', JSON.stringify(state.currentSession));
@@ -380,9 +428,10 @@
     }
 
     const session = state.currentSession;
-    const title = session ? (session.label || session.sessionKey || 'chat') : 'chat';
+    const sessionLabel = session ? normalizeLabel(session.label, session.sessionKey || 'chat') : 'chat';
+    const sessionTitle = session ? sessionLabel : 'chat';
 
-    let markdown = '# ' + title + '\n\n';
+    let markdown = '# ' + sessionTitle + '\n\n';
 
     var userMessage = null;
     state.currentMessages.forEach(function(msg) {
@@ -416,7 +465,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = title + '.md';
+    a.download = sessionTitle + '.md';
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();

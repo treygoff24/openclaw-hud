@@ -6,6 +6,8 @@ window.marked = { parse: vi.fn(t => '<p>' + t + '</p>'), setOptions: vi.fn(), us
 window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 
 await import('../../public/chat-markdown.js');
+await import('../../public/label-sanitizer.js');
+await import('../../public/chat-sender-resolver.js');
 await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
 await import('../../public/chat-message.js');
@@ -73,19 +75,35 @@ describe('ChatMessage', () => {
       expect(el.className).toContain('system');
     });
 
-    it('uses session label for assistant role when available', () => {
-      window.ChatState = { currentSession: { label: 'Custom Agent', agentId: 'agent-123' } };
+    it('uses Ren for main sessions', () => {
+      window.ChatState = { currentSession: { spawnDepth: 0, label: 'Custom Agent', agentId: 'agent-123' } };
       const el = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'test' });
       const roleSpan = el.querySelector('.chat-msg-role');
-      expect(roleSpan.textContent).toBe('Custom Agent');
+      expect(roleSpan.textContent).toBe('Ren');
       delete window.ChatState;
     });
 
-    it('uses agentId when label not available', () => {
-      window.ChatState = { currentSession: { agentId: 'agent-456' } };
+    it('uses subagent alias for assistant role', () => {
+      window.ChatState = { currentSession: { spawnDepth: 1, label: 'research-planner', agentId: 'agent-456' } };
       const el = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'test' });
       const roleSpan = el.querySelector('.chat-msg-role');
-      expect(roleSpan.textContent).toBe('agent-456');
+      expect(roleSpan.textContent).toBe('research-planner');
+      delete window.ChatState;
+    });
+
+    it('normalizes noisy session labels for assistant sender', () => {
+      window.ChatState = { currentSession: { spawnDepth: 1, label: '  \"AGENT:SUB:Research\\nPlanner\" ', agentId: 'agent-456' } };
+      const el = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'test' });
+      const roleSpan = el.querySelector('.chat-msg-role');
+      expect(roleSpan.textContent).toBe('Research Planner');
+      delete window.ChatState;
+    });
+
+    it('falls back to sessionId for subagent aliases when label is missing', () => {
+      window.ChatState = { currentSession: { spawnDepth: 1, sessionId: 'sub-run-123', agentId: 'agent-456', sessionKey: 'agent:agent-456:sub-run-123' } };
+      const el = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'test' });
+      const roleSpan = el.querySelector('.chat-msg-role');
+      expect(roleSpan.textContent).toBe('sub-run-123');
       delete window.ChatState;
     });
 
@@ -103,16 +121,24 @@ describe('ChatMessage', () => {
   });
 
   describe('createAssistantStreamEl', () => {
-    it('uses session label for assistant streaming when available', () => {
-      window.ChatState = { currentSession: { label: 'Streaming Agent', agentId: 'agent-789' } };
+    it('uses Ren for main session streaming', () => {
+      window.ChatState = { currentSession: { spawnDepth: 0, label: 'Streaming Agent', agentId: 'agent-789' } };
       const el = window.ChatMessage.createAssistantStreamEl();
       const roleSpan = el.querySelector('.chat-msg-role');
-      expect(roleSpan.textContent).toBe('Streaming Agent');
+      expect(roleSpan.textContent).toBe('Ren');
+      delete window.ChatState;
+    });
+
+    it('normalizes noisy session labels for assistant streaming sender', () => {
+      window.ChatState = { currentSession: { spawnDepth: 1, label: '   AGENT:SUB:streaming--agent\\n', agentId: 'agent-789' } };
+      const el = window.ChatMessage.createAssistantStreamEl();
+      const roleSpan = el.querySelector('.chat-msg-role');
+      expect(roleSpan.textContent).toBe('streaming--agent');
       delete window.ChatState;
     });
 
     it('uses agentId when label not available for streaming', () => {
-      window.ChatState = { currentSession: { agentId: 'agent-abc' } };
+      window.ChatState = { agentId: 'agent-abc' };
       const el = window.ChatMessage.createAssistantStreamEl();
       const roleSpan = el.querySelector('.chat-msg-role');
       expect(roleSpan.textContent).toBe('agent-abc');

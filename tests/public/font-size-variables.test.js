@@ -196,7 +196,7 @@ describe('No Hardcoded Font Sizes', () => {
       'public/styles/system.css',
       'public/styles/models.css',
       'public/styles/activity.css',
-      'public/styles/tree.css',
+      'public/styles/session-tree.css',
       'public/styles/spawn.css',
       'public/styles/toast.css',
       'public/styles/a11y.css',

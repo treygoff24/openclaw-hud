@@ -106,7 +106,7 @@ describe('Performance Budget', () => {
     const result = analyzeBundle();
     const totalKb = result.totalSize / 1024;
     
-    expect(totalKb).toBeLessThan(150); // Relaxed to 150KB for current state
+    expect(totalKb).toBeLessThan(160); // 150KB base + ~9KB for session-labels, chat-sender-resolver, label-sanitizer
   });
   
   it('no single file should exceed 50KB', () => {

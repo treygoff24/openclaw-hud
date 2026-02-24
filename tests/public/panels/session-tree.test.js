@@ -24,6 +24,7 @@ window.makeFocusable = function(el, handler) {
 };
 
 await import('../../../public/utils.js');
+await import('../../../public/session-labels.js');
 await import('../../../public/panels/session-tree.js');
 
 describe('sessionTree.render', () => {
@@ -43,9 +44,9 @@ describe('sessionTree.render', () => {
   it('renders tree nodes with labels', () => {
     const now = Date.now();
     HUD.sessionTree.render([
-      { key: 'k1', sessionKey: 'agent:a:k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'my-session' }
+      { key: 'k1', sessionKey: 'agent:a:k1', agentId: 'a', sessionId: 's1', status: 'active', updatedAt: now, label: 'my-session', model: 'gpt-4' }
     ]);
-    expect(document.querySelector('.tree-label').textContent).toBe('my-session');
+    expect(document.querySelector('.tree-label').textContent).toBe('Main · gpt-4 · my-session');
     expect(document.querySelector('.tree-agent').textContent).toBe('a');
   });
 
@@ -80,6 +81,24 @@ describe('sessionTree.render', () => {
         { key: 'k1', agentId: 'a', sessionId: 's', status: 'active', updatedAt: now }
       ]);
     }).toThrow('sessionTree.render requires canonical sessionKey for each node');
+  });
+
+  it('builds normalized labels with role and alias fallback when metadata is sparse', () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      { key: 'agent:test:subagent:research-task', sessionKey: 'agent:test:subagent:research-task', agentId: 'test', sessionId: 's-subagent-research-task', status: 'active', updatedAt: now, spawnDepth: 1, spawnedBy: 'agent:test:main' }
+    ]);
+    expect(document.querySelector('.tree-label').textContent).toBe('Subagent · unknown model · research-task');
+  });
+
+  it('keeps full slug in tooltip and aria context', () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      { key: 'agent:test:main', sessionKey: 'agent:test:main', agentId: 'test', sessionId: 'main', status: 'active', updatedAt: now, label: 'main', model: 'claude-3-5' }
+    ]);
+    const node = document.querySelector('.tree-node-content');
+    expect(node.getAttribute('title')).toContain('agent:test:main');
+    expect(node.getAttribute('aria-label')).toContain('agent:test:main');
   });
 });
 

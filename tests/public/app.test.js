@@ -91,10 +91,18 @@ const localStorageMock = {
 };
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
-// Load all panels first, then app.js
+// Load utilities and shared modules first
 await import('../../public/utils.js');
+await import('../../public/label-sanitizer.js');
+await import('../../public/session-labels.js');
+await import('../../public/chat-sender-resolver.js');
+await import('../../public/copy-utils.js');
+await import('../../public/chat-message.js');
+await import('../../public/chat-input.js');
+await import('../../public/chat-ws-handler.js');
 await import('../../public/chat-pane.js');
 const restoreSavedChatSessionSpy = vi.spyOn(window, 'restoreSavedChatSession');
+// Load panels
 await import('../../public/panels/activity.js');
 await import('../../public/panels/sessions.js');
 await import('../../public/panels/agents.js');
@@ -103,10 +111,6 @@ await import('../../public/panels/models.js');
 await import('../../public/panels/session-tree.js');
 await import('../../public/panels/system.js');
 await import('../../public/panels/spawn.js');
-await import('../../public/chat-message.js');
-await import('../../public/chat-input.js');
-await import('../../public/chat-ws-handler.js');
-await import('../../public/chat-pane.js');
 await import('../../public/app.js');
 
 describe('app.js initialization', () => {

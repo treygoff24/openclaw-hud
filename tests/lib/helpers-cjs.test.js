@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -75,5 +75,26 @@ describe('helpers via CJS require()', () => {
 
   it('OPENCLAW_HOME is defined', () => {
     expect(typeof helpers.OPENCLAW_HOME).toBe('string');
+  });
+
+  it('enrichSessionMetadata uses provided aliases without reading config', () => {
+    const originalGetModelAliasMap = helpers.getModelAliasMap;
+    const getModelAliasMapMock = vi.fn(() => ({}));
+    helpers.getModelAliasMap = getModelAliasMapMock;
+
+    const metadata = helpers.enrichSessionMetadata(
+      'main',
+      { model: 'openai/gpt-4o' },
+      {
+        sessionKey: 'agent:test:main',
+        modelAliases: {
+          'openai/gpt-4o': { alias: 'gpt4o' }
+        }
+      }
+    );
+
+    expect(metadata.modelLabel).toBe('gpt4o');
+    expect(getModelAliasMapMock).not.toHaveBeenCalled();
+    helpers.getModelAliasMap = originalGetModelAliasMap;
   });
 });
