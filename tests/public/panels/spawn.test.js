@@ -66,6 +66,7 @@ describe('spawn.model change auto-populates label', () => {
       { alias: 'Claude Opus', fullId: 'anthropic/claude-3-opus' },
       { alias: 'GPT-4', fullId: 'openai/gpt-4' }
     ];
+    HUD.spawn.init();
     HUD.spawn.open();
     const labelField = document.getElementById('spawn-label');
     const modelSelect = document.getElementById('spawn-model');
