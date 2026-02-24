@@ -7,6 +7,7 @@ window.DOMPurify = { sanitize: vi.fn(t => t), addHook: vi.fn() };
 
 await import('../../public/chat-markdown.js');
 await import('../../public/label-sanitizer.js');
+await import('../../public/chat-sender-resolver.js');
 await import('../../public/copy-utils.js');
 await import('../../public/chat-tool-blocks.js');
 await import('../../public/chat-message.js');
@@ -99,7 +100,7 @@ describe('ChatMessage', () => {
     });
 
     it('falls back to sessionId for subagent aliases when label is missing', () => {
-      window.ChatState = { currentSession: { spawnDepth: 1, sessionId: 'sub-run-123', agentId: 'agent-456', sessionKey: 'agent:agent-456:sub-run-123' };
+      window.ChatState = { currentSession: { spawnDepth: 1, sessionId: 'sub-run-123', agentId: 'agent-456', sessionKey: 'agent:agent-456:sub-run-123' } };
       const el = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'test' });
       const roleSpan = el.querySelector('.chat-msg-role');
       expect(roleSpan.textContent).toBe('sub-run-123');
@@ -137,7 +138,7 @@ describe('ChatMessage', () => {
     });
 
     it('uses agentId when label not available for streaming', () => {
-      window.ChatState = { currentSession: { agentId: 'agent-abc' } };
+      window.ChatState = { agentId: 'agent-abc' };
       const el = window.ChatMessage.createAssistantStreamEl();
       const roleSpan = el.querySelector('.chat-msg-role');
       expect(roleSpan.textContent).toBe('agent-abc');

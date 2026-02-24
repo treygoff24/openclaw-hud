@@ -10,7 +10,6 @@
 
   // createCopyButton and buildContentBlocksMarkdown are provided by
   // window.CopyUtils (copy-utils.js, loaded before this script).
-
   function resolveSenderDisplay(session) {
     if (window.ChatSenderResolver && typeof window.ChatSenderResolver.resolveChatSenderDisplay === 'function') {
       return window.ChatSenderResolver.resolveChatSenderDisplay(session);
@@ -257,7 +256,7 @@
     var headerRow = document.createElement('div');
     headerRow.className = 'chat-msg-header';
 
-    var roleSpan = document.createElement('span');
+  var roleSpan = document.createElement('span');
     roleSpan.className = 'chat-msg-role ' + roleClass;
     if (role === 'assistant') {
       var sender = resolveSenderDisplay(window.ChatState && window.ChatState.currentSession);

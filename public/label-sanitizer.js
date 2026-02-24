@@ -13,16 +13,12 @@
     var value = String(label).normalize ? String(label).normalize('NFKC') : String(label);
     if (!value) return fallback || '';
 
-    // Strip ANSI CSI control codes and other control characters often found in noisy outputs.
     value = value.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
     value = value.replace(/[\u0000-\u001f\u007F-\u009F]+/g, ' ');
-
-    // Normalize whitespace and collapse runs.
     value = value.replace(/[\r\n\t]+/g, ' ');
     value = value.replace(/\s+/g, ' ');
     value = value.trim();
 
-    // Remove noisy wrappers and dangling separators.
     value = value
       .replace(/^[\s"'`\(\[\{<]+/g, '')
       .replace(/[\s"'`\)\]\}>]+$/g, '')
