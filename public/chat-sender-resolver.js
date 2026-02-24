@@ -3,6 +3,7 @@
 
   var FALLBACK_SENDER = 'assistant';
   var MAIN_SENDER = 'Ren';
+  var CANONICAL_MAIN_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:main$/;
 
   function safeTrim(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -66,12 +67,28 @@
     return null;
   }
 
+  function normalizeSessionRole(value) {
+    var role = safeTrim(value).toLowerCase();
+    if (role === 'main' || role === 'subagent') return role;
+    return '';
+  }
+
+  function isCanonicalMainSession(session) {
+    var sessionKey = safeTrim(session && session.sessionKey);
+    if (sessionKey && CANONICAL_MAIN_SESSION_KEY_RE.test(sessionKey)) return true;
+    return safeTrim(session && session.sessionId) === 'main';
+  }
+
   function resolveSessionRole(session) {
+    var explicitRole = normalizeSessionRole(session && session.sessionRole);
+    if (explicitRole) return explicitRole;
+
     var spawnDepth = normalizeSpawnDepth(session && session.spawnDepth);
     var spawnedBy = safeTrim(session && session.spawnedBy);
     if (spawnDepth > 0) return 'subagent';
     if (spawnedBy) return 'subagent';
     if (spawnDepth === 0) return 'main';
+    if (isCanonicalMainSession(session)) return 'main';
     return 'unknown';
   }
 

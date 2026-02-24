@@ -145,6 +145,29 @@ describe('openChatPane', () => {
     expect(calls.find(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:agent1:my-sub-session')).toBeTruthy();
   });
 
+  it('uses backend sessionRole metadata for main sessions without spawnDepth', () => {
+    window._allSessions = [
+      {
+        sessionId: 'internal-main-session',
+        sessionKey: 'agent:agent1:main',
+        agentId: 'agent1',
+        label: 'Root Session',
+        sessionRole: 'main',
+        model: 'gpt-5'
+      }
+    ];
+
+    mockWs();
+    window.openChatPane('agent1', 'internal-main-session', 'Root Session', 'agent:agent1:main');
+    const current = window.ChatState.currentSession;
+
+    expect(current.sessionRole).toBe('main');
+    expect(current.sessionAlias).toBe('Root Session');
+
+    const assistantMessage = window.ChatMessage.renderHistoryMessage({ role: 'assistant', content: 'hello' });
+    expect(assistantMessage.querySelector('.chat-msg-role').textContent).toBe('Ren');
+  });
+
   it('routes chat transport by canonical key even when sessionId is empty', () => {
     const ws = mockWs();
     window.openChatPane('agent1', '', 'main', 'agent:agent1:main');
