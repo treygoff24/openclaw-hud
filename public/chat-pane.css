@@ -287,7 +287,14 @@
 
 /* Tool use blocks */
 .chat-tool-use { margin: 4px 0; border-left: 3px solid var(--amber); border-radius: 2px; background: rgba(255,171,0,0.04); }
+.chat-tool-use-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .chat-tool-use-header {
+  flex: 1;
   font-family: var(--font-mono); font-size: var(--fs-base); color: var(--amber);
   padding: 4px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   width: 100%; text-align: left; background: none; border: 0;
@@ -302,12 +309,86 @@
 }
 .chat-tool-use.expanded .chat-tool-use-body { display: block; }
 
+.chat-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.chat-msg-header .chat-msg-role {
+  margin-bottom: 0;
+}
+.chat-msg-header .chat-msg-time {
+  margin-left: auto;
+}
+
+/* Copy button styles */
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: all 0.2s;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.chat-msg:hover .copy-btn,
+.chat-tool-use:hover .copy-btn,
+.chat-tool-result:hover .copy-btn {
+  opacity: 1;
+}
+.copy-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,229,255,0.1);
+}
+.copy-btn.copied {
+  border-color: var(--green);
+  color: var(--green);
+  background: rgba(57,255,20,0.1);
+}
+.copy-btn svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
 /* Tool result blocks */
+.chat-tool-result-container {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+.chat-tool-result-container .chat-tool-result-content {
+  flex: 1;
+  min-width: 0;
+}
+.chat-tool-result-container .copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
 .chat-tool-result { margin: 2px 0 4px 12px; opacity: 0.7; }
 .chat-tool-result-content {
   font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-dim);
   white-space: pre-wrap; word-break: break-word; padding: 4px 8px;
   background: rgba(0,0,0,0.15); border-radius: 3px; max-height: 200px; overflow-y: auto;
+}
+.chat-tool-result-content.code-block {
+  background: var(--bg-code);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 11px;
+  max-height: 250px;
+  overflow-y: auto;
 }
 .chat-tool-result-more {
   background: none; border: none; color: var(--cyan);
