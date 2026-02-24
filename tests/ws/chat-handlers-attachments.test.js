@@ -168,5 +168,91 @@ describe('chat-handlers attachments', () => {
       expect(sent.ok).toBe(false);
       expect(sent.error.code).toBe('INVALID_ATTACHMENT_TYPE');
     });
+
+    it('chat-send accepts valid image media types (png, jpeg, gif, webp)', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      
+      gw.request.mockResolvedValue({ runId: 'r1', status: 'queued' });
+      
+      const validTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+      
+      for (const mediaType of validTypes) {
+        vi.clearAllMocks();
+        
+        await mod.handleChatMessage(ws, { 
+          type: 'chat-send', 
+          sessionKey: MAIN_KEY, 
+          message: `Test ${mediaType}`,
+          attachments: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: 'small' } }
+          ],
+          idempotencyKey: `ik-${mediaType}` 
+        }, gw);
+        
+        const sent = JSON.parse(ws.send.mock.calls[0][0]);
+        expect(sent.ok).toBe(true);
+        expect(sent.error).toBeUndefined();
+      }
+    });
+
+    it('chat-send rejects text/html media type', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'Malicious',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'text/html', data: '<script>alert(1)</script>' } }
+        ],
+        idempotencyKey: 'ik-html' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID_MEDIA_TYPE');
+      expect(sent.error.message).toContain('text/html');
+    });
+
+    it('chat-send rejects image/svg+xml media type (SVG can contain scripts)', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'SVG',
+        attachments: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/svg+xml', data: '<svg><script>alert(1)</script></svg>' } }
+        ],
+        idempotencyKey: 'ik-svg' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID_MEDIA_TYPE');
+      expect(sent.error.message).toContain('image/svg+xml');
+    });
+
+    it('chat-send rejects attachments with missing media_type', async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      
+      await mod.handleChatMessage(ws, { 
+        type: 'chat-send', 
+        sessionKey: MAIN_KEY, 
+        message: 'No media type',
+        attachments: [
+          { type: 'image', source: { type: 'base64', data: 'nodata' } }
+        ],
+        idempotencyKey: 'ik-nomedia' 
+      }, gw);
+      
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe('INVALID_MEDIA_TYPE');
+    });
   });
 });
