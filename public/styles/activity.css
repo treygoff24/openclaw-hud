@@ -5,18 +5,18 @@
   align-items: flex-start;
   padding: 6px 0;
   border-bottom: 1px solid rgba(26,30,53,0.3);
-  font-size: 14px;
+  font-size: var(--fs-xl);
 }
 .activity-time {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   min-width: 55px;
   flex-shrink: 0;
 }
 .activity-type {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 1px 6px;
   border-radius: 2px;
   min-width: 55px;
@@ -36,6 +36,6 @@
 }
 .activity-agent {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-sm);
   color: var(--magenta);
 }

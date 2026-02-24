@@ -18,13 +18,13 @@
 }
 .agent-id {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--fs-xxl);
   color: var(--cyan);
   flex: 1;
 }
 .agent-sessions-count {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-lg);
   color: var(--text-dim);
   background: rgba(0,229,255,0.08);
   padding: 2px 8px;
@@ -40,7 +40,7 @@
   border-radius: 3px;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--fs-xl);
   outline: none;
   margin-bottom: 12px;
   transition: border-color 0.2s;
@@ -58,12 +58,12 @@
   }
 
   .agent-id {
-    font-size: 13px;
+    font-size: var(--fs-lg);
     overflow-wrap: anywhere;
   }
 
   .agent-sessions-count {
-    font-size: 11px;
+    font-size: var(--fs-base);
     flex-shrink: 0;
   }
 }

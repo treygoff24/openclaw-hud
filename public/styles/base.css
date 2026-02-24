@@ -19,6 +19,20 @@
   --font-display: 'Orbitron', sans-serif;
   --font-mono: 'Share Tech Mono', monospace;
   --font-body: 'Rajdhani', sans-serif;
+
+  /* Font Size Scale - Global multiplier for all font sizes */
+  --fs-scale: 1;
+
+  /* Font Size Variables - Using calc() for scalable typography */
+  --fs-xs: calc(9px * var(--fs-scale));
+  --fs-sm: calc(10px * var(--fs-scale));
+  --fs-base: calc(11px * var(--fs-scale));
+  --fs-md: calc(12px * var(--fs-scale));
+  --fs-lg: calc(13px * var(--fs-scale));
+  --fs-xl: calc(14px * var(--fs-scale));
+  --fs-xxl: calc(15px * var(--fs-scale));
+  --fs-huge: calc(16px * var(--fs-scale));
+  --fs-display: calc(18px * var(--fs-scale));
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
