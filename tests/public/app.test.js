@@ -110,6 +110,16 @@ await import('../../public/chat-commands/local-exec.js');
 await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
+await import('../../public/chat-pane/constants.js');
+await import('../../public/chat-pane/diagnostics.js');
+await import('../../public/chat-pane/session-metadata.js');
+await import('../../public/chat-pane/history-timeout.js');
+await import('../../public/chat-pane/transport.js');
+await import('../../public/chat-pane/state.js');
+await import('../../public/chat-pane/pane-lifecycle.js');
+await import('../../public/chat-pane/session-restore.js');
+await import('../../public/chat-pane/ws-bridge.js');
+await import('../../public/chat-pane/export.js');
 await import('../../public/chat-pane.js');
 const restoreSavedChatSessionSpy = vi.spyOn(window, 'restoreSavedChatSession');
 // Load panels

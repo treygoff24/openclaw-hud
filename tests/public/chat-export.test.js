@@ -80,6 +80,16 @@ await import('../../public/chat-commands/local-exec.js');
 await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
+await import('../../public/chat-pane/constants.js');
+await import('../../public/chat-pane/diagnostics.js');
+await import('../../public/chat-pane/session-metadata.js');
+await import('../../public/chat-pane/history-timeout.js');
+await import('../../public/chat-pane/transport.js');
+await import('../../public/chat-pane/state.js');
+await import('../../public/chat-pane/pane-lifecycle.js');
+await import('../../public/chat-pane/session-restore.js');
+await import('../../public/chat-pane/ws-bridge.js');
+await import('../../public/chat-pane/export.js');
 await import('../../public/chat-pane.js');
 
 function mockWs() {
@@ -451,5 +461,55 @@ describe('8c: Export session button', () => {
 
     expect(alertSpy).toHaveBeenCalledWith('No messages to export');
     alertSpy.mockRestore();
+  });
+
+  it('exports assistant messages when assistant content is a plain string', () => {
+    mockWs();
+    window.openChatPane('agent1', 'session1', 'StringContent', 'agent:agent1:session1');
+    window.ChatState.currentMessages = [
+      { role: 'assistant', content: 'Plain assistant response' },
+    ];
+
+    let capturedMarkdown = '';
+    const originalBlob = global.Blob;
+    global.Blob = class MockBlob {
+      constructor(parts) {
+        capturedMarkdown = parts[0];
+      }
+    };
+
+    window.exportChatSession();
+
+    expect(capturedMarkdown).toContain('# StringContent');
+    expect(capturedMarkdown).toContain('## Assistant');
+    expect(capturedMarkdown).toContain('Plain assistant response');
+    global.Blob = originalBlob;
+  });
+
+  it('exports trailing orphan user turn at end of transcript', () => {
+    mockWs();
+    window.openChatPane('agent1', 'session1', 'OrphanTail', 'agent:agent1:session1');
+    window.ChatState.currentMessages = [
+      { role: 'user', content: [{ type: 'text', text: 'first question' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'first answer' }] },
+      { role: 'user', content: [{ type: 'text', text: 'follow-up without assistant' }] },
+    ];
+
+    let capturedMarkdown = '';
+    const originalBlob = global.Blob;
+    global.Blob = class MockBlob {
+      constructor(parts) {
+        capturedMarkdown = parts[0];
+      }
+    };
+
+    window.exportChatSession();
+
+    expect(capturedMarkdown).toContain('first question');
+    expect(capturedMarkdown).toContain('first answer');
+    expect(capturedMarkdown).toContain('follow-up without assistant');
+    const userSectionCount = (capturedMarkdown.match(/## User/g) || []).length;
+    expect(userSectionCount).toBe(2);
+    global.Blob = originalBlob;
   });
 });

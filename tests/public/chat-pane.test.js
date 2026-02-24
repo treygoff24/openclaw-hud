@@ -54,6 +54,16 @@ await import('../../public/chat-commands/local-exec.js');
 await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
 await import('../../public/chat-ws-handler.js');
+await import('../../public/chat-pane/constants.js');
+await import('../../public/chat-pane/diagnostics.js');
+await import('../../public/chat-pane/session-metadata.js');
+await import('../../public/chat-pane/history-timeout.js');
+await import('../../public/chat-pane/transport.js');
+await import('../../public/chat-pane/state.js');
+await import('../../public/chat-pane/pane-lifecycle.js');
+await import('../../public/chat-pane/session-restore.js');
+await import('../../public/chat-pane/ws-bridge.js');
+await import('../../public/chat-pane/export.js');
 await import('../../public/chat-pane.js');
 
 function mockWs() {
@@ -68,6 +78,9 @@ function resetState() {
   setupDOM();
   vi.clearAllMocks();
   window._allSessions = [];
+  window.VirtualScroller = undefined;
+  window.ProgressiveToolRenderer = undefined;
+  window.WebSocketMessageBatcher = undefined;
   uuidCounter = 0;
 }
 
@@ -248,6 +261,17 @@ describe('openChatPane', () => {
     window.openChatPane('agent1', 'sess1', 'lbl', 'agent:agent1:sess1');
     expect(localStorage.setItem).toHaveBeenCalled();
   });
+
+  it('no-ops when reopening the same canonical session key', () => {
+    const ws = mockWs();
+    window.openChatPane('agent1', 'sess1', 'lbl', 'agent:agent1:sess1');
+    ws.send.mockClear();
+
+    window.openChatPane('agent1', 'sess1', 'lbl changed', 'agent:agent1:sess1');
+
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(window.ChatState.subscribedKey).toBe('agent:agent1:sess1');
+  });
 });
 
 describe('restoreSavedChatSession', () => {
@@ -301,6 +325,20 @@ describe('closeChatPane', () => {
     window.closeChatPane();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
     expect(localStorage.removeItem).toHaveBeenCalledWith('hud-chat-session');
+  });
+
+  it('runs destroy cleanup for optional chat modules', () => {
+    mockWs();
+    window.VirtualScroller = { destroy: vi.fn() };
+    window.ProgressiveToolRenderer = { destroy: vi.fn() };
+    window.WebSocketMessageBatcher = { destroy: vi.fn() };
+
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.closeChatPane();
+
+    expect(window.VirtualScroller.destroy).toHaveBeenCalledTimes(1);
+    expect(window.ProgressiveToolRenderer.destroy).toHaveBeenCalledTimes(1);
+    expect(window.WebSocketMessageBatcher.destroy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -588,6 +626,21 @@ describe('keyboard and UI events', () => {
     document.getElementById('chat-close').click();
     expect(document.querySelector('.hud-layout').classList.contains('chat-open')).toBe(false);
   });
+
+  it('new message pill click scrolls to bottom and hides pill', () => {
+    mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    const container = document.getElementById('chat-messages');
+    const pill = document.getElementById('chat-new-pill');
+    pill.classList.add('visible');
+    Object.defineProperty(container, 'scrollHeight', { value: 321, configurable: true });
+    container.scrollTop = 0;
+
+    pill.click();
+
+    expect(container.scrollTop).toBe(321);
+    expect(pill.classList.contains('visible')).toBe(false);
+  });
 });
 
 describe('textarea auto-grow', () => {
@@ -728,5 +781,13 @@ describe('ChatState message cache', () => {
     expect(window.ChatState.currentMessages.length).toBe(500);
     // Should keep only the last 500
     expect(window.ChatState.currentMessages[0].content).toBe('msg-100');
+  });
+
+  it('setMessages resets cache when passed a non-array value', () => {
+    window.ChatState.currentMessages = [{ role: 'user', content: 'persisted', timestamp: 'ts-1' }];
+
+    window.ChatState.setMessages('not-an-array');
+
+    expect(window.ChatState.currentMessages).toEqual([]);
   });
 });
