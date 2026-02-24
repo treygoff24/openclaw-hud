@@ -109,6 +109,7 @@ HUD.spawn = (function() {
     const agentId = (window.ChatState && window.ChatState.currentSession)
       ? window.ChatState.currentSession.agentId
       : (window._agents && window._agents.length ? window._agents[0].id : null);
+    console.log('[spawn] newSession:', { agentId, hasCurrentSession: !!(window.ChatState && window.ChatState.currentSession), agentCount: (window._agents || []).length });
     if (!agentId) return;
     window.ChatState.sendWs({ type: 'chat-new', agentId, source: 'tree' });
   }

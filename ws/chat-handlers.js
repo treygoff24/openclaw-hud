@@ -103,8 +103,9 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       break;
     }
     case 'chat-new': {
-      const { sessionKey: rawKey, agentId } = msg;
+      const { sessionKey: rawKey, agentId, source } = msg;
       const key = rawKey || (agentId ? `agent:${agentId}:main` : null);
+      console.log('[chat-new] received:', { rawKey, agentId, source, resolvedKey: key });
       if (!key) {
         ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: { code: 'INVALID', message: 'sessionKey or agentId required' } }));
         break;
@@ -115,9 +116,11 @@ async function handleChatMessage(ws, msg, gatewayWS) {
       }
       try {
         const result = await gatewayWS.request('sessions.reset', { key, reason: 'new' });
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey: result.key || key }));
+        console.log('[chat-new] reset OK:', { key: result.key || key });
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: true, sessionKey: result.key || key, source }));
       } catch (err) {
-        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: normalizeGatewayError(err) }));
+        console.log('[chat-new] reset error:', err.message || err);
+        ws.send(JSON.stringify({ type: 'chat-new-result', ok: false, error: normalizeGatewayError(err), source }));
       }
       break;
     }
