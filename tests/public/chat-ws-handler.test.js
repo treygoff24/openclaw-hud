@@ -61,6 +61,10 @@ window.ChatInput = {
 };
 window.openChatPane = vi.fn();
 
+await import('../../public/chat-ws/runtime.js');
+await import('../../public/chat-ws/history-log.js');
+await import('../../public/chat-ws/stream-events.js');
+await import('../../public/chat-ws/system-events.js');
 await import('../../public/chat-ws-handler.js');
 
 function resetState() {

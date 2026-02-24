@@ -111,6 +111,10 @@ await import('../../public/chat-commands/help.js');
 await import('../../public/chat-commands/local-exec.js');
 await import('../../public/chat-commands.js');
 await import('../../public/chat-input.js');
+await import('../../public/chat-ws/runtime.js');
+await import('../../public/chat-ws/history-log.js');
+await import('../../public/chat-ws/stream-events.js');
+await import('../../public/chat-ws/system-events.js');
 await import('../../public/chat-ws-handler.js');
 // Load panels before app runtime (app bootstrap initializes panel modules)
 await import('../../public/panels/activity.js');
