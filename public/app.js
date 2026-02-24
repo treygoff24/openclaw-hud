@@ -140,33 +140,82 @@
   }
   HUD.showToast = showToast;
 
-  // Fetch all data
-  async function fetchAll() {
+  // Per-panel error boundary - wraps render functions to catch errors gracefully
+  function renderPanelSafe(panelName, panelEl, renderFn, data) {
+    if (!panelEl) {
+      console.warn(`Panel element not found: ${panelName}`);
+      return;
+    }
     try {
-      const [agents, sessions, cron, config, usage, activity, tree, models] = await Promise.all([
-        fetch('/api/agents').then(r => r.json()),
-        fetch('/api/sessions').then(r => r.json()),
-        fetch('/api/cron').then(r => r.json()),
-        fetch('/api/config').then(r => r.json()),
-        fetch('/api/model-usage').then(r => r.json()),
-        fetch('/api/activity').then(r => r.json()),
-        fetch('/api/session-tree').then(r => r.json()),
-        fetch('/api/models').then(r => r.json()),
-      ]);
-      window._modelAliases = models;
-      window._allSessions = sessions;
-      HUD.agents.render(agents);
-      HUD.sessions.render(sessions);
-      HUD.cron.render(cron);
-      HUD.system.render(config);
-      HUD.models.render(usage);
-      HUD.activity.render(activity);
-      HUD.sessionTree.render(tree);
-      if (!hasAttemptedChatSessionRestore && typeof window.restoreSavedChatSession === 'function') {
+      renderFn(panelEl, data);
+    } catch (err) {
+      console.error(`Panel render failed: ${panelName}`, err);
+      panelEl.innerHTML = `
+        <div class="panel-error">
+          <span class="panel-error-msg">—</span>
+          <button class="panel-retry-btn" onclick="retryPanel('${panelName}')" title="Retry">↻</button>
+        </div>`;
+    }
+  }
+  window.renderPanelSafe = renderPanelSafe;
+
+  // Retry a specific panel by re-fetching all data
+  function retryPanel(panelName) {
+    console.log(`Retrying panel: ${panelName}`);
+    fetchAll();
+  }
+  window.retryPanel = retryPanel;
+
+  // Fetch all data with resilience - uses Promise.allSettled so individual failures don't blank all panels
+  async function fetchAll() {
+    const endpoints = [
+      { name: 'agents', url: '/api/agents' },
+      { name: 'sessions', url: '/api/sessions' },
+      { name: 'cron', url: '/api/cron' },
+      { name: 'config', url: '/api/config' },
+      { name: 'model-usage', url: '/api/model-usage' },
+      { name: 'activity', url: '/api/activity' },
+      { name: 'session-tree', url: '/api/session-tree' },
+      { name: 'models', url: '/api/models' },
+    ];
+
+    try {
+      // Use Promise.allSettled so one failure doesn't reject all
+      const results = await Promise.allSettled(
+        endpoints.map(e => fetch(e.url).then(r => r.json()).catch(err => {
+          console.warn(`Endpoint ${e.name} failed:`, err);
+          return null; // Return null for failed endpoints
+        }))
+      );
+
+      // Extract data or null for each endpoint
+      const data = {};
+      results.forEach((result, index) => {
+        data[endpoints[index].name] = result.status === 'fulfilled' ? result.value : null;
+      });
+
+      // Store global data
+      window._modelAliases = data.models || [];
+      window._allSessions = data.sessions || [];
+
+      // Render each panel with error boundaries
+      renderPanelSafe('agents', document.getElementById('agents-list'), (el, d) => HUD.agents.render(d), data.agents);
+      renderPanelSafe('sessions', document.getElementById('sessions-list'), (el, d) => HUD.sessions.render(d), data.sessions);
+      renderPanelSafe('cron', document.getElementById('cron-list'), (el, d) => HUD.cron.render(d), data.cron);
+      renderPanelSafe('system', document.getElementById('system-info'), (el, d) => HUD.system.render(d), data.config);
+      renderPanelSafe('models', document.getElementById('model-usage'), (el, d) => HUD.models.render(d), data['model-usage']);
+      renderPanelSafe('activity', document.getElementById('activity-feed'), (el, d) => HUD.activity.render(d), data.activity);
+      renderPanelSafe('session-tree', document.getElementById('tree-body'), (el, d) => HUD.sessionTree.render(d), data['session-tree']);
+
+      // Restore chat session only once
+      if (!hasAttemptedChatSessionRestore && typeof window.restoreSavedChatSession === 'function' && data.sessions) {
         hasAttemptedChatSessionRestore = true;
-        window.restoreSavedChatSession(sessions);
+        window.restoreSavedChatSession(data.sessions);
       }
-      setConnectionStatus(true);
+
+      // Set connection status based on whether any data was retrieved
+      const hasAnyData = results.some(r => r.status === 'fulfilled' && r.value !== null);
+      setConnectionStatus(hasAnyData);
     } catch (err) {
       console.error('Fetch error:', err);
       setConnectionStatus(false);
