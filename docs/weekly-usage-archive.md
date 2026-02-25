@@ -87,13 +87,15 @@ Install the weekly snapshot cron job:
 
 This installs a Sunday cron entry that:
 
-1. fetches `/api/model-usage/live-weekly?refresh=1`
-2. writes the payload via `writeWeeklySnapshot(...)`
-3. logs to `$OPENCLAW_HOME/logs/weekly-usage-archive.log`
+1. computes the just-ended previous weekly window (previous Sunday 00:00 → current Sunday 00:00 in `HUD_USAGE_TZ`)
+2. fetches usage from `sessions.usage` for that exact window and reprices with the active pricing catalog
+3. writes an immutable archive snapshot via `writeWeeklySnapshot(...)`
+4. treats reruns (`EEXIST`) as idempotent success instead of a hard failure
+5. logs to `$OPENCLAW_HOME/logs/weekly-usage-archive.log`
 
 ### Optional environment overrides
 
 - `OPENCLAW_HOME` (default: `~/.openclaw`)
-- `HUD_PORT` (default: `3777`)
+- `HUD_USAGE_TZ` (default: `America/Chicago`)
 - `WEEKLY_ARCHIVE_HOUR` (default: `0`)
 - `WEEKLY_ARCHIVE_MINUTE` (default: `5`)
