@@ -162,6 +162,8 @@ describe('fetchAll resilient fetching', () => {
     expect(fetchCalls).toContain('/api/agents');
     expect(fetchCalls).toContain('/api/sessions');
     expect(fetchCalls).toContain('/api/config');
+    expect(fetchCalls).toContain('/api/model-usage/live-weekly');
+    expect(fetchCalls).not.toContain('/api/model-usage');
   });
 
   it('renders panels even when some endpoints fail', async () => {
