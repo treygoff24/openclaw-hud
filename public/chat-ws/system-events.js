@@ -38,7 +38,12 @@
       var s = window.ChatState;
       if (s.currentSession) {
         s.sendWs({ type: 'chat-subscribe', sessionKey: s.currentSession.sessionKey });
-        s.sendWs({ type: 'chat-history', sessionKey: s.currentSession.sessionKey });
+        var paneRuntime = window.ChatPaneRuntime;
+        if (paneRuntime && typeof paneRuntime.requestChatHistory === 'function') {
+          paneRuntime.requestChatHistory(s.currentSession.sessionKey, 'gateway_connected');
+        } else {
+          s.sendWs({ type: 'chat-history', sessionKey: s.currentSession.sessionKey });
+        }
       }
     }
   }

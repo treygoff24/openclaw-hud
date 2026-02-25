@@ -116,10 +116,16 @@ describe('chat-handlers', () => {
       const ws = mockWs();
       const gw = mockGateway();
       gw.request.mockRejectedValue(new Error('boom'));
+      fs.writeFileSync(path.join(tmpOpenclawHome, 'openclaw.json'), JSON.stringify({
+        gateway: { auth: { token: 'test-token' } }
+      }));
+      const fetchMock = vi.fn().mockRejectedValue(new Error('boom'));
+      vi.stubGlobal('fetch', fetchMock);
       await mod.handleChatMessage(ws, { type: 'chat-send', sessionKey: MAIN_KEY, message: 'hi', idempotencyKey: 'ik1' }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
       expect(sent.error.message).toBe('boom');
+      vi.unstubAllGlobals();
     });
 
     it('chat-history returns messages', async () => {
@@ -159,6 +165,9 @@ describe('chat-handlers', () => {
       await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.error.code).toBe('UNKNOWN_SESSION_KEY');
+      expect(sent.error.reason).toBe('not_found');
+      expect(sent.error.rawCode).toBe('SESSION_NOT_FOUND');
+      expect(sent.error.rawMessage).toBe('Session not found');
     });
 
     it('chat-history with disconnected gateway falls back to local history', async () => {
@@ -206,6 +215,82 @@ describe('chat-handlers', () => {
       expect(sent.messages[1].content[0].text).toBe('local assistant reply');
     });
 
+    it('chat-history falls back when gateway returns forbidden', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-forbidden',
+        lines: [JSON.stringify({ type: 'message', role: 'assistant', content: 'forbidden fallback works' })]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Forbidden');
+      err.code = 'FORBIDDEN';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe('forbidden fallback works');
+    });
+
+    it('chat-history falls back when gateway has transient unavailable error', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-unavailable',
+        lines: [JSON.stringify({ type: 'message', role: 'assistant', content: 'unavailable fallback works' })]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('connect ECONNRESET 127.0.0.1');
+      err.code = 'ECONNRESET';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe('unavailable fallback works');
+    });
+
+    it('chat-history falls back when gateway times out', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-timeout',
+        lines: [JSON.stringify({ type: 'message', role: 'assistant', content: 'timeout fallback works' })]
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Request timed out');
+      err.code = 'ETIMEDOUT';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe('timeout fallback works');
+    });
+
+    it('chat-history classifies auth scope missing and preserves raw fields', async () => {
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Missing scope: sessions:read');
+      err.code = 'MISSING_SCOPE';
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.messages).toEqual([]);
+      expect(sent.error.reason).toBe('auth_scope_missing');
+      expect(sent.error.rawCode).toBe('MISSING_SCOPE');
+      expect(sent.error.rawMessage).toBe('Missing scope: sessions:read');
+    });
+
     it('chat-history does not mask non-recoverable gateway errors with local fallback', async () => {
       writeLocalHistoryFixture({
         sessionKey: MAIN_KEY,
@@ -226,6 +311,38 @@ describe('chat-handlers', () => {
       expect(sent.messages).toEqual([]);
       expect(sent.error.code).toBe('AUTH_FAILED');
       expect(sent.error.message).toBe('Gateway auth failed');
+    });
+
+    it('chat-history logs correlation id and fallback reason fields', async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: 'sess-local-logs',
+        lines: [JSON.stringify({ type: 'message', role: 'assistant', content: 'log fallback works' })]
+      });
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error('Request timed out');
+      err.code = 'ETIMEDOUT';
+      gw.request.mockRejectedValue(err);
+      let logs = [];
+
+      try {
+        await mod.handleChatMessage(ws, { type: 'chat-history', sessionKey: MAIN_KEY }, gw);
+        logs = logSpy.mock.calls.map((call) => String(call[0]));
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      const requestLog = logs.find((line) => line.includes('[CHAT-HISTORY] request'));
+      const gatewayFailLog = logs.find((line) => line.includes('[CHAT-HISTORY] gateway-fail'));
+      const fallbackSuccessLog = logs.find((line) => line.includes('[CHAT-HISTORY] fallback-success'));
+
+      expect(requestLog).toContain('correlationId=');
+      expect(gatewayFailLog).toContain('correlationId=');
+      expect(gatewayFailLog).toContain('fallbackReason="timeout"');
+      expect(fallbackSuccessLog).toContain('correlationId=');
+      expect(fallbackSuccessLog).toContain('fallbackReason="timeout"');
     });
 
     it('chat-history local fallback with limit parses from tail', async () => {

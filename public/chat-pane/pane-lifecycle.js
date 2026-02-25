@@ -44,6 +44,9 @@
       if (state.currentSession && state.currentSession.sessionId) {
         runtime.sendWs({ type: 'unsubscribe-log', sessionId: state.currentSession.sessionId });
       }
+      if (state.resetHistoryLoadState) {
+        state.resetHistoryLoadState(state.subscribedKey);
+      }
     }
 
     var enriched = runtime.enrichSessionMetadata(agentId, sessionId, label, sessionKey);
@@ -65,15 +68,13 @@
     state.activeRuns.clear();
     if (window.ChatWsHandler) window.ChatWsHandler.updateButtons();
 
-    runtime.hudDiagLog(runtime.constants.CHAT_LOG_PREFIX, 'history_request', {
-      agentId: agentId,
-      sessionId: sessionId || '',
-      sessionKey: sessionKey,
-    });
-
     runtime.sendWs({ type: 'chat-subscribe', sessionKey: sessionKey });
-    runtime.sendWs({ type: 'chat-history', sessionKey: sessionKey });
-    runtime.startHistoryLoadTimer(sessionKey);
+    if (typeof runtime.requestChatHistory === 'function') {
+      runtime.requestChatHistory(sessionKey, 'open_chat_pane', { force: true });
+    } else {
+      runtime.sendWs({ type: 'chat-history', sessionKey: sessionKey });
+      runtime.startHistoryLoadTimer(sessionKey);
+    }
   }
 
   function closeChatPane() {
@@ -87,6 +88,9 @@
       runtime.sendWs({ type: 'chat-unsubscribe', sessionKey: state.subscribedKey });
       if (state.currentSession) {
         runtime.sendWs({ type: 'unsubscribe-log', sessionId: state.currentSession.sessionId });
+      }
+      if (state.resetHistoryLoadState) {
+        state.resetHistoryLoadState(state.subscribedKey);
       }
       state.subscribedKey = null;
     }

@@ -12,17 +12,19 @@
     }
   }
 
-  function startHistoryLoadTimer(sessionKey) {
+  function startHistoryLoadTimer(sessionKey, attempt) {
     clearHistoryLoadTimer();
     runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'history_timeout_started', {
       sessionKey: sessionKey || '',
       timeoutMs: constants.HISTORY_LOAD_TIMEOUT_MS,
+      attempt: attempt || 0,
     });
 
     historyLoadTimer = setTimeout(function() {
       historyLoadTimer = null;
       var state = runtime.ChatState;
       if (!state.currentSession || state.currentSession.sessionKey !== sessionKey) return;
+      if (state.shouldShowHistoryTimeoutWarning && !state.shouldShowHistoryTimeoutWarning(sessionKey, attempt)) return;
 
       var container = document.getElementById('chat-messages');
       if (!container) return;
@@ -43,6 +45,7 @@
 
       runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'history_timeout_fired', {
         sessionKey: sessionKey || '',
+        attempt: attempt || 0,
       });
     }, constants.HISTORY_LOAD_TIMEOUT_MS);
   }

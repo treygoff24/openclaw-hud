@@ -9,6 +9,18 @@
     var container = document.getElementById('chat-messages');
     if (!container) return;
 
+    if (typeof s.resolveHistoryResult === 'function') {
+      var resolution = s.resolveHistoryResult(data.sessionKey);
+      if (!resolution.accept) {
+        runtime.hudDiagLog(runtime.CHAT_LOG_PREFIX, 'history_result_ignored_duplicate', {
+          sessionKey: data.sessionKey || '',
+          reason: resolution.reason || '',
+          attempt: resolution.attempt || 0,
+        });
+        return;
+      }
+    }
+
     var loading = container.querySelector('.chat-loading');
     var hadLoading = !!loading;
     if (loading) loading.remove();

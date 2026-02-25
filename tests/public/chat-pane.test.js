@@ -81,6 +81,7 @@ function resetState() {
   try { window.closeChatPane(); } catch(e) {}
   setupDOM();
   vi.clearAllMocks();
+  window.A11yAnnouncer = undefined;
   window._allSessions = [];
   window.VirtualScroller = undefined;
   window.ProgressiveToolRenderer = undefined;
@@ -489,6 +490,40 @@ describe('handleChatWsMessage — gateway-status', () => {
     window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
     expect(document.getElementById('gateway-banner').style.display).toBe('none');
   });
+
+  it('does not request duplicate history when reconnecting while history is in-flight', () => {
+    window._hudWs = null;
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    const ws = mockWs();
+    window._flushChatWsQueue();
+    expect(
+      ws.send.mock.calls
+        .map(c => JSON.parse(c[0]))
+        .filter(c => c.type === 'chat-history' && c.sessionKey === 'agent:a:s').length
+    ).toBe(1);
+
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
+
+    expect(
+      ws.send.mock.calls
+        .map(c => JSON.parse(c[0]))
+        .filter(c => c.type === 'chat-history' && c.sessionKey === 'agent:a:s').length
+    ).toBe(1);
+  });
+
+  it('does not request duplicate history when reconnecting after history has loaded', () => {
+    const ws = mockWs();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({ type: 'chat-history-result', sessionKey: 'agent:a:s', messages: [] });
+    ws.send.mockClear();
+
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
+
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+    expect(calls.filter(c => c.type === 'chat-history' && c.sessionKey === 'agent:a:s').length).toBe(0);
+    expect(calls.filter(c => c.type === 'chat-subscribe' && c.sessionKey === 'agent:a:s').length).toBe(1);
+  });
 });
 
 describe('message input', () => {
@@ -564,6 +599,66 @@ describe('WS queue', () => {
     const ws = mockWs();
     window._flushChatWsQueue();
     expect(ws.send).toHaveBeenCalled();
+  });
+
+  it('deduplicates queued chat-history requests for the same session', () => {
+    window._hudWs = null;
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
+
+    const ws = mockWs();
+    window._flushChatWsQueue();
+    const calls = ws.send.mock.calls.map(c => JSON.parse(c[0]));
+
+    expect(calls.filter(c => c.type === 'chat-history' && c.sessionKey === 'agent:a:s').length).toBe(1);
+  });
+});
+
+describe('chat-history reliability', () => {
+  beforeEach(resetState);
+
+  it('ignores duplicate chat-history-result payloads without duplicate render or a11y announce', () => {
+    mockWs();
+    window.A11yAnnouncer = { announce: vi.fn(), announceAssertive: vi.fn() };
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    const payload = {
+      type: 'chat-history-result',
+      sessionKey: 'agent:a:s',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+      ]
+    };
+
+    window.handleChatWsMessage(payload);
+    expect(document.querySelectorAll('.chat-msg').length).toBe(2);
+    expect(window.A11yAnnouncer.announce).toHaveBeenCalledTimes(1);
+
+    window.handleChatWsMessage(payload);
+    expect(document.querySelectorAll('.chat-msg').length).toBe(2);
+    expect(window.A11yAnnouncer.announce).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows timeout warning once per load attempt and resets on a new attempt', () => {
+    vi.useFakeTimers();
+    window.A11yAnnouncer = { announce: vi.fn(), announceAssertive: vi.fn() };
+    window._hudWs = null;
+    window.openChatPane('a', 's', '', 'agent:a:s');
+
+    window.handleChatWsMessage({ type: 'gateway-status', status: 'connected' });
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelectorAll('.chat-history-warning').length).toBe(1);
+    expect(window.A11yAnnouncer.announceAssertive).toHaveBeenCalledTimes(1);
+
+    window.closeChatPane();
+    window.openChatPane('a', 's', '', 'agent:a:s');
+    vi.advanceTimersByTime(10001);
+
+    expect(document.querySelectorAll('.chat-history-warning').length).toBe(1);
+    expect(window.A11yAnnouncer.announceAssertive).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });
 

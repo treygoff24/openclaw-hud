@@ -11,6 +11,8 @@ const {
   logHistory,
   loadLocalHistory,
   normalizeGatewayError,
+  adaptChatHistoryGatewayError,
+  isChatHistoryFallbackEligible,
 } = require('./history');
 const { isChatMessage, dispatchChatMessage } = require('./dispatcher');
 
@@ -23,6 +25,12 @@ function formatGatewayHost(host) {
   if (!normalized || normalized.toLowerCase() === 'loopback') return '127.0.0.1';
   if (normalized.includes(':') && !normalized.startsWith('[')) return `[${normalized}]`;
   return normalized;
+}
+
+let historyCorrelationSeq = 0;
+function nextHistoryCorrelationId() {
+  historyCorrelationSeq += 1;
+  return `history-${historyCorrelationSeq}`;
 }
 
 async function invokeGatewayTool(tool, args) {
@@ -171,12 +179,13 @@ const commandHandlers = {
     }
 
     const normalizedLimit = normalizeHistoryLimit(limit);
-    logHistory('request', { sessionKey, limit: normalizedLimit || 'default' });
+    const correlationId = nextHistoryCorrelationId();
+    logHistory('request', { sessionKey, correlationId, limit: normalizedLimit || 'default' });
 
     let gatewayError = null;
     let shouldFallback = false;
     if (gatewayWS && gatewayWS.connected) {
-      logHistory('gateway-attempt', { sessionKey });
+      logHistory('gateway-attempt', { sessionKey, correlationId });
       try {
         const result = await gatewayWS.request('chat.history', { sessionKey, ...(normalizedLimit ? { limit: normalizedLimit } : {}) });
         const messages = result.messages || [];
@@ -187,33 +196,61 @@ const commandHandlers = {
           thinkingLevel: result.thinkingLevel,
           verboseLevel: result.verboseLevel,
         });
-        logHistory('gateway-success', { sessionKey, count: messages.length });
+        logHistory('gateway-success', { sessionKey, correlationId, count: messages.length });
         return;
       } catch (err) {
-        gatewayError = normalizeGatewayError(err);
-        logHistory('gateway-fail', { sessionKey, code: gatewayError.code });
-        shouldFallback = gatewayError.code === 'UNKNOWN_SESSION_KEY' || gatewayError.code === 'FORBIDDEN';
+        gatewayError = adaptChatHistoryGatewayError(err);
+        shouldFallback = isChatHistoryFallbackEligible(gatewayError);
+        logHistory('gateway-fail', {
+          sessionKey,
+          correlationId,
+          code: gatewayError.code,
+          rawCode: gatewayError.rawCode,
+          rawStatus: gatewayError.rawStatus,
+          fallbackReason: gatewayError.reason,
+          fallbackEligible: shouldFallback,
+        });
       }
     } else {
-      gatewayError = { code: 'UNAVAILABLE', message: 'Gateway not connected' };
-      logHistory('gateway-unavailable', { sessionKey });
-      shouldFallback = true;
+      gatewayError = adaptChatHistoryGatewayError({ code: 'UNAVAILABLE', message: 'Gateway not connected' });
+      shouldFallback = isChatHistoryFallbackEligible(gatewayError);
+      logHistory('gateway-unavailable', {
+        sessionKey,
+        correlationId,
+        fallbackReason: gatewayError.reason,
+        fallbackEligible: shouldFallback,
+      });
     }
 
     if (!shouldFallback) {
       sendJson(ws, { type: 'chat-history-result', sessionKey, messages: [], error: gatewayError });
-      logHistory('fallback-skipped', { sessionKey, code: gatewayError?.code || 'UNKNOWN' });
+      logHistory('fallback-skipped', {
+        sessionKey,
+        correlationId,
+        code: gatewayError?.code || 'UNKNOWN',
+        fallbackReason: gatewayError?.reason || 'unknown',
+      });
       return;
     }
 
     try {
       const fallbackMessages = loadLocalHistory(sessionKey, normalizedLimit);
       sendJson(ws, { type: 'chat-history-result', sessionKey, messages: fallbackMessages });
-      logHistory('fallback-success', { sessionKey, count: fallbackMessages.length });
+      logHistory('fallback-success', {
+        sessionKey,
+        correlationId,
+        count: fallbackMessages.length,
+        fallbackReason: gatewayError?.reason || 'unavailable',
+      });
     } catch (fallbackErr) {
       const errorToSend = gatewayError || { code: 'UNAVAILABLE', message: 'History unavailable' };
       sendJson(ws, { type: 'chat-history-result', sessionKey, messages: [], error: errorToSend });
-      logHistory('fallback-fail', { sessionKey, reason: fallbackErr.message });
+      logHistory('fallback-fail', {
+        sessionKey,
+        correlationId,
+        fallbackReason: gatewayError?.reason || 'unknown',
+        fallbackError: fallbackErr.message,
+      });
     }
   },
 
