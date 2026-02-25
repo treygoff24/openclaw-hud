@@ -4,7 +4,7 @@ const { Router } = require('express');
 const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
 const { toFiniteNumber } = require('../lib/number');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
-const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
+const { getPricingConfigFingerprint, loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
 const { readWeeklyHistory, readWeeklySnapshot } = require('../lib/usage-archive');
 
 const router = Router();
@@ -24,6 +24,10 @@ function shouldRefreshLiveWeekly(req) {
 
 function isObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getLiveWeeklyCacheKey({ tz, pricingFingerprint }) {
+  return `${tz}|${pricingFingerprint}`;
 }
 
 function normalizeModelRow(row) {
@@ -53,10 +57,7 @@ function normalizeModelRow(row) {
     totals.totalTokens ??
       sourceRow.totalTokens ??
       sourceRow.total ??
-      inputTokens +
-      outputTokens +
-      cacheReadTokens +
-      cacheWriteTokens,
+      (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens),
   );
   const totalCost = toFiniteNumber(
     totals.totalCost ??
@@ -170,8 +171,15 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
   const nowMs = Date.now();
   const ttlMs = getUsageCacheTtlMs();
   const refresh = shouldRefreshLiveWeekly(req);
+  const pricingFingerprint = getPricingConfigFingerprint();
+  const cacheKey = getLiveWeeklyCacheKey({ tz, pricingFingerprint });
 
-  if (!refresh && liveWeeklyCache && nowMs < liveWeeklyCache.expiresAtMs) {
+  if (
+    !refresh &&
+    liveWeeklyCache &&
+    nowMs < liveWeeklyCache.expiresAtMs &&
+    liveWeeklyCache.cacheKey === cacheKey
+  ) {
     return res.json(liveWeeklyCache.payload);
   }
 
@@ -235,6 +243,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
 
     if (ttlMs > 0) {
       liveWeeklyCache = {
+        cacheKey,
         expiresAtMs: nowMs + ttlMs,
         payload: responsePayload,
       };

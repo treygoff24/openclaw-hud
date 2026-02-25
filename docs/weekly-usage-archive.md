@@ -5,6 +5,17 @@ This project keeps **live weekly usage** and **historical weekly usage** separat
 - `/api/model-usage/live-weekly` always reads live data from `sessions.usage`.
 - `/api/model-usage/history` reads immutable archived snapshots only.
 
+## Live-weekly cache freshness
+
+`/api/model-usage/live-weekly` supports a short in-memory TTL cache via `HUD_USAGE_CACHE_TTL_MS`.
+
+- Default: `15000` (15 seconds)
+- Guidance: keep this value short (for example `5000`–`15000`) to minimize stale UI windows.
+- Set `HUD_USAGE_CACHE_TTL_MS=0` to disable caching.
+- Pass `?refresh=1` to bypass cache for an on-demand fresh read.
+
+Cache entries are also keyed by pricing-config fingerprint (file timestamp/size), so pricing edits invalidate the cached response even before TTL expiry.
+
 ## Archive storage
 
 Weekly snapshots are written to:

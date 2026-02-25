@@ -9,6 +9,7 @@ const { getLiveWeekWindow } = await import('../../lib/helpers.js');
 const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
 const originalLoadPricingCatalog = pricing.loadPricingCatalog;
 const originalRepriceModelUsageRows = pricing.repriceModelUsageRows;
+const originalGetPricingConfigFingerprint = pricing.getPricingConfigFingerprint;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
@@ -43,12 +44,14 @@ describe('GET /api/model-usage/live-weekly', () => {
         },
       }),
     );
+    pricing.getPricingConfigFingerprint = vi.fn(() => 'pricing-v1');
   });
 
   afterEach(() => {
     usageRpc.requestSessionsUsage = originalRequestSessionsUsage;
     pricing.loadPricingCatalog = originalLoadPricingCatalog;
     pricing.repriceModelUsageRows = originalRepriceModelUsageRows;
+    pricing.getPricingConfigFingerprint = originalGetPricingConfigFingerprint;
     process.env.HUD_USAGE_TZ = originalUsageTz;
     process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
     vi.restoreAllMocks();
@@ -237,6 +240,32 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
+  it('falls back totalTokens to input+output+cache tokens when totals.totalTokens is absent', async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: {
+              input: 7,
+              output: 11,
+              cacheRead: 3,
+              cacheWrite: 2,
+            },
+          },
+        ],
+      },
+    });
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models[0].totalTokens).toBe(23);
+    expect(res.body.totals.totalTokens).toBe(23);
+  });
+
   it('forwards the live-week window computed by getLiveWeekWindow', async () => {
     const now = Date.parse('2026-02-23T14:20:00-06:00');
     vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -306,6 +335,35 @@ describe('GET /api/model-usage/live-weekly', () => {
 
     const app = createApp();
     const first = await request(app).get('/api/model-usage/live-weekly');
+    const second = await request(app).get('/api/model-usage/live-weekly');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+  });
+
+  it('refreshes cached live-weekly response when pricing fingerprint changes within TTL', async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(5_000).mockReturnValueOnce(5_100);
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+          },
+        ],
+      },
+    });
+
+    const app = createApp();
+    const first = await request(app).get('/api/model-usage/live-weekly');
+    pricing.getPricingConfigFingerprint.mockReturnValue('pricing-v2');
     const second = await request(app).get('/api/model-usage/live-weekly');
 
     expect(first.status).toBe(200);
