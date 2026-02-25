@@ -293,7 +293,7 @@ describe('getGatewayConfig', () => {
 
     const cfg = await loadGatewayConfigForHome(openclawHome);
 
-    expect(cfg).toEqual({ port: 18789, token: null });
+    expect(cfg).toEqual({ host: null, bind: null, port: 18789, token: null });
   });
 
   it('reads from openclaw.json when present', async () => {
@@ -308,7 +308,24 @@ describe('getGatewayConfig', () => {
 
     const cfg = await loadGatewayConfigForHome(openclawHome);
 
-    expect(cfg).toEqual({ port: 19999, token: 'primary-token' });
+    expect(cfg).toEqual({ host: null, bind: null, port: 19999, token: 'primary-token' });
+  });
+
+  it('parses JSON5-style openclaw.json when strict JSON parsing fails', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-primary-json5');
+    fs.mkdirSync(openclawHome, { recursive: true });
+    fs.writeFileSync(path.join(openclawHome, 'openclaw.json'), `{
+      gateway: {
+        host: "localhost",
+        bind: "127.0.0.1",
+        port: 20001,
+        auth: { token: "primary-json5-token" },
+      },
+    }`);
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ host: 'localhost', bind: '127.0.0.1', port: 20001, token: 'primary-json5-token' });
   });
 
   it('falls back to legacy source-of-truth.json5 when openclaw.json is missing', async () => {
@@ -324,7 +341,7 @@ describe('getGatewayConfig', () => {
 
     const cfg = await loadGatewayConfigForHome(openclawHome);
 
-    expect(cfg).toEqual({ port: 18888, token: 'legacy-token' });
+    expect(cfg).toEqual({ host: null, bind: null, port: 18888, token: 'legacy-token' });
   });
 
   it('prefers openclaw.json over legacy source-of-truth.json5', async () => {
@@ -346,7 +363,7 @@ describe('getGatewayConfig', () => {
 
     const cfg = await loadGatewayConfigForHome(openclawHome);
 
-    expect(cfg).toEqual({ port: 17777, token: 'primary-token' });
+    expect(cfg).toEqual({ host: null, bind: null, port: 17777, token: 'primary-token' });
   });
 });
 

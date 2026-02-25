@@ -26,6 +26,7 @@ describe('usage-rpc', () => {
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway token not configured');
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({ code: 'GATEWAY_TOKEN_MISSING' });
   });
 
   it('calls gateway tools/invoke with sessions.usage args', async () => {
@@ -67,6 +68,7 @@ describe('usage-rpc', () => {
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway host must be local/loopback for token-authenticated HTTP requests');
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({ code: 'GATEWAY_HOST_UNSUPPORTED' });
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -93,5 +95,6 @@ describe('usage-rpc', () => {
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway request failed: connect ETIMEDOUT');
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({ code: 'GATEWAY_UNREACHABLE' });
   });
 });

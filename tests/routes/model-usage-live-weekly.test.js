@@ -401,7 +401,9 @@ describe('GET /api/model-usage/live-weekly', () => {
   });
 
   it('returns empty live-weekly payload when gateway token is not configured', async () => {
-    usageRpc.requestSessionsUsage.mockRejectedValue(new Error('Gateway token not configured'));
+    const err = new Error('Gateway token not configured');
+    err.code = 'GATEWAY_TOKEN_MISSING';
+    usageRpc.requestSessionsUsage.mockRejectedValue(err);
 
     const res = await request(createApp()).get('/api/model-usage/live-weekly');
 
@@ -416,5 +418,18 @@ describe('GET /api/model-usage/live-weekly', () => {
       totalTokens: 0,
       totalCost: 0,
     });
+  });
+
+  it('returns empty live-weekly payload when gateway is unreachable', async () => {
+    const err = new Error('Gateway request failed: fetch failed');
+    err.code = 'GATEWAY_UNREACHABLE';
+    usageRpc.requestSessionsUsage.mockRejectedValue(err);
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.unavailable).toBe('gateway-unreachable');
+    expect(res.body.models).toEqual([]);
+    expect(res.body.totals.totalTokens).toBe(0);
   });
 });

@@ -67,8 +67,10 @@ describe('helpers via CJS require()', () => {
     expect(helpers.getSessionStatus({ updatedAt: Date.now() - 6 * 60 * 1000, spawnDepth: 1 })).toBe('completed');
   });
 
-  it('getGatewayConfig returns port and token', () => {
+  it('getGatewayConfig returns host/bind/port/token shape', () => {
     const cfg = helpers.getGatewayConfig();
+    expect(cfg).toHaveProperty('host');
+    expect(cfg).toHaveProperty('bind');
     expect(typeof cfg.port).toBe('number');
     expect(cfg).toHaveProperty('token');
   });

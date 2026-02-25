@@ -26,6 +26,30 @@ function getLiveWeeklyCacheKey({ tz, pricingFingerprint }) {
   return `${tz}|${pricingFingerprint}`;
 }
 
+function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason }) {
+  return {
+    meta: {
+      period: 'live-weekly',
+      tz,
+      weekStart: new Date(liveWindow.fromMs).toISOString(),
+      now: new Date(liveWindow.toMs).toISOString(),
+      generatedAt: new Date(nowMs).toISOString(),
+      source: 'sessions.usage+config-reprice',
+      missingPricingModels: [],
+      unavailable: reason,
+    },
+    models: [],
+    totals: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    },
+  };
+}
+
 router.get('/api/model-usage', (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, 'agents');
   const agents = safeReaddir(agentsDir);
@@ -193,28 +217,18 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
 
     res.json(responsePayload);
   } catch (err) {
+    const unavailableReasonByCode = {
+      GATEWAY_TOKEN_MISSING: 'gateway-token-missing',
+      GATEWAY_HOST_UNSUPPORTED: 'gateway-host-unsupported',
+      GATEWAY_UNREACHABLE: 'gateway-unreachable',
+    };
+    const unavailableReason = unavailableReasonByCode[err?.code];
+    if (unavailableReason) {
+      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: unavailableReason }));
+    }
+
     if (err?.message === 'Gateway token not configured') {
-      return res.json({
-        meta: {
-          period: 'live-weekly',
-          tz,
-          weekStart: new Date(liveWindow.fromMs).toISOString(),
-          now: new Date(liveWindow.toMs).toISOString(),
-          generatedAt: new Date(nowMs).toISOString(),
-          source: 'sessions.usage+config-reprice',
-          missingPricingModels: [],
-          unavailable: 'gateway-token-missing',
-        },
-        models: [],
-        totals: {
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          totalTokens: 0,
-          totalCost: 0,
-        },
-      });
+      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: 'gateway-token-missing' }));
     }
 
     res.status(502).json({ error: `Failed to load live weekly usage: ${err.message}` });
