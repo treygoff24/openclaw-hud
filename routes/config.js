@@ -31,26 +31,22 @@ router.get('/api/config', (req, res) => {
 });
 
 router.get('/api/models', (req, res) => {
-  const config = safeJSON5(path.join(OPENCLAW_HOME, 'config', 'source-of-truth.json5'));
+  const primaryConfig = safeJSON5(path.join(OPENCLAW_HOME, 'openclaw.json'));
+  const legacyConfig = safeJSON5(path.join(OPENCLAW_HOME, 'config', 'source-of-truth.json5'));
+  const config = primaryConfig || legacyConfig || {};
+
   const models = config?.agents?.defaults?.models || {};
   const aliases = Object.entries(models).map(([fullId, cfg]) => ({
     alias: cfg.alias || fullId.split('/').pop(),
     fullId,
   }));
-  const agentModels = [
-    { alias: 'haiku', fullId: 'anthropic/claude-haiku-4' },
-    { alias: 'vulcan (codex)', fullId: 'openai/gpt-5.3-codex' },
-  ];
-  for (const am of agentModels) {
-    if (!aliases.find(a => a.fullId === am.fullId)) aliases.push(am);
-  }
   aliases.unshift({ alias: 'default', fullId: '' });
-  
+
   // Update cached models for spawn route label resolution
   if (spawnRouter.setCachedModels) {
     spawnRouter.setCachedModels(aliases);
   }
-  
+
   res.json(aliases);
 });
 
