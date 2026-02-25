@@ -86,6 +86,20 @@ describe('usage-rpc', () => {
     expect(url).toBe('http://localhost:18789/tools/invoke');
   });
 
+  it('normalizes loopback hostname to 127.0.0.1', async () => {
+    helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: 'test-token', host: 'loopback' }));
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, result: { rows: [] } })
+    }));
+
+    const { requestSessionsUsage } = loadModule();
+    await requestSessionsUsage({ from: 1, to: 2 });
+
+    const [url] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://127.0.0.1:18789/tools/invoke');
+  });
+
   it('wraps fetch/network throws with readable gateway request error', async () => {
     helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: 'test-token' }));
     global.fetch = vi.fn(async () => {

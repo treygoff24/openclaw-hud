@@ -18,6 +18,7 @@ process.env.HUD_USAGE_CACHE_TTL_MS = process.env.HUD_USAGE_CACHE_TTL_MS || '1500
 function formatHostForUrl(host) {
   const normalized = String(host || '').trim();
   if (!normalized) return '127.0.0.1';
+  if (normalized.toLowerCase() === 'loopback') return '127.0.0.1';
   if (normalized.includes(':') && !normalized.startsWith('[')) return `[${normalized}]`;
   return normalized;
 }
@@ -61,6 +62,11 @@ setInterval(() => broadcastAll({ type: 'tick', timestamp: Date.now() }), 10000);
 // Gateway status broadcasts
 gatewayWS.on('connected', () => broadcastAll({ type: 'gateway-status', status: 'connected' }));
 gatewayWS.on('disconnected', () => broadcastAll({ type: 'gateway-status', status: 'disconnected' }));
+gatewayWS.on('error', (err) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error('Gateway WS error:', message);
+  broadcastAll({ type: 'gateway-status', status: 'disconnected' });
+});
 
 // Connect (non-blocking)
 gatewayWS.connect().catch(err => console.error('Gateway WS initial connect failed:', err));
