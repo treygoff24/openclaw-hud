@@ -26,26 +26,75 @@
         { name: 'models', url: '/api/models' },
       ];
 
+      function extractResponseMeta(response, payload) {
+        const headerRequestId = response?.headers?.get?.('x-request-id') || '';
+        const payloadRequestId = payload && typeof payload === 'object'
+          ? (payload.requestId || payload?.meta?.requestId || '')
+          : '';
+        const payloadTimestamp = payload && typeof payload === 'object'
+          ? (payload.timestamp || payload?.meta?.requestTimestamp || '')
+          : '';
+
+        return {
+          ok: Boolean(response?.ok),
+          status: Number.isFinite(response?.status) ? response.status : 0,
+          statusText: response?.statusText || '',
+          requestId: headerRequestId || payloadRequestId || '',
+          timestamp: payloadTimestamp,
+        };
+      }
+
       try {
         const runFetch = getFetch();
         const results = await Promise.allSettled(
           endpoints.map(function(endpoint) {
             return runFetch(endpoint.url)
               .then(function(response) {
-                return response.json();
+                return response.json()
+                  .then(function(payload) {
+                    return {
+                      payload,
+                      meta: extractResponseMeta(response, payload),
+                    };
+                  })
+                  .catch(function(err) {
+                    console.warn('Endpoint ' + endpoint.name + ' JSON parse failed:', err);
+                    return {
+                      payload: null,
+                      meta: extractResponseMeta(response, null),
+                    };
+                  });
               })
               .catch(function(err) {
                 console.warn('Endpoint ' + endpoint.name + ' failed:', err);
-                return null;
+                return {
+                  payload: null,
+                  meta: {
+                    ok: false,
+                    status: 0,
+                    statusText: err?.message || 'fetch-failed',
+                    requestId: '',
+                    timestamp: '',
+                  },
+                };
               });
           })
         );
 
         const data = {};
+        const responseMeta = {};
         results.forEach(function(result, index) {
-          data[endpoints[index].name] = result.status === 'fulfilled' ? result.value : null;
+          const endpointName = endpoints[index].name;
+          if (result.status === 'fulfilled' && result.value && typeof result.value === 'object') {
+            data[endpointName] = Object.prototype.hasOwnProperty.call(result.value, 'payload') ? result.value.payload : null;
+            responseMeta[endpointName] = result.value.meta || null;
+            return;
+          }
+          data[endpointName] = null;
+          responseMeta[endpointName] = null;
         });
 
+        window._endpointResponseMeta = responseMeta;
         window._modelAliases = data.models || [];
         window._allSessions = data.sessions || [];
 
@@ -53,7 +102,7 @@
         renderPanelSafe('sessions', doc.getElementById('sessions-list'), function(el, panelData) { HUD.sessions.render(panelData); }, data.sessions);
         renderPanelSafe('cron', doc.getElementById('cron-list'), function(el, panelData) { HUD.cron.render(panelData); }, data.cron);
         renderPanelSafe('system', doc.getElementById('system-info'), function(el, panelData) { HUD.system.render(panelData); }, data.config);
-        renderPanelSafe('models', doc.getElementById('model-usage'), function(el, panelData) { HUD.models.render(panelData); }, data['model-usage']);
+        renderPanelSafe('models', doc.getElementById('model-usage'), function(el, panelData) { HUD.models.render(panelData, responseMeta['model-usage']); }, data['model-usage']);
         renderPanelSafe('activity', doc.getElementById('activity-feed'), function(el, panelData) { HUD.activity.render(panelData); }, data.activity);
         renderPanelSafe('session-tree', doc.getElementById('tree-body'), function(el, panelData) { HUD.sessionTree.render(panelData); }, data['session-tree']);
 
@@ -63,7 +112,7 @@
         }
 
         const hasAnyData = results.some(function(result) {
-          return result.status === 'fulfilled' && result.value !== null;
+          return result.status === 'fulfilled' && result.value && result.value.payload !== null;
         });
         setConnectionStatus(hasAnyData);
       } catch (err) {

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Router } = require('express');
 const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
@@ -26,7 +27,98 @@ function getLiveWeeklyCacheKey({ tz, pricingFingerprint }) {
   return `${tz}|${pricingFingerprint}`;
 }
 
-function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason }) {
+function createRequestContext(req, nowMs) {
+  const headerRequestId = req?.get?.('x-request-id') || req?.headers?.['x-request-id'];
+  const headerCorrelationId = req?.get?.('x-correlation-id') || req?.headers?.['x-correlation-id'];
+  const generatedRequestId = crypto.randomBytes(8).toString('hex');
+  const requestId = String(headerRequestId || headerCorrelationId || generatedRequestId).trim();
+  return {
+    requestId,
+    requestTimestamp: new Date(nowMs).toISOString(),
+  };
+}
+
+function addRequestContextToMeta(payload, requestContext) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
+  return Object.assign({}, payload, {
+    meta: Object.assign({}, meta, {
+      requestId: requestContext.requestId,
+      requestTimestamp: requestContext.requestTimestamp,
+    }),
+  });
+}
+
+function makeLinePreview(line) {
+  const normalized = String(line || '').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 120) return normalized;
+  return `${normalized.slice(0, 117)}...`;
+}
+
+function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, source }) {
+  const normalizedRows = [];
+  for (const row of Array.isArray(usageRows) ? usageRows : []) {
+    const modelRow = normalizeModelRow(row);
+    // The live-weekly contract intentionally omits rows without usage.
+    if (modelRow.totalTokens <= 0) continue;
+    normalizedRows.push(modelRow);
+  }
+
+  const pricingCatalog = loadPricingCatalog();
+  const { rows: repricedRows, missingPricingModels } = repriceModelUsageRows(normalizedRows, {
+    catalog: pricingCatalog,
+  });
+
+  const models = [];
+  const totals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    totalCost: 0,
+  };
+
+  for (const modelRow of repricedRows) {
+    models.push(modelRow);
+    totals.inputTokens += modelRow.inputTokens;
+    totals.outputTokens += modelRow.outputTokens;
+    totals.cacheReadTokens += modelRow.cacheReadTokens;
+    totals.cacheWriteTokens += modelRow.cacheWriteTokens;
+    totals.totalTokens += modelRow.totalTokens;
+    totals.totalCost += modelRow.totalCost;
+  }
+
+  const meta = {
+    period: 'live-weekly',
+    tz,
+    weekStart: new Date(liveWindow.fromMs).toISOString(),
+    now: new Date(liveWindow.toMs).toISOString(),
+    generatedAt: new Date(nowMs).toISOString(),
+    source,
+    missingPricingModels,
+  };
+
+  return {
+    meta,
+    models,
+    totals,
+  };
+}
+
+function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
+  if (ttlMs > 0) {
+    liveWeeklyCache = {
+      cacheKey,
+      expiresAtMs: nowMs + ttlMs,
+      payload,
+    };
+  } else {
+    liveWeeklyCache = null;
+  }
+}
+
+function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason, requestContext }) {
   return {
     meta: {
       period: 'live-weekly',
@@ -34,6 +126,8 @@ function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason }) {
       weekStart: new Date(liveWindow.fromMs).toISOString(),
       now: new Date(liveWindow.toMs).toISOString(),
       generatedAt: new Date(nowMs).toISOString(),
+      requestId: requestContext.requestId,
+      requestTimestamp: requestContext.requestTimestamp,
       source: 'sessions.usage+config-reprice',
       missingPricingModels: [],
       unavailable: reason,
@@ -65,7 +159,18 @@ router.get('/api/model-usage', (req, res) => {
   for (const agentId of agents) {
     const sessDir = path.join(agentsDir, agentId, 'sessions');
     const files = safeReaddir(sessDir).filter(f => f.endsWith('.jsonl'))
-      .map(f => { try { return { name: f, mtime: fs.statSync(path.join(sessDir, f)).mtimeMs }; } catch { return null; } })
+      .map(f => {
+        try {
+          return { name: f, mtime: fs.statSync(path.join(sessDir, f)).mtimeMs };
+        } catch (err) {
+          console.warn('[model-usage] session file stat failed', {
+            agentId,
+            file: f,
+            message: err?.message || 'Unknown stat error',
+          });
+          return null;
+        }
+      })
       .filter(Boolean)
       .sort((a, b) => b.mtime - a.mtime)
       .slice(0, 10)
@@ -103,7 +208,14 @@ router.get('/api/model-usage', (req, res) => {
             usage[model].agents[agentId].outputTokens += out;
             usage[model].agents[agentId].totalTokens += tot;
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[model-usage] session jsonl parse failed', {
+            agentId,
+            file,
+            linePreview: makeLinePreview(line),
+            message: err?.message || 'Unknown parse error',
+          });
+        }
       }
     }
   }
@@ -133,6 +245,7 @@ router.get('/api/model-usage/history', (req, res) => {
 router.get('/api/model-usage/live-weekly', async (req, res) => {
   const tz = process.env.HUD_USAGE_TZ || 'America/Chicago';
   const nowMs = Date.now();
+  const requestContext = createRequestContext(req, nowMs);
   const ttlMs = getUsageCacheTtlMs();
   const refresh = shouldRefreshLiveWeekly(req);
   const pricingFingerprint = getPricingConfigFingerprint();
@@ -144,7 +257,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
     nowMs < liveWeeklyCache.expiresAtMs &&
     liveWeeklyCache.cacheKey === cacheKey
   ) {
-    return res.json(liveWeeklyCache.payload);
+    return res.json(addRequestContextToMeta(liveWeeklyCache.payload, requestContext));
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
@@ -156,66 +269,17 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       timezone: tz,
     });
 
-    const usageRows = collectUsageRows(payload);
-
-    const normalizedRows = [];
-    for (const row of usageRows) {
-      const modelRow = normalizeModelRow(row);
-      // The live-weekly contract intentionally omits rows without usage.
-      if (modelRow.totalTokens <= 0) continue;
-      normalizedRows.push(modelRow);
-    }
-
-    const pricingCatalog = loadPricingCatalog();
-    const { rows: repricedRows, missingPricingModels } = repriceModelUsageRows(normalizedRows, {
-      catalog: pricingCatalog,
+    const responsePayload = buildLiveWeeklyResponsePayload({
+      usageRows: collectUsageRows(payload),
+      tz,
+      liveWindow,
+      nowMs,
+      source: 'sessions.usage+config-reprice',
     });
 
-    const models = [];
-    const totals = {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      totalTokens: 0,
-      totalCost: 0,
-    };
+    maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload: responsePayload });
 
-    for (const modelRow of repricedRows) {
-      models.push(modelRow);
-      totals.inputTokens += modelRow.inputTokens;
-      totals.outputTokens += modelRow.outputTokens;
-      totals.cacheReadTokens += modelRow.cacheReadTokens;
-      totals.cacheWriteTokens += modelRow.cacheWriteTokens;
-      totals.totalTokens += modelRow.totalTokens;
-      totals.totalCost += modelRow.totalCost;
-    }
-
-    const responsePayload = {
-      meta: {
-        period: 'live-weekly',
-        tz,
-        weekStart: new Date(liveWindow.fromMs).toISOString(),
-        now: new Date(liveWindow.toMs).toISOString(),
-        generatedAt: new Date(nowMs).toISOString(),
-        source: 'sessions.usage+config-reprice',
-        missingPricingModels,
-      },
-      models,
-      totals,
-    };
-
-    if (ttlMs > 0) {
-      liveWeeklyCache = {
-        cacheKey,
-        expiresAtMs: nowMs + ttlMs,
-        payload: responsePayload,
-      };
-    } else {
-      liveWeeklyCache = null;
-    }
-
-    res.json(responsePayload);
+    res.json(addRequestContextToMeta(responsePayload, requestContext));
   } catch (err) {
     const unavailableReasonByCode = {
       GATEWAY_TOKEN_MISSING: 'gateway-token-missing',
@@ -224,14 +288,48 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
     };
     const unavailableReason = unavailableReasonByCode[err?.code];
     if (unavailableReason) {
-      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: unavailableReason }));
+      console.warn('[model-usage/live-weekly] gateway unavailable', {
+        reason: unavailableReason,
+        code: err?.code || null,
+        gatewayCode: err?.gatewayCode || null,
+        gatewayMethod: err?.gatewayMethod || null,
+        message: err?.message || 'Unknown error',
+        requestId: requestContext.requestId,
+      });
+      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: unavailableReason, requestContext }));
     }
 
     if (err?.message === 'Gateway token not configured') {
-      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: 'gateway-token-missing' }));
+      console.warn('[model-usage/live-weekly] gateway unavailable', {
+        reason: 'gateway-token-missing',
+        code: err?.code || null,
+        gatewayCode: err?.gatewayCode || null,
+        gatewayMethod: err?.gatewayMethod || null,
+        message: err?.message || 'Unknown error',
+        requestId: requestContext.requestId,
+      });
+      return res.json(buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason: 'gateway-token-missing', requestContext }));
     }
 
-    res.status(502).json({ error: `Failed to load live weekly usage: ${err.message}` });
+    const status = Number(err?.status || err?.statusCode) || 502;
+    const code = err?.code || 'MODEL_USAGE_LIVE_WEEKLY_ERROR';
+    const message = err?.message || 'Unknown error';
+    const timestamp = new Date().toISOString();
+    console.error('[model-usage/live-weekly] failed', {
+      status,
+      code,
+      message,
+      requestId: requestContext.requestId,
+    });
+
+    res.status(status).json({
+      error: 'Failed to load live weekly usage',
+      message,
+      code,
+      status,
+      requestId: requestContext.requestId,
+      timestamp,
+    });
   }
 });
 

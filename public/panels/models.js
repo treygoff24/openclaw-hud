@@ -59,9 +59,59 @@ HUD.models = (function() {
     };
   }
 
-  function render(usage) {
+  function getErrorDebugInfo(usage, responseMeta) {
+    if (!usage || typeof usage !== 'object' || usage.error == null) return null;
+
+    const errorValue = usage.error;
+    const errorObj = (errorValue && typeof errorValue === 'object') ? errorValue : {};
+    const fallbackMeta = responseMeta && typeof responseMeta === 'object' ? responseMeta : {};
+    const fallbackUsageMeta = usage.meta && typeof usage.meta === 'object' ? usage.meta : {};
+    const status = usage.status || errorObj.status || fallbackMeta.status || '';
+    const code = usage.code || errorObj.code || '';
+    const message = usage.message || errorObj.message || (typeof errorValue === 'string' ? errorValue : '') || 'Unknown error';
+    const requestId = usage.requestId || errorObj.requestId || fallbackMeta.requestId || fallbackUsageMeta.requestId || '';
+    const timestamp = usage.timestamp || errorObj.timestamp || fallbackMeta.timestamp || fallbackUsageMeta.requestTimestamp || '';
+
+    return {
+      status,
+      code,
+      message,
+      requestId,
+      timestamp,
+    };
+  }
+
+  function renderErrorPanel(mount, debug) {
+    const infoRows = [
+      { label: 'Status', value: debug.status || 'n/a' },
+      { label: 'Code', value: debug.code || 'n/a' },
+      { label: 'Message', value: debug.message || 'n/a' },
+      { label: 'Request ID', value: debug.requestId || 'n/a' },
+      { label: 'Timestamp', value: debug.timestamp || 'n/a' },
+    ];
+
+    const body = infoRows.map(function(row) {
+      return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:6px;">
+        <div style="min-width:88px;color:var(--text-dim);font-family:var(--font-mono);font-size:12px;">${escape(row.label)}</div>
+        <div style="color:var(--text);font-family:var(--font-mono);font-size:12px;word-break:break-word;">${escape(row.value)}</div>
+      </div>`;
+    }).join('');
+
+    mount.innerHTML = `<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel-bg-alt, rgba(255,255,255,0.02));">
+      <div style="color:var(--text);font-family:var(--font-mono);font-size:13px;margin-bottom:8px;">Model usage diagnostics</div>
+      ${body}
+    </div>`;
+  }
+
+  function render(usage, responseMeta) {
     const mount = $('#model-usage');
     if (!mount) return;
+
+    const debug = getErrorDebugInfo(usage, responseMeta);
+    if (debug) {
+      renderErrorPanel(mount, debug);
+      return;
+    }
 
     const normalized = normalizeRows(usage);
     const meta = normalized.meta;

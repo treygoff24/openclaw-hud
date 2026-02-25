@@ -4,12 +4,16 @@ import request from 'supertest';
 
 const usageRpc = require('../../lib/usage-rpc');
 const pricing = require('../../lib/pricing');
+const helpers = require('../../lib/helpers');
 const { getLiveWeekWindow } = await import('../../lib/helpers.js');
 
 const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
 const originalLoadPricingCatalog = pricing.loadPricingCatalog;
 const originalRepriceModelUsageRows = pricing.repriceModelUsageRows;
 const originalGetPricingConfigFingerprint = pricing.getPricingConfigFingerprint;
+const originalSafeReaddir = helpers.safeReaddir;
+const originalSafeRead = helpers.safeRead;
+const originalOpenclawHome = helpers.OPENCLAW_HOME;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
@@ -45,6 +49,9 @@ describe('GET /api/model-usage/live-weekly', () => {
       }),
     );
     pricing.getPricingConfigFingerprint = vi.fn(() => 'pricing-v1');
+    helpers.OPENCLAW_HOME = '/mock/home';
+    helpers.safeReaddir = vi.fn(() => []);
+    helpers.safeRead = vi.fn(() => null);
   });
 
   afterEach(() => {
@@ -52,6 +59,9 @@ describe('GET /api/model-usage/live-weekly', () => {
     pricing.loadPricingCatalog = originalLoadPricingCatalog;
     pricing.repriceModelUsageRows = originalRepriceModelUsageRows;
     pricing.getPricingConfigFingerprint = originalGetPricingConfigFingerprint;
+    helpers.safeReaddir = originalSafeReaddir;
+    helpers.safeRead = originalSafeRead;
+    helpers.OPENCLAW_HOME = originalOpenclawHome;
     process.env.HUD_USAGE_TZ = originalUsageTz;
     process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
     vi.restoreAllMocks();
@@ -398,6 +408,36 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(second.status).toBe(200);
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+  });
+
+  it('surfaces gateway error when sessions.usage is unavailable (no fallback payload)', async () => {
+    const err = new Error('Gateway error: Tool not available: sessions.usage');
+    err.code = 'GATEWAY_SESSIONS_USAGE_UNAVAILABLE';
+    err.status = 404;
+    err.gatewayCode = 'TOOL_NOT_AVAILABLE';
+    err.gatewayMethod = 'sessions.usage';
+    err.requestId = 'gw-req-123';
+    usageRpc.requestSessionsUsage.mockRejectedValue(err);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Failed to load live weekly usage');
+    expect(res.body.message).toBe('Gateway error: Tool not available: sessions.usage');
+    expect(res.body.code).toBe('GATEWAY_SESSIONS_USAGE_UNAVAILABLE');
+    expect(res.body.status).toBe(404);
+    expect(res.body.requestId).toEqual(expect.any(String));
+    expect(helpers.safeReaddir).not.toHaveBeenCalled();
+    expect(helpers.safeRead).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[model-usage/live-weekly] failed',
+      expect.objectContaining({
+        status: 404,
+        code: 'GATEWAY_SESSIONS_USAGE_UNAVAILABLE',
+        requestId: expect.any(String),
+      }),
+    );
   });
 
   it('returns empty live-weekly payload when gateway token is not configured', async () => {
