@@ -209,7 +209,9 @@
       }
     });
     this.renderedElements.clear();
-    this.contentContainer.innerHTML = '';
+    if (this.contentContainer) {
+      this.contentContainer.innerHTML = '';
+    }
   };
 
   VirtualScroller.prototype.handleScroll = function() {
@@ -273,7 +275,7 @@
       this.resizeObserver = null;
     }
     
-    if (this.container) {
+    if (this.container && this.scrollHandler) {
       this.container.removeEventListener('scroll', this.scrollHandler);
     }
     
@@ -281,6 +283,13 @@
     this.recyclePool = [];
     this.items = [];
     this.totalItems = 0;
+    this.totalHeight = 0;
+    this.visibleRange = { start: 0, end: 0 };
+    this.container = null;
+    this.spacerTop = null;
+    this.spacerBottom = null;
+    this.contentContainer = null;
+    this.scrollHandler = null;
   };
 
   // Memory leak detection helper

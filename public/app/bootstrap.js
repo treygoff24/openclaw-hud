@@ -22,7 +22,6 @@
       document: doc,
       querySelector: $,
       HUD: HUD,
-      openChatPane: window.openChatPane,
     });
     uiController.bindDelegationHandlers();
 

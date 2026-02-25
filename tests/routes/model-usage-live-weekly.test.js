@@ -399,4 +399,22 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
+
+  it('returns empty live-weekly payload when gateway token is not configured', async () => {
+    usageRpc.requestSessionsUsage.mockRejectedValue(new Error('Gateway token not configured'));
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.unavailable).toBe('gateway-token-missing');
+    expect(res.body.models).toEqual([]);
+    expect(res.body.totals).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    });
+  });
 });

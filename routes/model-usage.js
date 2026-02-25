@@ -193,6 +193,30 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
 
     res.json(responsePayload);
   } catch (err) {
+    if (err?.message === 'Gateway token not configured') {
+      return res.json({
+        meta: {
+          period: 'live-weekly',
+          tz,
+          weekStart: new Date(liveWindow.fromMs).toISOString(),
+          now: new Date(liveWindow.toMs).toISOString(),
+          generatedAt: new Date(nowMs).toISOString(),
+          source: 'sessions.usage+config-reprice',
+          missingPricingModels: [],
+          unavailable: 'gateway-token-missing',
+        },
+        models: [],
+        totals: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 0,
+          totalCost: 0,
+        },
+      });
+    }
+
     res.status(502).json({ error: `Failed to load live weekly usage: ${err.message}` });
   }
 });

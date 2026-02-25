@@ -201,6 +201,7 @@ describe('clock and uptime', () => {
 
 describe('event delegation', () => {
   beforeEach(() => {
+    window.openChatPane = openChatPaneMock;
     openChatPaneMock.mockClear();
   });
 

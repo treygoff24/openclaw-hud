@@ -194,6 +194,14 @@ describe('VirtualScroller', () => {
   });
 
   describe('cleanup', () => {
+    it('is safe to destroy before initialize', () => {
+      const scroller = window.VirtualScroller;
+
+      expect(() => scroller.destroy()).not.toThrow();
+      expect(scroller.totalItems).toBe(0);
+      expect(scroller.items).toHaveLength(0);
+    });
+
     it('disconnects observer and clears state on destroy', () => {
       const scroller = window.VirtualScroller;
       scroller.initialize(container);

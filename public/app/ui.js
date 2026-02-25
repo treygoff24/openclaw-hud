@@ -8,8 +8,23 @@
     const doc = opts.document || document;
     const $ = opts.querySelector || function(selector) { return doc.querySelector(selector); };
     const HUD = opts.HUD || window.HUD;
-    const openChatPane = opts.openChatPane || window.openChatPane;
     let retryHandler = function() {};
+
+    function resolveOpenChatPane() {
+      if (typeof opts.openChatPane === 'function') return opts.openChatPane;
+      if (typeof window.openChatPane === 'function') return window.openChatPane;
+      return null;
+    }
+
+    function tryOpenChatPane(agentId, sessionId, label, sessionKey) {
+      const openChatPane = resolveOpenChatPane();
+      if (typeof openChatPane !== 'function') {
+        console.warn('openChatPane is unavailable; chat pane scripts may not be loaded yet.');
+        return;
+      }
+
+      openChatPane(agentId, sessionId, label, sessionKey);
+    }
 
     function showToast(message, isError) {
       const toast = $('#toast');
@@ -61,7 +76,7 @@
 
       const row = event.target.closest('[data-agent][data-session-key]');
       if (row) {
-        openChatPane(row.dataset.agent, row.dataset.session || '', row.dataset.label || '', row.dataset.sessionKey);
+        tryOpenChatPane(row.dataset.agent, row.dataset.session || '', row.dataset.label || '', row.dataset.sessionKey);
       }
 
       const card = event.target.closest('[data-agent-id]');
@@ -84,7 +99,7 @@
         const session = treeNode.dataset.session;
         const sessionKey = treeNode.dataset.sessionKey;
         if (agent && sessionKey) {
-          openChatPane(agent, session || '', treeNode.dataset.label || '', sessionKey);
+          tryOpenChatPane(agent, session || '', treeNode.dataset.label || '', sessionKey);
         }
       }
     }
