@@ -23,6 +23,8 @@ const {
   stripSecrets,
   getSessionStatus,
   getLiveWeekWindow,
+  timezoneWallToUtcMs,
+  getTimezoneParts,
   OPENCLAW_HOME
 } = await import('../../lib/helpers.js');
 
@@ -187,6 +189,26 @@ describe('getSessionStatus', () => {
 describe('getLiveWeekWindow', () => {
   const tz = 'America/Chicago';
 
+  it('uses numeric fractionalSecondDigits for Intl formatter options', () => {
+    const realDateTimeFormat = Intl.DateTimeFormat;
+    const calls = [];
+
+    Intl.DateTimeFormat = function DateTimeFormatSpy(locale, options) {
+      calls.push({ locale, options });
+      return new realDateTimeFormat(locale, options);
+    };
+
+    try {
+      getLiveWeekWindow(tz, Date.parse('2026-02-22T21:45:00-06:00'));
+    } finally {
+      Intl.DateTimeFormat = realDateTimeFormat;
+    }
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0].options.fractionalSecondDigits).toBe(3);
+    expect(typeof calls[0].options.fractionalSecondDigits).toBe('number');
+  });
+
   it('returns current Sunday boundary when now is Sunday', () => {
     const now = Date.parse('2026-02-22T21:45:00-06:00'); // 2026-02-22 21:45Z = Sunday 15:45-06:00
     const window = getLiveWeekWindow(tz, now);
@@ -207,6 +229,40 @@ describe('getLiveWeekWindow', () => {
     expect(window.fromMs).toBe(Date.parse('2026-03-08T00:00:00-06:00'));
     expect(toIso(window.fromMs)).toBe('2026-03-08T06:00:00.000Z');
     expect(window.toMs).toBe(now);
+  });
+});
+
+// --------------- timezoneWallToUtcMs ---------------
+describe('timezoneWallToUtcMs', () => {
+  it('resolves ambiguous fall-back wall time to the first matching UTC instant', () => {
+    const tz = 'America/Chicago';
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hour12: false,
+    });
+
+    const wallTarget = {
+      year: 2026,
+      month: 11,
+      day: 1,
+      hour: 1,
+      minute: 30,
+      second: 0,
+      millisecond: 0,
+    };
+
+    const utcMs = timezoneWallToUtcMs(formatter, tz, wallTarget);
+
+    expect(utcMs).toBe(Date.parse('2026-11-01T06:30:00.000Z'));
+    expect(getTimezoneParts(formatter, utcMs)).toMatchObject(wallTarget);
   });
 });
 
