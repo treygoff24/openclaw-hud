@@ -1,4 +1,21 @@
 .DS_Store
 node_modules/
+
+# Build and test artifacts
 coverage/
-coverage/
+playwright-report/
+test-results/
+dist/
+
+# Local runtime/config
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and captures
+*.log
+*.har
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
