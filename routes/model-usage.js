@@ -11,6 +11,9 @@ const { normalizeModelRow, collectUsageRows } = require('../lib/usage-normalize'
 const router = Router();
 
 let liveWeeklyCache = null;
+const DEFAULT_USAGE_SESSIONS_LIMIT = 500;
+const MIN_USAGE_SESSIONS_LIMIT = 1;
+const MAX_USAGE_SESSIONS_LIMIT = 2000;
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
@@ -18,13 +21,21 @@ function getUsageCacheTtlMs() {
   return ttlMs;
 }
 
+function getUsageSessionsLimit() {
+  const rawLimit = Number.parseInt(process.env.HUD_USAGE_SESSIONS_LIMIT, 10);
+  const parsedLimit = Number.isFinite(rawLimit) ? rawLimit : DEFAULT_USAGE_SESSIONS_LIMIT;
+  if (parsedLimit < MIN_USAGE_SESSIONS_LIMIT) return MIN_USAGE_SESSIONS_LIMIT;
+  if (parsedLimit > MAX_USAGE_SESSIONS_LIMIT) return MAX_USAGE_SESSIONS_LIMIT;
+  return parsedLimit;
+}
+
 function shouldRefreshLiveWeekly(req) {
   const refresh = req?.query?.refresh;
   return refresh === '1' || refresh === 1 || refresh === true;
 }
 
-function getLiveWeeklyCacheKey({ tz, pricingFingerprint }) {
-  return `${tz}|${pricingFingerprint}`;
+function getLiveWeeklyCacheKey({ tz, pricingFingerprint, sessionsLimit }) {
+  return `${tz}|${pricingFingerprint}|${sessionsLimit}`;
 }
 
 function createRequestContext(req, nowMs) {
@@ -55,7 +66,7 @@ function makeLinePreview(line) {
   return `${normalized.slice(0, 117)}...`;
 }
 
-function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, source }) {
+function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, source, diagnostics }) {
   const normalizedRows = [];
   for (const row of Array.isArray(usageRows) ? usageRows : []) {
     const modelRow = normalizeModelRow(row);
@@ -97,6 +108,7 @@ function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, sour
     generatedAt: new Date(nowMs).toISOString(),
     source,
     missingPricingModels,
+    sessionsUsage: Object.assign({}, diagnostics),
   };
 
   return {
@@ -247,9 +259,10 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
   const nowMs = Date.now();
   const requestContext = createRequestContext(req, nowMs);
   const ttlMs = getUsageCacheTtlMs();
+  const sessionsLimit = getUsageSessionsLimit();
   const refresh = shouldRefreshLiveWeekly(req);
   const pricingFingerprint = getPricingConfigFingerprint();
-  const cacheKey = getLiveWeeklyCacheKey({ tz, pricingFingerprint });
+  const cacheKey = getLiveWeeklyCacheKey({ tz, pricingFingerprint, sessionsLimit });
 
   if (
     !refresh &&
@@ -267,7 +280,17 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       from: liveWindow.fromMs,
       to: liveWindow.toMs,
       timezone: tz,
+      limit: sessionsLimit,
     });
+    const sessionsReturned = Array.isArray(payload?.result?.sessions) ? payload.result.sessions.length : null;
+    const maybeTruncated = Number.isFinite(sessionsReturned) && sessionsReturned >= sessionsLimit;
+    if (maybeTruncated) {
+      console.warn('[model-usage/live-weekly] sessions.usage result may be truncated by limit', {
+        sessionsReturned,
+        sessionsLimit,
+        requestId: requestContext.requestId,
+      });
+    }
 
     const responsePayload = buildLiveWeeklyResponsePayload({
       usageRows: collectUsageRows(payload),
@@ -275,6 +298,11 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       liveWindow,
       nowMs,
       source: 'sessions.usage+config-reprice',
+      diagnostics: {
+        sessionsLimit,
+        sessionsReturned,
+        sessionsMayBeTruncated: maybeTruncated,
+      },
     });
 
     maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload: responsePayload });

@@ -17,6 +17,7 @@ const originalOpenclawHome = helpers.OPENCLAW_HOME;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
+const originalUsageSessionsLimit = process.env.HUD_USAGE_SESSIONS_LIMIT;
 
 function createApp() {
   delete require.cache[require.resolve('../../routes/model-usage')];
@@ -30,6 +31,7 @@ describe('GET /api/model-usage/live-weekly', () => {
   beforeEach(() => {
     process.env.HUD_USAGE_TZ = TEST_TZ;
     process.env.HUD_USAGE_CACHE_TTL_MS = '15000';
+    delete process.env.HUD_USAGE_SESSIONS_LIMIT;
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
     pricing.loadPricingCatalog = vi.fn(() =>
@@ -64,6 +66,8 @@ describe('GET /api/model-usage/live-weekly', () => {
     helpers.OPENCLAW_HOME = originalOpenclawHome;
     process.env.HUD_USAGE_TZ = originalUsageTz;
     process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
+    if (originalUsageSessionsLimit === undefined) delete process.env.HUD_USAGE_SESSIONS_LIMIT;
+    else process.env.HUD_USAGE_SESSIONS_LIMIT = originalUsageSessionsLimit;
     vi.restoreAllMocks();
   });
 
@@ -112,6 +116,11 @@ describe('GET /api/model-usage/live-weekly', () => {
       tz: TEST_TZ,
       source: 'sessions.usage+config-reprice',
       missingPricingModels: [],
+      sessionsUsage: {
+        sessionsLimit: 500,
+        sessionsReturned: null,
+        sessionsMayBeTruncated: false,
+      },
     });
 
     const metaKeys = Object.keys(res.body.meta);
@@ -294,7 +303,66 @@ describe('GET /api/model-usage/live-weekly', () => {
       from: expected.fromMs,
       to: expected.toMs,
       timezone: TEST_TZ,
+      limit: 500,
     });
+  });
+
+  it('uses configured sessions limit and marks potential truncation diagnostics', async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = '3';
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        sessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: {
+              input: 2,
+              output: 1,
+              totalTokens: 3,
+            },
+          },
+        ],
+      },
+    });
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
+
+    expect(res.status).toBe(200);
+    expect(args.limit).toBe(3);
+    expect(res.body.meta.sessionsUsage).toEqual({
+      sessionsLimit: 3,
+      sessionsReturned: 3,
+      sessionsMayBeTruncated: true,
+    });
+  });
+
+  it('clamps configured sessions limit to the safe max', async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = '99999';
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: { rows: [] },
+    });
+
+    await request(createApp()).get('/api/model-usage/live-weekly');
+
+    const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
+    expect(args.limit).toBe(2000);
+  });
+
+  it('clamps configured sessions limit to the safe min', async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = '0';
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: { rows: [] },
+    });
+
+    await request(createApp()).get('/api/model-usage/live-weekly');
+
+    const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
+    expect(args.limit).toBe(1);
   });
 
   it('serves cached live-weekly response within TTL and keeps generatedAt stable', async () => {
