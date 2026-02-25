@@ -21,32 +21,37 @@ function shouldRefreshLiveWeekly(req) {
   return refresh === '1' || refresh === 1 || refresh === true;
 }
 
+function isObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function normalizeModelRow(row) {
-  const totals = row?.totals && typeof row.totals === 'object' ? row.totals : {};
+  const sourceRow = isObject(row) ? row : {};
+  const totals = isObject(sourceRow.totals) ? sourceRow.totals : {};
 
   const provider =
-    typeof row?.provider === 'string' && row.provider.trim()
-      ? row.provider
-      : typeof row?.model === 'string' && row.model.includes('/')
-        ? row.model.split('/')[0]
+    typeof sourceRow.provider === 'string' && sourceRow.provider.trim()
+      ? sourceRow.provider
+      : typeof sourceRow.model === 'string' && sourceRow.model.includes('/')
+        ? sourceRow.model.split('/')[0]
         : 'unknown';
   const model =
-    typeof row?.model === 'string' && row.model.trim()
-      ? row.model
+    typeof sourceRow.model === 'string' && sourceRow.model.trim()
+      ? sourceRow.model
       : 'unknown';
 
-  const inputTokens = toFiniteNumber(totals.inputTokens ?? totals.input ?? row?.inputTokens ?? row?.input);
-  const outputTokens = toFiniteNumber(totals.outputTokens ?? totals.output ?? row?.outputTokens ?? row?.output);
+  const inputTokens = toFiniteNumber(totals.inputTokens ?? totals.input ?? sourceRow.inputTokens ?? sourceRow.input);
+  const outputTokens = toFiniteNumber(totals.outputTokens ?? totals.output ?? sourceRow.outputTokens ?? sourceRow.output);
   const cacheReadTokens = toFiniteNumber(
-    totals.cacheReadTokens ?? totals.cacheRead ?? row?.cacheReadTokens ?? row?.cacheRead,
+    totals.cacheReadTokens ?? totals.cacheRead ?? sourceRow.cacheReadTokens ?? sourceRow.cacheRead,
   );
   const cacheWriteTokens = toFiniteNumber(
-    totals.cacheWriteTokens ?? totals.cacheWrite ?? row?.cacheWriteTokens ?? row?.cacheWrite,
+    totals.cacheWriteTokens ?? totals.cacheWrite ?? sourceRow.cacheWriteTokens ?? sourceRow.cacheWrite,
   );
   const totalTokens = toFiniteNumber(
     totals.totalTokens ??
-      row?.totalTokens ??
-      row?.total ??
+      sourceRow.totalTokens ??
+      sourceRow.total ??
       inputTokens +
       outputTokens +
       cacheReadTokens +
@@ -54,10 +59,10 @@ function normalizeModelRow(row) {
   );
   const totalCost = toFiniteNumber(
     totals.totalCost ??
-      totals.cost ??
       totals.cost?.total ??
-      row?.totalCost ??
-      row?.cost?.total,
+      totals.cost ??
+      sourceRow.totalCost ??
+      sourceRow.cost?.total,
   );
 
   return {
@@ -73,9 +78,9 @@ function normalizeModelRow(row) {
 }
 
 function collectUsageRows(payload) {
-  const result = payload?.result;
-  if (Array.isArray(result?.rows)) return result.rows;
-  if (Array.isArray(result?.aggregates?.byModel)) return result.aggregates.byModel;
+  const result = isObject(payload?.result) ? payload.result : {};
+  if (Array.isArray(result.rows)) return result.rows;
+  if (Array.isArray(result.aggregates?.byModel)) return result.aggregates.byModel;
   return [];
 }
 
@@ -164,6 +169,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
     const normalizedRows = [];
     for (const row of usageRows) {
       const modelRow = normalizeModelRow(row);
+      // The live-weekly contract intentionally omits rows without usage.
       if (modelRow.totalTokens <= 0) continue;
       normalizedRows.push(modelRow);
     }

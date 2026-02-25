@@ -8,6 +8,7 @@ const { getLiveWeekWindow } = await import('../../lib/helpers.js');
 
 const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
 const originalLoadPricingCatalog = pricing.loadPricingCatalog;
+const originalRepriceModelUsageRows = pricing.repriceModelUsageRows;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
@@ -47,6 +48,7 @@ describe('GET /api/model-usage/live-weekly', () => {
   afterEach(() => {
     usageRpc.requestSessionsUsage = originalRequestSessionsUsage;
     pricing.loadPricingCatalog = originalLoadPricingCatalog;
+    pricing.repriceModelUsageRows = originalRepriceModelUsageRows;
     process.env.HUD_USAGE_TZ = originalUsageTz;
     process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
     vi.restoreAllMocks();
@@ -143,6 +145,95 @@ describe('GET /api/model-usage/live-weekly', () => {
       cacheWriteTokens: 2,
       totalTokens: 57,
       totalCost: 0.000727,
+    });
+  });
+
+  it('uses nested totals.cost.total when totals.cost is an object', async () => {
+    pricing.repriceModelUsageRows = vi.fn((rows) => ({ rows, missingPricingModels: [] }));
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: {
+              input: 3,
+              output: 2,
+              totalTokens: 5,
+              cost: { total: 4.25 },
+            },
+          },
+        ],
+      },
+    });
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toHaveLength(1);
+    expect(res.body.models[0].totalCost).toBe(4.25);
+    expect(res.body.totals.totalCost).toBe(4.25);
+  });
+
+  it('is null-safe when sessions.usage returns a null result payload', async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: null,
+    });
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toEqual([]);
+    expect(res.body.totals).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    });
+  });
+
+  it('ignores malformed rows and drops zero-token rows', async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          null,
+          'bad-row',
+          123,
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: {
+              input: 1,
+              output: 2,
+              totalTokens: 3,
+            },
+          },
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: {
+              input: 0,
+              output: 0,
+              totalTokens: 0,
+            },
+          },
+        ],
+      },
+    });
+
+    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toHaveLength(1);
+    expect(res.body.models[0]).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-5',
+      totalTokens: 3,
     });
   });
 
