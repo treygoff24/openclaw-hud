@@ -20,7 +20,7 @@
         { name: 'sessions', url: '/api/sessions' },
         { name: 'cron', url: '/api/cron' },
         { name: 'config', url: '/api/config' },
-        { name: 'model-usage', url: '/api/model-usage' },
+        { name: 'model-usage', url: '/api/model-usage/live-weekly' },
         { name: 'activity', url: '/api/activity' },
         { name: 'session-tree', url: '/api/session-tree' },
         { name: 'models', url: '/api/models' },

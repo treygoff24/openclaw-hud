@@ -11,6 +11,10 @@ afterAll(() => {
   fs.rmSync(TMPDIR, { recursive: true, force: true });
 });
 
+function toIso(ms) {
+  return new Date(ms).toISOString();
+}
+
 const {
   safeRead,
   safeJSON,
@@ -18,7 +22,9 @@ const {
   safeReaddir,
   stripSecrets,
   getSessionStatus,
-  getGatewayConfig,
+  getLiveWeekWindow,
+  timezoneWallToUtcMs,
+  getTimezoneParts,
   OPENCLAW_HOME
 } = await import('../../lib/helpers.js');
 
@@ -179,15 +185,168 @@ describe('getSessionStatus', () => {
   });
 });
 
+// --------------- getLiveWeekWindow ---------------
+describe('getLiveWeekWindow', () => {
+  const tz = 'America/Chicago';
+
+  it('uses numeric fractionalSecondDigits for Intl formatter options', () => {
+    const realDateTimeFormat = Intl.DateTimeFormat;
+    const calls = [];
+
+    Intl.DateTimeFormat = function DateTimeFormatSpy(locale, options) {
+      calls.push({ locale, options });
+      return new realDateTimeFormat(locale, options);
+    };
+
+    try {
+      getLiveWeekWindow(tz, Date.parse('2026-02-22T21:45:00-06:00'));
+    } finally {
+      Intl.DateTimeFormat = realDateTimeFormat;
+    }
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0].options.fractionalSecondDigits).toBe(3);
+    expect(typeof calls[0].options.fractionalSecondDigits).toBe('number');
+  });
+
+  it('returns current Sunday boundary when now is Sunday', () => {
+    const now = Date.parse('2026-02-22T21:45:00-06:00'); // 2026-02-22 21:45Z = Sunday 15:45-06:00
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-02-22T00:00:00-06:00'));
+    expect(window.toMs).toBe(now);
+  });
+
+  it('returns previous Sunday for Saturday edge', () => {
+    const now = Date.parse('2026-02-21T23:15:00-06:00'); // Saturday evening
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-02-15T00:00:00-06:00'));
+    expect(window.toMs).toBe(now);
+  });
+
+  it('handles DST transition week calculation sanely', () => {
+    const now = Date.parse('2026-03-09T12:00:00-05:00'); // after DST begins in America/Chicago
+    const window = getLiveWeekWindow(tz, now);
+    expect(window.fromMs).toBe(Date.parse('2026-03-08T00:00:00-06:00'));
+    expect(toIso(window.fromMs)).toBe('2026-03-08T06:00:00.000Z');
+    expect(window.toMs).toBe(now);
+  });
+});
+
+// --------------- timezoneWallToUtcMs ---------------
+describe('timezoneWallToUtcMs', () => {
+  it('resolves ambiguous fall-back wall time to the first matching UTC instant', () => {
+    const tz = 'America/Chicago';
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hour12: false,
+    });
+
+    const wallTarget = {
+      year: 2026,
+      month: 11,
+      day: 1,
+      hour: 1,
+      minute: 30,
+      second: 0,
+      millisecond: 0,
+    };
+
+    const utcMs = timezoneWallToUtcMs(formatter, tz, wallTarget);
+
+    expect(utcMs).toBe(Date.parse('2026-11-01T06:30:00.000Z'));
+    expect(getTimezoneParts(formatter, utcMs)).toMatchObject(wallTarget);
+  });
+});
+
 // --------------- getGatewayConfig ---------------
 describe('getGatewayConfig', () => {
-  it('returns port and token from config', () => {
-    // getGatewayConfig reads OPENCLAW_HOME/openclaw.json (primary)
-    // or OPENCLAW_HOME/config/source-of-truth.json5 (legacy fallback)
-    const cfg = getGatewayConfig();
-    expect(cfg).toHaveProperty('port');
-    expect(typeof cfg.port).toBe('number');
-    expect(cfg).toHaveProperty('token');
+  const originalOpenclawHome = process.env.OPENCLAW_HOME;
+
+  async function loadGatewayConfigForHome(openclawHome) {
+    process.env.OPENCLAW_HOME = openclawHome;
+    vi.resetModules();
+    const helpers = await import('../../lib/helpers.js');
+    return helpers.getGatewayConfig();
+  }
+
+  beforeEach(() => {
+    delete process.env.OPENCLAW_HOME;
+  });
+
+  afterAll(() => {
+    if (originalOpenclawHome === undefined) delete process.env.OPENCLAW_HOME;
+    else process.env.OPENCLAW_HOME = originalOpenclawHome;
+    vi.resetModules();
+  });
+
+  it('returns defaults when no config files exist', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-none');
+    fs.mkdirSync(openclawHome, { recursive: true });
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 18789, token: null });
+  });
+
+  it('reads from openclaw.json when present', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-primary');
+    fs.mkdirSync(openclawHome, { recursive: true });
+    fs.writeFileSync(path.join(openclawHome, 'openclaw.json'), JSON.stringify({
+      gateway: {
+        port: 19999,
+        auth: { token: 'primary-token' }
+      }
+    }));
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 19999, token: 'primary-token' });
+  });
+
+  it('falls back to legacy source-of-truth.json5 when openclaw.json is missing', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-legacy');
+    const legacyDir = path.join(openclawHome, 'config');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'source-of-truth.json5'), `{
+      gateway: {
+        port: 18888,
+        auth: { token: 'legacy-token' },
+      },
+    }`);
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 18888, token: 'legacy-token' });
+  });
+
+  it('prefers openclaw.json over legacy source-of-truth.json5', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-both');
+    const legacyDir = path.join(openclawHome, 'config');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(openclawHome, 'openclaw.json'), JSON.stringify({
+      gateway: {
+        port: 17777,
+        auth: { token: 'primary-token' }
+      }
+    }));
+    fs.writeFileSync(path.join(legacyDir, 'source-of-truth.json5'), `{
+      gateway: {
+        port: 16666,
+        auth: { token: 'legacy-token' },
+      },
+    }`);
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 17777, token: 'primary-token' });
   });
 });
 

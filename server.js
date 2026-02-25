@@ -12,6 +12,9 @@ const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 3777;
 
+process.env.HUD_USAGE_TZ = process.env.HUD_USAGE_TZ || 'America/Chicago';
+process.env.HUD_USAGE_CACHE_TTL_MS = process.env.HUD_USAGE_CACHE_TTL_MS || '15000';
+
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
 const gatewayWS = new GatewayWS({
@@ -30,6 +33,7 @@ app.use(require('./routes/agents'));
 app.use(require('./routes/sessions'));
 app.use(require('./routes/cron'));
 app.use(require('./routes/spawn'));
+app.use(require('./routes/model-usage'));
 app.use(require('./routes/activity'));
 
 // WebSocket: push ticks every 10s
