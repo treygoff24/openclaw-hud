@@ -1,16 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
 
-const { getArchiveWeekWindow, archiveWeeklyUsage } = await import('../../scripts/weekly-usage-archive.js');
+const { getArchiveWeekWindows, archiveWeeklyUsage } = await import('../../scripts/weekly-usage-archive.js');
 
 describe('weekly usage archive script', () => {
   it('selects the just-ended previous week when run Sunday shortly after midnight', () => {
     const tz = 'America/Chicago';
     const nowMs = Date.parse('2026-02-22T00:05:00-06:00'); // Sunday 00:05 local
 
-    const window = getArchiveWeekWindow(tz, nowMs);
+    const windows = getArchiveWeekWindows(
+      { tz, nowMs },
+      {
+        readWeeklyHistory: () => [],
+      },
+    );
 
-    expect(window.fromMs).toBe(Date.parse('2026-02-15T00:00:00-06:00'));
-    expect(window.toMs).toBe(Date.parse('2026-02-22T00:00:00-06:00'));
+    expect(windows).toEqual([
+      {
+        fromMs: Date.parse('2026-02-15T00:00:00-06:00'),
+        toMs: Date.parse('2026-02-22T00:00:00-06:00'),
+      },
+    ]);
   });
 
   it('treats EEXIST archive writes as idempotent success in cron flow', async () => {

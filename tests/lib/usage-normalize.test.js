@@ -33,6 +33,20 @@ describe('usage normalize helpers', () => {
     });
   });
 
+  it('prefers totals.totalCost when both totals.totalCost and sourceRow.cost.total exist', () => {
+    const normalized = normalizeModelRow({
+      model: 'openai/gpt-5',
+      totals: {
+        totalCost: 12.34,
+      },
+      cost: {
+        total: 99.99,
+      },
+    });
+
+    expect(normalized.totalCost).toBe(12.34);
+  });
+
   it('collects rows from result.rows or aggregates.byModel with null-safe fallback', () => {
     expect(collectUsageRows({ result: { rows: [{ model: 'a' }] } })).toEqual([{ model: 'a' }]);
     expect(collectUsageRows({ result: { aggregates: { byModel: [{ model: 'b' }] } } })).toEqual([{ model: 'b' }]);

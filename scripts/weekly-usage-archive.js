@@ -11,16 +11,6 @@ const { normalizeModelRow, collectUsageRows } = require('../lib/usage-normalize'
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-function getArchiveWeekWindow(tz = 'America/Chicago', nowMs = Date.now()) {
-  const currentWeekWindow = getLiveWeekWindow(tz, nowMs);
-  const previousWeekWindow = getLiveWeekWindow(tz, currentWeekWindow.fromMs - 1);
-
-  return {
-    fromMs: previousWeekWindow.fromMs,
-    toMs: currentWeekWindow.fromMs,
-  };
-}
-
 function getArchiveWeekWindows(options = {}, deps = {}) {
   const tz = options.tz || process.env.HUD_USAGE_TZ || 'America/Chicago';
   const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
@@ -199,7 +189,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  getArchiveWeekWindow,
   getArchiveWeekWindows,
   archiveWeeklyUsage,
   buildWeeklySnapshot,
