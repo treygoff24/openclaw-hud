@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const { OPENCLAW_HOME, safeJSON, safeRead } = require('../../lib/helpers');
 const { parseCanonicalSessionKey } = require('./session-key');
 
@@ -83,6 +84,49 @@ function mapLocalHistoryEntry(entry) {
   };
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function loadSessionLogRaw(sessionsDir, sessionId) {
+  const exactPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+  if (fs.existsSync(exactPath)) {
+    const raw = safeRead(exactPath);
+    if (raw !== null && raw !== undefined) return raw;
+  }
+
+  let dirEntries = [];
+  try {
+    dirEntries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const candidatePattern = new RegExp(`^${escapeRegExp(sessionId)}(?:$|[-_]).*\\.jsonl$`);
+  let bestCandidate = null;
+  let bestMtime = -Infinity;
+
+  for (const entry of dirEntries) {
+    if (!entry.isFile() || !candidatePattern.test(entry.name)) continue;
+    const filePath = path.join(sessionsDir, entry.name);
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      continue;
+    }
+    const mtimeMs = Number(stat.mtimeMs) || 0;
+    if (!bestCandidate || mtimeMs > bestMtime) {
+      bestCandidate = filePath;
+      bestMtime = mtimeMs;
+    }
+  }
+
+  if (!bestCandidate) return null;
+  const raw = safeRead(bestCandidate);
+  return raw !== null && raw !== undefined ? raw : null;
+}
+
 function loadLocalHistory(sessionKey, requestedLimit) {
   const parsed = parseCanonicalSessionKey(sessionKey);
   if (!parsed) throw new Error('Could not parse canonical session key');
@@ -101,8 +145,8 @@ function loadLocalHistory(sessionKey, requestedLimit) {
     throw new Error('Session not found in sessions.json');
   }
 
-  const raw = safeRead(path.join(sessionsDir, `${sessionMeta.sessionId}.jsonl`));
-  if (!raw) throw new Error('Session log not found');
+  const raw = loadSessionLogRaw(sessionsDir, sessionMeta.sessionId);
+  if (raw === null) return [];
 
   const limit = normalizeHistoryLimit(requestedLimit);
 
@@ -145,6 +189,9 @@ function normalizeGatewayError(err) {
   const rawCode = (err && typeof err.code === 'string') ? err.code : '';
   if (rawCode === 'INVALID_SESSION_KEY' || rawCode === 'SESSION_NOT_FOUND' || /unknown session|session.*not found|invalid session key/i.test(message)) {
     return { code: 'UNKNOWN_SESSION_KEY', message };
+  }
+  if (rawCode === 'FORBIDDEN' || rawCode === 'UNAUTHORIZED' || /missing scope|permission|forbidden|unauthorized/i.test(message)) {
+    return { code: 'FORBIDDEN', message };
   }
   return { code: rawCode || 'UNKNOWN', message };
 }

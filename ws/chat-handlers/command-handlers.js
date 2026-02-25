@@ -18,6 +18,35 @@ function sendJson(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function formatGatewayHost(host) {
+  const normalized = String(host || '').trim();
+  if (!normalized || normalized.toLowerCase() === 'loopback') return '127.0.0.1';
+  if (normalized.includes(':') && !normalized.startsWith('[')) return `[${normalized}]`;
+  return normalized;
+}
+
+async function invokeGatewayTool(tool, args) {
+  const gwConfig = getGatewayConfig();
+  if (!gwConfig.token) throw new Error('Gateway token not configured');
+  const host = formatGatewayHost(gwConfig.host || gwConfig.bind || '127.0.0.1');
+  const res = await fetch(`http://${host}:${gwConfig.port || 18789}/tools/invoke`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${gwConfig.token}`,
+    },
+    signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({ tool, args }),
+  });
+
+  const body = await res.json();
+  if (!res.ok || body?.ok === false) {
+    const msg = body?.error?.message || body?.error || `HTTP ${res.status}`;
+    throw new Error(String(msg || 'Gateway request failed'));
+  }
+  return body?.result?.details || {};
+}
+
 const commandHandlers = {
   'chat-subscribe': async (msg, { ws }) => {
     const { sessionKey } = msg;
@@ -74,22 +103,58 @@ const commandHandlers = {
       }
     }
 
-    if (!gatewayWS || !gatewayWS.connected) {
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    const textMessage = typeof message === 'string' ? message : '';
+
+    if (gatewayWS && gatewayWS.connected) {
+      try {
+        const content = buildContentBlocks(message, attachments);
+        const result = await gatewayWS.request('chat.send', { sessionKey, content, idempotencyKey });
+        sendJson(ws, { type: 'chat-send-ack', idempotencyKey, runId: result.runId, status: result.status, ok: true });
+        return;
+      } catch (err) {
+        if (hasAttachments) {
+          sendJson(ws, { type: 'chat-send-ack', idempotencyKey, ok: false, error: normalizeGatewayError(err) });
+          return;
+        }
+      }
+    }
+
+    if (hasAttachments) {
       sendJson(ws, {
         type: 'chat-send-ack',
         idempotencyKey,
         ok: false,
-        error: { code: 'UNAVAILABLE', message: 'Gateway not connected' },
+        error: { code: 'UNAVAILABLE', message: 'Gateway not connected for attachment send' },
       });
       return;
     }
 
     try {
-      const content = buildContentBlocks(message, attachments);
-      const result = await gatewayWS.request('chat.send', { sessionKey, content, idempotencyKey });
-      sendJson(ws, { type: 'chat-send-ack', idempotencyKey, runId: result.runId, status: result.status, ok: true });
+      const result = await invokeGatewayTool('sessions_send', { sessionKey, message: textMessage });
+      if (result?.status === 'error') {
+        sendJson(ws, {
+          type: 'chat-send-ack',
+          idempotencyKey,
+          ok: false,
+          error: { code: 'GATEWAY_ERROR', message: result.error || 'Gateway send failed' },
+        });
+        return;
+      }
+      sendJson(ws, {
+        type: 'chat-send-ack',
+        idempotencyKey,
+        runId: result.runId,
+        status: result.status || 'ok',
+        ok: true,
+      });
     } catch (err) {
-      sendJson(ws, { type: 'chat-send-ack', idempotencyKey, ok: false, error: normalizeGatewayError(err) });
+      sendJson(ws, {
+        type: 'chat-send-ack',
+        idempotencyKey,
+        ok: false,
+        error: { code: 'UNAVAILABLE', message: err.message || 'Gateway not connected' },
+      });
     }
   },
 
@@ -127,7 +192,7 @@ const commandHandlers = {
       } catch (err) {
         gatewayError = normalizeGatewayError(err);
         logHistory('gateway-fail', { sessionKey, code: gatewayError.code });
-        shouldFallback = gatewayError.code === 'UNKNOWN_SESSION_KEY';
+        shouldFallback = gatewayError.code === 'UNKNOWN_SESSION_KEY' || gatewayError.code === 'FORBIDDEN';
       }
     } else {
       gatewayError = { code: 'UNAVAILABLE', message: 'Gateway not connected' };
