@@ -13,6 +13,7 @@ Local dashboard for OpenClaw runtime visibility. It reads your local OpenClaw da
 ## Requirements
 
 - Node.js 20+ (LTS recommended)
+- `.nvmrc` is pinned to Node.js `22` for contributors/CI consistency
 - Local OpenClaw install with gateway running
 - Read access to `~/.openclaw` (or `OPENCLAW_HOME` override)
 
@@ -59,6 +60,8 @@ See [CONFIGURATION.md](./CONFIGURATION.md) for troubleshooting and runtime detai
 Contributions are welcome. Please read:
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+- [SUPPORT.md](./SUPPORT.md)
 - [SECURITY.md](./SECURITY.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 

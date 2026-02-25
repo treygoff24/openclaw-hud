@@ -12,6 +12,10 @@ The format is based on Keep a Changelog.
   - `LICENSE`
   - `SECURITY.md`
   - `CONTRIBUTING.md`
+  - `CODE_OF_CONDUCT.md`
+  - `SUPPORT.md`
+  - `.github/CODEOWNERS`
+  - `.nvmrc`
   - `.env.example`
   - `CONFIGURATION.md`
   - GitHub issue/PR templates
@@ -27,5 +31,6 @@ The format is based on Keep a Changelog.
 - Expanded README with open-source quickstart, configuration, and support docs.
 - Hardened `.gitignore` for local artifacts and HAR/log files.
 - CI now enforces blocking quality gates (format, lint, coverage, bundle) and runs Node 20 compatibility tests.
+- CI now includes blocking e2e smoke coverage and blocking production dependency security audit.
 - Added non-blocking type-aware lint CI job (alpha).
 - Coverage thresholds are now enforced in Vitest config.

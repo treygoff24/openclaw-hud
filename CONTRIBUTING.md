@@ -2,6 +2,8 @@
 
 Thanks for contributing to OpenClaw HUD.
 
+By participating, you agree to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ## Setup
 
 1. Fork and clone the repository.
@@ -63,3 +65,8 @@ Use clear, imperative commit messages:
 
 Do not disclose vulnerabilities in public issues.
 See [SECURITY.md](./SECURITY.md) for reporting instructions.
+
+## Support
+
+For setup/help questions and non-security troubleshooting, see
+[SUPPORT.md](./SUPPORT.md).
