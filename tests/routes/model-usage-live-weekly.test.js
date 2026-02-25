@@ -3,9 +3,11 @@ import express from 'express';
 import request from 'supertest';
 
 const usageRpc = require('../../lib/usage-rpc');
+const pricing = require('../../lib/pricing');
 const { getLiveWeekWindow } = await import('../../lib/helpers.js');
 
 const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
+const originalLoadPricingCatalog = pricing.loadPricingCatalog;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 
@@ -22,10 +24,27 @@ describe('GET /api/model-usage/live-weekly', () => {
     process.env.HUD_USAGE_TZ = TEST_TZ;
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
+    pricing.loadPricingCatalog = vi.fn(() =>
+      pricing.buildPricingCatalog({
+        models: {
+          providers: {
+            openai: {
+              models: [
+                {
+                  id: 'gpt-5',
+                  cost: { input: 10, output: 20, cacheRead: 5, cacheWrite: 1 },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
   });
 
   afterEach(() => {
     usageRpc.requestSessionsUsage = originalRequestSessionsUsage;
+    pricing.loadPricingCatalog = originalLoadPricingCatalog;
     process.env.HUD_USAGE_TZ = originalUsageTz;
     vi.restoreAllMocks();
   });
@@ -111,7 +130,7 @@ describe('GET /api/model-usage/live-weekly', () => {
       cacheReadTokens: 5,
       cacheWriteTokens: 2,
       totalTokens: 57,
-      totalCost: 1.2,
+      totalCost: 0.000727,
     });
 
     expect(res.body.totals).toMatchObject({
@@ -120,7 +139,7 @@ describe('GET /api/model-usage/live-weekly', () => {
       cacheReadTokens: 5,
       cacheWriteTokens: 2,
       totalTokens: 57,
-      totalCost: 1.2,
+      totalCost: 0.000727,
     });
   });
 

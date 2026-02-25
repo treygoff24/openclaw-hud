@@ -3,6 +3,7 @@ const path = require('path');
 const { Router } = require('express');
 const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
+const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
 
 const router = Router();
 
@@ -144,6 +145,18 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
 
     const usageRows = collectUsageRows(payload);
 
+    const normalizedRows = [];
+    for (const row of usageRows) {
+      const modelRow = normalizeModelRow(row);
+      if (modelRow.totalTokens <= 0) continue;
+      normalizedRows.push(modelRow);
+    }
+
+    const pricingCatalog = loadPricingCatalog();
+    const { rows: repricedRows, missingPricingModels } = repriceModelUsageRows(normalizedRows, {
+      catalog: pricingCatalog,
+    });
+
     const models = [];
     const totals = {
       inputTokens: 0,
@@ -154,10 +167,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       totalCost: 0,
     };
 
-    for (const row of usageRows) {
-      const modelRow = normalizeModelRow(row);
-      if (modelRow.totalTokens <= 0) continue;
-
+    for (const modelRow of repricedRows) {
       models.push(modelRow);
       totals.inputTokens += modelRow.inputTokens;
       totals.outputTokens += modelRow.outputTokens;
@@ -175,7 +185,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
         now: new Date(liveWindow.toMs).toISOString(),
         generatedAt: new Date(nowMs).toISOString(),
         source: 'sessions.usage+config-reprice',
-        missingPricingModels: [],
+        missingPricingModels,
       },
       models,
       totals,
