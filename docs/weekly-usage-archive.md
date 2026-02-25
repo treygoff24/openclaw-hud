@@ -88,10 +88,11 @@ Install the weekly snapshot cron job:
 This installs a Sunday cron entry that:
 
 1. computes the just-ended previous weekly window (previous Sunday 00:00 → current Sunday 00:00 in `HUD_USAGE_TZ`)
-2. fetches usage from `sessions.usage` for that exact window and reprices with the active pricing catalog
-3. writes an immutable archive snapshot via `writeWeeklySnapshot(...)`
-4. treats reruns (`EEXIST`) as idempotent success instead of a hard failure
-5. logs to `$OPENCLAW_HOME/logs/weekly-usage-archive.log`
+2. checks existing weekly archive history and backfills any missed weekly windows up through the just-ended week
+3. fetches usage from `sessions.usage` for each required week and reprices with the active pricing catalog
+4. writes immutable archive snapshots via `writeWeeklySnapshot(...)`
+5. treats reruns (`EEXIST`) as idempotent success instead of a hard failure
+6. logs to `$OPENCLAW_HOME/logs/weekly-usage-archive.log`
 
 ### Optional environment overrides
 

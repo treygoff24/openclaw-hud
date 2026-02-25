@@ -2,10 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { Router } = require('express');
 const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
-const { toFiniteNumber } = require('../lib/number');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
 const { getPricingConfigFingerprint, loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
 const { readWeeklyHistory, readWeeklySnapshot } = require('../lib/usage-archive');
+const { normalizeModelRow, collectUsageRows } = require('../lib/usage-normalize');
 
 const router = Router();
 
@@ -22,68 +22,8 @@ function shouldRefreshLiveWeekly(req) {
   return refresh === '1' || refresh === 1 || refresh === true;
 }
 
-function isObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
 function getLiveWeeklyCacheKey({ tz, pricingFingerprint }) {
   return `${tz}|${pricingFingerprint}`;
-}
-
-function normalizeModelRow(row) {
-  const sourceRow = isObject(row) ? row : {};
-  const totals = isObject(sourceRow.totals) ? sourceRow.totals : {};
-
-  const provider =
-    typeof sourceRow.provider === 'string' && sourceRow.provider.trim()
-      ? sourceRow.provider
-      : typeof sourceRow.model === 'string' && sourceRow.model.includes('/')
-        ? sourceRow.model.split('/')[0]
-        : 'unknown';
-  const model =
-    typeof sourceRow.model === 'string' && sourceRow.model.trim()
-      ? sourceRow.model
-      : 'unknown';
-
-  const inputTokens = toFiniteNumber(totals.inputTokens ?? totals.input ?? sourceRow.inputTokens ?? sourceRow.input);
-  const outputTokens = toFiniteNumber(totals.outputTokens ?? totals.output ?? sourceRow.outputTokens ?? sourceRow.output);
-  const cacheReadTokens = toFiniteNumber(
-    totals.cacheReadTokens ?? totals.cacheRead ?? sourceRow.cacheReadTokens ?? sourceRow.cacheRead,
-  );
-  const cacheWriteTokens = toFiniteNumber(
-    totals.cacheWriteTokens ?? totals.cacheWrite ?? sourceRow.cacheWriteTokens ?? sourceRow.cacheWrite,
-  );
-  const totalTokens = toFiniteNumber(
-    totals.totalTokens ??
-      sourceRow.totalTokens ??
-      sourceRow.total ??
-      (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens),
-  );
-  const totalCost = toFiniteNumber(
-    totals.totalCost ??
-      totals.cost?.total ??
-      totals.cost ??
-      sourceRow.totalCost ??
-      sourceRow.cost?.total,
-  );
-
-  return {
-    provider,
-    model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    totalTokens,
-    totalCost,
-  };
-}
-
-function collectUsageRows(payload) {
-  const result = isObject(payload?.result) ? payload.result : {};
-  if (Array.isArray(result.rows)) return result.rows;
-  if (Array.isArray(result.aggregates?.byModel)) return result.aggregates.byModel;
-  return [];
 }
 
 router.get('/api/model-usage', (req, res) => {
