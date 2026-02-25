@@ -5,6 +5,7 @@ const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../
 const { toFiniteNumber } = require('../lib/number');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
 const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
+const { readWeeklyHistory, readWeeklySnapshot } = require('../lib/usage-archive');
 
 const router = Router();
 
@@ -143,6 +144,25 @@ router.get('/api/model-usage', (req, res) => {
   }
 
   res.json(usage);
+});
+
+router.get('/api/model-usage/history', (req, res) => {
+  const weekStart = typeof req.query?.weekStart === 'string' ? req.query.weekStart.trim() : '';
+
+  if (weekStart) {
+    try {
+      const snapshot = readWeeklySnapshot(weekStart);
+      if (!snapshot) {
+        return res.status(404).json({ error: `No archived usage snapshot found for weekStart=${weekStart}` });
+      }
+      return res.json({ snapshot });
+    } catch (error) {
+      return res.status(400).json({ error: `Invalid weekStart query parameter: ${error.message}` });
+    }
+  }
+
+  const snapshots = readWeeklyHistory();
+  return res.json({ snapshots });
 });
 
 router.get('/api/model-usage/live-weekly', async (req, res) => {
