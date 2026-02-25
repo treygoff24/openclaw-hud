@@ -18,6 +18,8 @@ const TEST_TZ = "America/Chicago";
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
 const originalUsageSessionsLimit = process.env.HUD_USAGE_SESSIONS_LIMIT;
+const originalMonthUsageMaxWindows = process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
+const originalMonthUsageMaxDurationMs = process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
 
 function createApp() {
   delete require.cache[require.resolve("../../routes/model-usage")];
@@ -30,8 +32,10 @@ function createApp() {
 describe("GET /api/model-usage/live-weekly", () => {
   beforeEach(() => {
     process.env.HUD_USAGE_TZ = TEST_TZ;
-    process.env.HUD_USAGE_CACHE_TTL_MS = "15000";
+    process.env.HUD_USAGE_CACHE_TTL_MS = "60000";
     delete process.env.HUD_USAGE_SESSIONS_LIMIT;
+    delete process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
+    delete process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
     pricing.loadPricingCatalog = vi.fn(() =>
@@ -68,6 +72,11 @@ describe("GET /api/model-usage/live-weekly", () => {
     process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
     if (originalUsageSessionsLimit === undefined) delete process.env.HUD_USAGE_SESSIONS_LIMIT;
     else process.env.HUD_USAGE_SESSIONS_LIMIT = originalUsageSessionsLimit;
+    if (originalMonthUsageMaxWindows === undefined) delete process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
+    else process.env.HUD_USAGE_MONTH_MAX_WINDOWS = originalMonthUsageMaxWindows;
+    if (originalMonthUsageMaxDurationMs === undefined)
+      delete process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
+    else process.env.HUD_USAGE_MONTH_MAX_DURATION_MS = originalMonthUsageMaxDurationMs;
     vi.restoreAllMocks();
   });
 
@@ -326,33 +335,55 @@ describe("GET /api/model-usage/live-weekly", () => {
 
   it("uses configured sessions limit and marks potential truncation diagnostics", async () => {
     process.env.HUD_USAGE_SESSIONS_LIMIT = "3";
-    usageRpc.requestSessionsUsage.mockResolvedValue({
-      ok: true,
-      result: {
-        sessions: [{ id: "a" }, { id: "b" }, { id: "c" }],
-        rows: [
-          {
-            provider: "openai",
-            model: "gpt-5",
-            totals: {
-              input: 2,
-              output: 1,
-              totalTokens: 3,
+    usageRpc.requestSessionsUsage
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          sessions: [{ id: "a" }, { id: "b" }, { id: "c" }],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 2,
+                output: 1,
+                totalTokens: 3,
+              },
             },
-          },
-        ],
-      },
-    });
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          sessions: [],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 2,
+                output: 1,
+                totalTokens: 3,
+              },
+            },
+          ],
+        },
+      });
 
     const res = await request(createApp()).get("/api/model-usage/live-weekly");
     const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
 
     expect(res.status).toBe(200);
     expect(args.limit).toBe(3);
-    expect(res.body.meta.sessionsUsage).toEqual({
+    expect(res.body.meta.sessionsUsage).toMatchObject({
       sessionsLimit: 3,
       sessionsReturned: 3,
       sessionsMayBeTruncated: true,
+      monthToDate: {
+        isPartial: false,
+        partialReason: null,
+      },
     });
   });
 
@@ -479,6 +510,68 @@ describe("GET /api/model-usage/live-weekly", () => {
       alias: "gpt-5",
       totalCost: 0.05,
     });
+    expect(res.body.meta.sessionsUsage.monthToDate).toMatchObject({
+      isPartial: false,
+      partialReason: null,
+      truncatedWindows: 1,
+      truncatedSingleDayWindows: 0,
+    });
+  });
+
+  it("caps month splitting fan-out and marks summary diagnostics as partial", async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "1";
+    process.env.HUD_USAGE_MONTH_MAX_WINDOWS = "5";
+    const now = Date.parse("2026-01-31T12:00:00-06:00");
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    usageRpc.requestSessionsUsage
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 2_000, output: 0, totalTokens: 2_000 },
+            },
+          ],
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        result: {
+          sessions: [{ id: "truncated" }],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 100, output: 0, totalTokens: 100 },
+            },
+          ],
+        },
+      });
+
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
+
+    expect(res.status).toBe(200);
+    expect(res.body.totals.totalCost).toBeCloseTo(0.02, 12);
+    expect(res.body.summary.weekSpend).toBeCloseTo(0.02, 12);
+    expect(res.body.summary.monthSpend).toBeCloseTo(0.004, 12);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(6);
+    expect(res.body.meta.sessionsUsage.monthToDate).toMatchObject({
+      isPartial: true,
+      windowsRequested: 5,
+      windowsRemaining: expect.any(Number),
+      truncatedWindows: 5,
+      truncatedSingleDayWindows: 4,
+      guardrails: {
+        maxWindows: 5,
+      },
+    });
+    expect(res.body.meta.sessionsUsage.monthToDate.windowsRemaining).toBeGreaterThan(0);
+    expect(res.body.meta.sessionsUsage.monthToDate.partialReasons).toEqual(
+      expect.arrayContaining(["window-budget-exhausted", "single-day-window-truncated"]),
+    );
   });
 
   it("clamps configured sessions limit to the safe max", async () => {

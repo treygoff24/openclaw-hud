@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { performance } = require("perf_hooks");
 const { Router } = require("express");
 const {
   OPENCLAW_HOME,
@@ -26,6 +27,12 @@ let liveWeeklyCache = null;
 const DEFAULT_USAGE_SESSIONS_LIMIT = 500;
 const MIN_USAGE_SESSIONS_LIMIT = 1;
 const MAX_USAGE_SESSIONS_LIMIT = 2000;
+const DEFAULT_MONTH_USAGE_MAX_WINDOWS = 30;
+const MIN_MONTH_USAGE_MAX_WINDOWS = 2;
+const MAX_MONTH_USAGE_MAX_WINDOWS = 120;
+const DEFAULT_MONTH_USAGE_MAX_DURATION_MS = 7000;
+const MIN_MONTH_USAGE_MAX_DURATION_MS = 100;
+const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
@@ -39,6 +46,24 @@ function getUsageSessionsLimit() {
   if (parsedLimit < MIN_USAGE_SESSIONS_LIMIT) return MIN_USAGE_SESSIONS_LIMIT;
   if (parsedLimit > MAX_USAGE_SESSIONS_LIMIT) return MAX_USAGE_SESSIONS_LIMIT;
   return parsedLimit;
+}
+
+function getMonthUsageMaxWindows() {
+  const rawLimit = Number.parseInt(process.env.HUD_USAGE_MONTH_MAX_WINDOWS, 10);
+  const parsedLimit = Number.isFinite(rawLimit) ? rawLimit : DEFAULT_MONTH_USAGE_MAX_WINDOWS;
+  if (parsedLimit < MIN_MONTH_USAGE_MAX_WINDOWS) return MIN_MONTH_USAGE_MAX_WINDOWS;
+  if (parsedLimit > MAX_MONTH_USAGE_MAX_WINDOWS) return MAX_MONTH_USAGE_MAX_WINDOWS;
+  return parsedLimit;
+}
+
+function getMonthUsageMaxDurationMs() {
+  const rawDuration = Number.parseInt(process.env.HUD_USAGE_MONTH_MAX_DURATION_MS, 10);
+  const parsedDuration = Number.isFinite(rawDuration)
+    ? rawDuration
+    : DEFAULT_MONTH_USAGE_MAX_DURATION_MS;
+  if (parsedDuration < MIN_MONTH_USAGE_MAX_DURATION_MS) return MIN_MONTH_USAGE_MAX_DURATION_MS;
+  if (parsedDuration > MAX_MONTH_USAGE_MAX_DURATION_MS) return MAX_MONTH_USAGE_MAX_DURATION_MS;
+  return parsedDuration;
 }
 
 function shouldRefreshLiveWeekly(req) {
@@ -296,14 +321,56 @@ async function requestUsageWindow({ window, tz, sessionsLimit }) {
 async function collectMonthToDateUsageRows({ monthWindow, tz, sessionsLimit, requestId }) {
   const pendingWindows = [monthWindow];
   const usageRows = [];
+  const maxWindows = getMonthUsageMaxWindows();
+  const maxDurationMs = getMonthUsageMaxDurationMs();
+  const startedAtMs = performance.now();
+  const partialReasons = [];
+  let coverageFromMs = null;
+  let coverageToMs = null;
+  let windowsRequested = 0;
+  let windowsSplit = 0;
+  let truncatedWindows = 0;
+  let truncatedSingleDayWindows = 0;
+
+  const addPartialReason = (reason) => {
+    if (!partialReasons.includes(reason)) partialReasons.push(reason);
+  };
 
   while (pendingWindows.length > 0) {
+    const elapsedMs = performance.now() - startedAtMs;
+    if (elapsedMs >= maxDurationMs) {
+      addPartialReason("time-budget-exhausted");
+      console.warn("[model-usage/live-weekly] month usage collection reached duration guardrail", {
+        elapsedMs,
+        maxDurationMs,
+        windowsRequested,
+        pendingWindows: pendingWindows.length,
+        sessionsLimit,
+        requestId,
+      });
+      break;
+    }
+    if (windowsRequested >= maxWindows) {
+      addPartialReason("window-budget-exhausted");
+      console.warn("[model-usage/live-weekly] month usage collection reached call guardrail", {
+        maxWindows,
+        windowsRequested,
+        pendingWindows: pendingWindows.length,
+        sessionsLimit,
+        requestId,
+      });
+      break;
+    }
+
     const window = pendingWindows.shift();
+    windowsRequested += 1;
     const windowUsage = await requestUsageWindow({ window, tz, sessionsLimit });
 
     if (windowUsage.sessionsMayBeTruncated) {
+      truncatedWindows += 1;
       const splitWindows = splitWindowByUtcDay(window);
       if (splitWindows.length > 1) {
+        windowsSplit += splitWindows.length;
         console.warn(
           "[model-usage/live-weekly] month usage window may be truncated; splitting by UTC day",
           {
@@ -317,6 +384,8 @@ async function collectMonthToDateUsageRows({ monthWindow, tz, sessionsLimit, req
         pendingWindows.unshift(...splitWindows);
         continue;
       }
+      truncatedSingleDayWindows += 1;
+      addPartialReason("single-day-window-truncated");
       console.warn(
         "[model-usage/live-weekly] month usage single-day window may still be truncated",
         {
@@ -328,10 +397,31 @@ async function collectMonthToDateUsageRows({ monthWindow, tz, sessionsLimit, req
       );
     }
 
+    if (coverageFromMs == null || window.fromMs < coverageFromMs) coverageFromMs = window.fromMs;
+    if (coverageToMs == null || window.toMs > coverageToMs) coverageToMs = window.toMs;
     usageRows.push(...windowUsage.usageRows);
   }
 
-  return usageRows;
+  const diagnostics = {
+    isPartial: partialReasons.length > 0,
+    partialReason: partialReasons[0] || null,
+    partialReasons,
+    windowsRequested,
+    windowsSplit,
+    windowsRemaining: pendingWindows.length,
+    truncatedWindows,
+    truncatedSingleDayWindows,
+    coverage: {
+      from: Number.isFinite(coverageFromMs) ? new Date(coverageFromMs).toISOString() : null,
+      to: Number.isFinite(coverageToMs) ? new Date(coverageToMs).toISOString() : null,
+    },
+    guardrails: {
+      maxWindows,
+      maxDurationMs,
+    },
+  };
+
+  return { usageRows, diagnostics };
 }
 
 function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
@@ -531,14 +621,14 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
       pricingCatalog,
     );
 
-    const monthUsageRows = await collectMonthToDateUsageRows({
+    const monthCollection = await collectMonthToDateUsageRows({
       monthWindow,
       tz,
       sessionsLimit,
       requestId: requestContext.requestId,
     });
     const monthBreakdown = buildUsageBreakdown(
-      aggregateUsageRowsByModel(normalizeUsageRows(monthUsageRows)),
+      aggregateUsageRowsByModel(normalizeUsageRows(monthCollection.usageRows)),
       pricingCatalog,
     );
     const modelAliases = getModelAliasMap();
@@ -560,6 +650,7 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
         sessionsLimit,
         sessionsReturned: weeklyWindowUsage.sessionsReturned,
         sessionsMayBeTruncated: maybeTruncated,
+        monthToDate: monthCollection.diagnostics,
       },
     });
 

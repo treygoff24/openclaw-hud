@@ -33,7 +33,9 @@ Copy `.env.example` values as needed in your environment:
 - `PORT` (default `3777`)
 - `OPENCLAW_HOME` (default `~/.openclaw`)
 - `HUD_USAGE_TZ` (default `America/Chicago`)
-- `HUD_USAGE_CACHE_TTL_MS` (default `15000`)
+- `HUD_USAGE_CACHE_TTL_MS` (default `60000`)
+- `HUD_USAGE_MONTH_MAX_WINDOWS` (default `30`)
+- `HUD_USAGE_MONTH_MAX_DURATION_MS` (default `7000`)
 
 See [CONFIGURATION.md](./CONFIGURATION.md) for troubleshooting and runtime details.
 

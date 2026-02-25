@@ -38,9 +38,10 @@ describe("App facade and split runtime structure", () => {
     expect(appDataContent).toContain("Promise.allSettled");
     expect(appDataContent).toContain("Endpoint ");
     expect(appDataContent).toContain("failed:");
-    expect(appDataContent).toMatch(/renderPanelSafe\s*\(\s*['"]agents['"]/);
-    expect(appDataContent).toMatch(/renderPanelSafe\s*\(\s*['"]sessions['"]/);
-    expect(appDataContent).toMatch(/renderPanelSafe\s*\(\s*['"]system['"]/);
+    expect(appDataContent).toContain("renderEndpointPanel(");
+    expect(appDataContent).toContain('panelName: "agents"');
+    expect(appDataContent).toContain('panelName: "sessions"');
+    expect(appDataContent).toContain('panelName: "system"');
     expect(appDataContent).toContain("setConnectionStatus(hasAnyData)");
   });
 

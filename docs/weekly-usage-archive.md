@@ -9,8 +9,8 @@ This project keeps **live weekly usage** and **historical weekly usage** separat
 
 `/api/model-usage/live-weekly` supports a short in-memory TTL cache via `HUD_USAGE_CACHE_TTL_MS`.
 
-- Default: `15000` (15 seconds)
-- Guidance: keep this value short (for example `5000`–`15000`) to minimize stale UI windows.
+- Default: `60000` (60 seconds)
+- Guidance: keep this value short (for example `15000`–`60000`) to minimize stale UI windows.
 - Set `HUD_USAGE_CACHE_TTL_MS=0` to disable caching.
 - Pass `?refresh=1` to bypass cache for an on-demand fresh read.
 

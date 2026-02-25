@@ -16,7 +16,9 @@ HUD reads these values from either environment variables or OpenClaw config:
 - `OPENCLAW_HOME` (default: `~/.openclaw`)
 - Gateway host/port/token from `~/.openclaw/openclaw.json`
 - `HUD_USAGE_TZ` (default: `America/Chicago`)
-- `HUD_USAGE_CACHE_TTL_MS` (default: `15000`)
+- `HUD_USAGE_CACHE_TTL_MS` (default: `60000`)
+- `HUD_USAGE_MONTH_MAX_WINDOWS` (default: `30`)
+- `HUD_USAGE_MONTH_MAX_DURATION_MS` (default: `7000`)
 
 ## Start
 

@@ -637,3 +637,165 @@ describe("WebSocket reconnection after successful connection", () => {
     expect(secondDelay).toBeLessThan(3000);
   });
 });
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function createMockJsonResponse(payload, overrides = {}) {
+  return {
+    ok: overrides.ok ?? true,
+    status: overrides.status ?? 200,
+    statusText: overrides.statusText ?? "OK",
+    headers: {
+      get: () => overrides.requestId ?? "",
+    },
+    json: () => Promise.resolve(payload),
+  };
+}
+
+function createDataControllerHarness(options = {}) {
+  const doc = document.implementation.createHTMLDocument("hud-data-controller-test");
+  doc.body.innerHTML = `
+    <div id="agents-list"></div>
+    <div id="sessions-list"></div>
+    <div id="cron-list"></div>
+    <div id="system-info"></div>
+    <div id="model-usage"></div>
+    <div id="activity-feed"></div>
+    <div id="tree-body"></div>
+  `;
+
+  const HUD = {
+    agents: { render: vi.fn() },
+    sessions: { render: vi.fn() },
+    cron: { render: vi.fn() },
+    system: { render: vi.fn() },
+    models: { render: vi.fn() },
+    activity: { render: vi.fn() },
+    sessionTree: { render: vi.fn() },
+  };
+  const setConnectionStatus = vi.fn();
+  const onChatRestore = vi.fn();
+  const renderPanelSafe = vi.fn((panelName, panelEl, renderFn, data) => {
+    renderFn(panelEl, data);
+  });
+
+  const controller = window.HUDApp.data.createDataController({
+    document: doc,
+    HUD,
+    getFetch: () => options.fetchImpl,
+    renderPanelSafe,
+    setConnectionStatus,
+    onChatRestore,
+    endpointTimeoutMs: options.endpointTimeoutMs ?? 1000,
+  });
+
+  return {
+    controller,
+    HUD,
+    setConnectionStatus,
+    onChatRestore,
+    renderPanelSafe,
+  };
+}
+
+function flushAsyncWork() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("data controller progressive endpoint loading", () => {
+  it("renders sessions before slow model-usage resolves and keeps one-time chat restore", async () => {
+    const endpoints = [
+      "/api/agents",
+      "/api/sessions",
+      "/api/cron",
+      "/api/config",
+      "/api/model-usage/live-weekly",
+      "/api/activity",
+      "/api/session-tree",
+      "/api/models",
+    ];
+    const deferredByUrl = Object.fromEntries(endpoints.map((url) => [url, createDeferred()]));
+    const fetchImpl = vi.fn((url) => deferredByUrl[url].promise);
+
+    const { controller, HUD, setConnectionStatus, onChatRestore } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 500,
+    });
+    const fetchPromise = controller.fetchAll();
+    await flushAsyncWork();
+
+    deferredByUrl["/api/sessions"].resolve(
+      createMockJsonResponse([{ sessionId: "s1", sessionKey: "agent:a:s1" }]),
+    );
+    await flushAsyncWork();
+
+    expect(HUD.sessions.render).toHaveBeenCalledTimes(1);
+    expect(HUD.models.render).not.toHaveBeenCalled();
+    expect(onChatRestore).toHaveBeenCalledTimes(1);
+    expect(window._allSessions).toEqual([{ sessionId: "s1", sessionKey: "agent:a:s1" }]);
+    expect(setConnectionStatus).toHaveBeenCalledWith(true);
+
+    deferredByUrl["/api/agents"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/cron"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/config"].resolve(createMockJsonResponse({}));
+    deferredByUrl["/api/activity"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/session-tree"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/models"].resolve(createMockJsonResponse([{ alias: "gpt-4.1" }]));
+    await flushAsyncWork();
+
+    expect(HUD.agents.render).toHaveBeenCalledTimes(1);
+    expect(HUD.models.render).not.toHaveBeenCalled();
+
+    deferredByUrl["/api/model-usage/live-weekly"].resolve(createMockJsonResponse([]));
+    await fetchPromise;
+
+    expect(HUD.models.render).toHaveBeenCalledTimes(1);
+    expect(window._modelAliases).toEqual([{ alias: "gpt-4.1" }]);
+    expect(window._endpointResponseMeta.sessions).toEqual(
+      expect.objectContaining({
+        ok: true,
+        status: 200,
+      }),
+    );
+  });
+
+  it("times out a hung endpoint without blocking other panel renders", async () => {
+    const hangingPromise = new Promise(() => {});
+    const fetchImpl = vi.fn((url) => {
+      if (url === "/api/model-usage/live-weekly") return hangingPromise;
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+    const { controller, HUD, setConnectionStatus } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 20,
+    });
+
+    const fetchPromise = controller.fetchAll();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(HUD.agents.render).toHaveBeenCalled();
+    expect(HUD.sessions.render).toHaveBeenCalled();
+
+    await fetchPromise;
+
+    expect(HUD.models.render).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ statusText: "timeout" }),
+    );
+    expect(window._endpointResponseMeta["model-usage"]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 0,
+        statusText: "timeout",
+      }),
+    );
+    expect(setConnectionStatus).toHaveBeenCalledWith(true);
+  });
+});
