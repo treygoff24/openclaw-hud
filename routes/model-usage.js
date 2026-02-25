@@ -2,15 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { Router } = require('express');
 const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require('../lib/helpers');
+const { toFiniteNumber } = require('../lib/number');
 const { requestSessionsUsage } = require('../lib/usage-rpc');
 const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
 
 const router = Router();
-
-function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
-}
 
 function normalizeModelRow(row) {
   const totals = row?.totals && typeof row.totals === 'object' ? row.totals : {};
