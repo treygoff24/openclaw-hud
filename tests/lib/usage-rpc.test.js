@@ -59,4 +59,39 @@ describe('usage-rpc', () => {
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway error: boom');
   });
+
+  it('throws before sending token when gateway host is not local', async () => {
+    helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: 'test-token', host: '198.51.100.23' }));
+    global.fetch = vi.fn();
+
+    const { requestSessionsUsage } = loadModule();
+
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway host must be local/loopback for token-authenticated HTTP requests');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows localhost-style hosts and uses configured host in request URL', async () => {
+    helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: 'test-token', host: 'localhost' }));
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, result: { rows: [] } })
+    }));
+
+    const { requestSessionsUsage } = loadModule();
+    await requestSessionsUsage({ from: 1, to: 2 });
+
+    const [url] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://localhost:18789/tools/invoke');
+  });
+
+  it('wraps fetch/network throws with readable gateway request error', async () => {
+    helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: 'test-token' }));
+    global.fetch = vi.fn(async () => {
+      throw new Error('connect ETIMEDOUT');
+    });
+
+    const { requestSessionsUsage } = loadModule();
+
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toThrow('Gateway request failed: connect ETIMEDOUT');
+  });
 });
