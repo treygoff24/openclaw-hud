@@ -8,6 +8,19 @@ const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
 
 const router = Router();
 
+let liveWeeklyCache = null;
+
+function getUsageCacheTtlMs() {
+  const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
+  return ttlMs;
+}
+
+function shouldRefreshLiveWeekly(req) {
+  const refresh = req?.query?.refresh;
+  return refresh === '1' || refresh === 1 || refresh === true;
+}
+
 function normalizeModelRow(row) {
   const totals = row?.totals && typeof row.totals === 'object' ? row.totals : {};
 
@@ -130,6 +143,13 @@ router.get('/api/model-usage', (req, res) => {
 router.get('/api/model-usage/live-weekly', async (req, res) => {
   const tz = process.env.HUD_USAGE_TZ || 'America/Chicago';
   const nowMs = Date.now();
+  const ttlMs = getUsageCacheTtlMs();
+  const refresh = shouldRefreshLiveWeekly(req);
+
+  if (!refresh && liveWeeklyCache && nowMs < liveWeeklyCache.expiresAtMs) {
+    return res.json(liveWeeklyCache.payload);
+  }
+
   const liveWindow = getLiveWeekWindow(tz, nowMs);
 
   try {
@@ -173,7 +193,7 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       totals.totalCost += modelRow.totalCost;
     }
 
-    res.json({
+    const responsePayload = {
       meta: {
         period: 'live-weekly',
         tz,
@@ -185,7 +205,18 @@ router.get('/api/model-usage/live-weekly', async (req, res) => {
       },
       models,
       totals,
-    });
+    };
+
+    if (ttlMs > 0) {
+      liveWeeklyCache = {
+        expiresAtMs: nowMs + ttlMs,
+        payload: responsePayload,
+      };
+    } else {
+      liveWeeklyCache = null;
+    }
+
+    res.json(responsePayload);
   } catch (err) {
     res.status(502).json({ error: `Failed to load live weekly usage: ${err.message}` });
   }

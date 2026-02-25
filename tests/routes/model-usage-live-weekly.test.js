@@ -10,6 +10,7 @@ const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
 const originalLoadPricingCatalog = pricing.loadPricingCatalog;
 const TEST_TZ = 'America/Chicago';
 const originalUsageTz = process.env.HUD_USAGE_TZ;
+const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
 
 function createApp() {
   delete require.cache[require.resolve('../../routes/model-usage')];
@@ -22,6 +23,7 @@ function createApp() {
 describe('GET /api/model-usage/live-weekly', () => {
   beforeEach(() => {
     process.env.HUD_USAGE_TZ = TEST_TZ;
+    process.env.HUD_USAGE_CACHE_TTL_MS = '15000';
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
     pricing.loadPricingCatalog = vi.fn(() =>
@@ -46,6 +48,7 @@ describe('GET /api/model-usage/live-weekly', () => {
     usageRpc.requestSessionsUsage = originalRequestSessionsUsage;
     pricing.loadPricingCatalog = originalLoadPricingCatalog;
     process.env.HUD_USAGE_TZ = originalUsageTz;
+    process.env.HUD_USAGE_CACHE_TTL_MS = originalUsageCacheTtlMs;
     vi.restoreAllMocks();
   });
 
@@ -162,5 +165,89 @@ describe('GET /api/model-usage/live-weekly', () => {
       to: expected.toMs,
       timezone: TEST_TZ,
     });
+  });
+
+  it('serves cached live-weekly response within TTL and keeps generatedAt stable', async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1_000).mockReturnValueOnce(1_200);
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+          },
+        ],
+      },
+    });
+
+    const app = createApp();
+    const first = await request(app).get('/api/model-usage/live-weekly');
+    const second = await request(app).get('/api/model-usage/live-weekly');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
+    expect(second.body.meta.generatedAt).toBe(first.body.meta.generatedAt);
+  });
+
+  it('refreshes cached live-weekly response after TTL expiry', async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(2_000).mockReturnValueOnce(3_500);
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+          },
+        ],
+      },
+    });
+
+    const app = createApp();
+    const first = await request(app).get('/api/model-usage/live-weekly');
+    const second = await request(app).get('/api/model-usage/live-weekly');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+  });
+
+  it('bypasses cache when refresh=1 is provided', async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(4_000).mockReturnValueOnce(4_100);
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: 'openai',
+            model: 'gpt-5',
+            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+          },
+        ],
+      },
+    });
+
+    const app = createApp();
+    const first = await request(app).get('/api/model-usage/live-weekly');
+    const second = await request(app).get('/api/model-usage/live-weekly?refresh=1');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 });
