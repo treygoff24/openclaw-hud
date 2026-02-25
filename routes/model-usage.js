@@ -24,6 +24,7 @@ const { normalizeModelRow, collectUsageRows } = require("../lib/usage-normalize"
 const router = Router();
 
 let liveWeeklyCache = null;
+const liveWeeklyMonthCache = new Map();
 const DEFAULT_USAGE_SESSIONS_LIMIT = 500;
 const MIN_USAGE_SESSIONS_LIMIT = 1;
 const MAX_USAGE_SESSIONS_LIMIT = 2000;
@@ -33,6 +34,9 @@ const MAX_MONTH_USAGE_MAX_WINDOWS = 120;
 const DEFAULT_MONTH_USAGE_MAX_DURATION_MS = 7000;
 const MIN_MONTH_USAGE_MAX_DURATION_MS = 100;
 const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
+const DEFAULT_MONTH_USAGE_MEMO_TTL_MS = 15000;
+const MIN_MONTH_USAGE_MEMO_TTL_MS = 0;
+const MAX_MONTH_USAGE_MEMO_TTL_MS = 300000;
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
@@ -46,6 +50,14 @@ function getUsageSessionsLimit() {
   if (parsedLimit < MIN_USAGE_SESSIONS_LIMIT) return MIN_USAGE_SESSIONS_LIMIT;
   if (parsedLimit > MAX_USAGE_SESSIONS_LIMIT) return MAX_USAGE_SESSIONS_LIMIT;
   return parsedLimit;
+}
+
+function getMonthUsageMemoTtlMs() {
+  const rawTtl = Number.parseInt(process.env.HUD_USAGE_MONTH_MEMO_TTL_MS, 10);
+  const parsedTtl = Number.isFinite(rawTtl) ? rawTtl : DEFAULT_MONTH_USAGE_MEMO_TTL_MS;
+  if (parsedTtl <= MIN_MONTH_USAGE_MEMO_TTL_MS) return 0;
+  if (parsedTtl > MAX_MONTH_USAGE_MEMO_TTL_MS) return MAX_MONTH_USAGE_MEMO_TTL_MS;
+  return parsedTtl;
 }
 
 function getMonthUsageMaxWindows() {
@@ -71,8 +83,37 @@ function shouldRefreshLiveWeekly(req) {
   return refresh === "1" || refresh === 1 || refresh === true;
 }
 
-function getLiveWeeklyCacheKey({ tz, pricingFingerprint, sessionsLimit }) {
-  return `${tz}|${pricingFingerprint}|${sessionsLimit}`;
+function getLiveWeeklyCacheKey({
+  tz,
+  pricingFingerprint,
+  sessionsLimit,
+  monthMaxWindows,
+  monthMaxDurationMs,
+}) {
+  return `${tz}|${pricingFingerprint}|${sessionsLimit}|${monthMaxWindows}|${monthMaxDurationMs}`;
+}
+
+function getLiveWeeklyMonthCacheKey({
+  tz,
+  monthWindow,
+  pricingFingerprint,
+  sessionsLimit,
+  monthMaxWindows,
+  monthMaxDurationMs,
+}) {
+  const monthStartMs = Number.isFinite(monthWindow?.fromMs) ? monthWindow.fromMs : "unknown";
+  const windowUtcDayStartMs = Number.isFinite(monthWindow?.toMs)
+    ? Math.floor(monthWindow.toMs / 86400000) * 86400000
+    : "unknown";
+  return [
+    tz,
+    monthStartMs,
+    windowUtcDayStartMs,
+    pricingFingerprint,
+    sessionsLimit,
+    monthMaxWindows,
+    monthMaxDurationMs,
+  ].join("|");
 }
 
 function createRequestContext(req, nowMs) {
@@ -318,11 +359,16 @@ async function requestUsageWindow({ window, tz, sessionsLimit }) {
   };
 }
 
-async function collectMonthToDateUsageRows({ monthWindow, tz, sessionsLimit, requestId }) {
+async function collectMonthToDateUsageRows({
+  monthWindow,
+  tz,
+  sessionsLimit,
+  requestId,
+  maxWindows = getMonthUsageMaxWindows(),
+  maxDurationMs = getMonthUsageMaxDurationMs(),
+}) {
   const pendingWindows = [monthWindow];
   const usageRows = [];
-  const maxWindows = getMonthUsageMaxWindows();
-  const maxDurationMs = getMonthUsageMaxDurationMs();
   const startedAtMs = performance.now();
   const partialReasons = [];
   let coverageFromMs = null;
@@ -434,6 +480,28 @@ function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
   } else {
     liveWeeklyCache = null;
   }
+}
+
+function readMemoizedLiveWeeklyMonthCache({ cacheKey, nowMs, ttlMs, refresh }) {
+  if (refresh || ttlMs <= 0) return null;
+  const cached = liveWeeklyMonthCache.get(cacheKey);
+  if (!cached) return null;
+  if (nowMs >= cached.expiresAtMs) {
+    liveWeeklyMonthCache.delete(cacheKey);
+    return null;
+  }
+  return cached.payload;
+}
+
+function maybeStoreLiveWeeklyMonthCache({ ttlMs, nowMs, cacheKey, payload }) {
+  if (ttlMs <= 0) {
+    liveWeeklyMonthCache.delete(cacheKey);
+    return;
+  }
+  liveWeeklyMonthCache.set(cacheKey, {
+    expiresAtMs: nowMs + ttlMs,
+    payload,
+  });
 }
 
 function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason, requestContext }) {
@@ -583,10 +651,19 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
   const nowMs = Date.now();
   const requestContext = createRequestContext(req, nowMs);
   const ttlMs = getUsageCacheTtlMs();
+  const monthMemoTtlMs = getMonthUsageMemoTtlMs();
   const sessionsLimit = getUsageSessionsLimit();
+  const monthMaxWindows = getMonthUsageMaxWindows();
+  const monthMaxDurationMs = getMonthUsageMaxDurationMs();
   const refresh = shouldRefreshLiveWeekly(req);
   const pricingFingerprint = getPricingConfigFingerprint();
-  const cacheKey = getLiveWeeklyCacheKey({ tz, pricingFingerprint, sessionsLimit });
+  const cacheKey = getLiveWeeklyCacheKey({
+    tz,
+    pricingFingerprint,
+    sessionsLimit,
+    monthMaxWindows,
+    monthMaxDurationMs,
+  });
 
   if (
     !refresh &&
@@ -599,6 +676,14 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
   const monthWindow = getLiveMonthWindow(tz, nowMs);
+  const monthCacheKey = getLiveWeeklyMonthCacheKey({
+    tz,
+    monthWindow,
+    pricingFingerprint,
+    sessionsLimit,
+    monthMaxWindows,
+    monthMaxDurationMs,
+  });
 
   try {
     const weeklyWindowUsage = await requestUsageWindow({
@@ -621,12 +706,28 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
       pricingCatalog,
     );
 
-    const monthCollection = await collectMonthToDateUsageRows({
-      monthWindow,
-      tz,
-      sessionsLimit,
-      requestId: requestContext.requestId,
+    let monthCollection = readMemoizedLiveWeeklyMonthCache({
+      cacheKey: monthCacheKey,
+      nowMs,
+      ttlMs: monthMemoTtlMs,
+      refresh,
     });
+    if (!monthCollection) {
+      monthCollection = await collectMonthToDateUsageRows({
+        monthWindow,
+        tz,
+        sessionsLimit,
+        requestId: requestContext.requestId,
+        maxWindows: monthMaxWindows,
+        maxDurationMs: monthMaxDurationMs,
+      });
+      maybeStoreLiveWeeklyMonthCache({
+        ttlMs: monthMemoTtlMs,
+        nowMs,
+        cacheKey: monthCacheKey,
+        payload: monthCollection,
+      });
+    }
     const monthBreakdown = buildUsageBreakdown(
       aggregateUsageRowsByModel(normalizeUsageRows(monthCollection.usageRows)),
       pricingCatalog,

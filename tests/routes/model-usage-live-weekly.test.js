@@ -20,6 +20,7 @@ const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
 const originalUsageSessionsLimit = process.env.HUD_USAGE_SESSIONS_LIMIT;
 const originalMonthUsageMaxWindows = process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
 const originalMonthUsageMaxDurationMs = process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
+const originalMonthUsageMemoTtlMs = process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
 
 function createApp() {
   delete require.cache[require.resolve("../../routes/model-usage")];
@@ -36,6 +37,7 @@ describe("GET /api/model-usage/live-weekly", () => {
     delete process.env.HUD_USAGE_SESSIONS_LIMIT;
     delete process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
     delete process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
+    delete process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
     pricing.loadPricingCatalog = vi.fn(() =>
@@ -77,6 +79,8 @@ describe("GET /api/model-usage/live-weekly", () => {
     if (originalMonthUsageMaxDurationMs === undefined)
       delete process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
     else process.env.HUD_USAGE_MONTH_MAX_DURATION_MS = originalMonthUsageMaxDurationMs;
+    if (originalMonthUsageMemoTtlMs === undefined) delete process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
+    else process.env.HUD_USAGE_MONTH_MEMO_TTL_MS = originalMonthUsageMemoTtlMs;
     vi.restoreAllMocks();
   });
 
@@ -666,8 +670,140 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(3);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+  });
+
+  it("reuses memoized month-to-date aggregation for immediate requests when top-level cache is disabled", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "0";
+    process.env.HUD_USAGE_MONTH_MEMO_TTL_MS = "60000";
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValueOnce(10_000).mockReturnValueOnce(10_100);
+
+    usageRpc.requestSessionsUsage
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 10,
+                output: 10,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 20,
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 400,
+                output: 100,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 500,
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 10,
+                output: 10,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 20,
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 1_000,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 1_000,
+              },
+            },
+          ],
+        },
+      });
+
+    const app = createApp();
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    const second = await request(app).get("/api/model-usage/live-weekly");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(3);
+    expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+    expect(second.body.totals.totalCost).toBeCloseTo(first.body.totals.totalCost, 12);
+    expect(second.body.summary.monthSpend).toBeCloseTo(first.body.summary.monthSpend, 12);
+    expect(second.body.meta.sessionsUsage.monthToDate).toMatchObject(
+      first.body.meta.sessionsUsage.monthToDate,
+    );
+  });
+
+  it("invalidates month memoization when sessions limit changes between requests", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "0";
+    process.env.HUD_USAGE_MONTH_MEMO_TTL_MS = "60000";
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValueOnce(20_000).mockReturnValueOnce(20_100);
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+            },
+          },
+        ],
+      },
+    });
+
+    const app = createApp();
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "3";
+    const second = await request(app).get("/api/model-usage/live-weekly");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
+    expect(first.body.meta.sessionsUsage.sessionsLimit).toBe(500);
+    expect(second.body.meta.sessionsUsage.sessionsLimit).toBe(3);
   });
 
   it("refreshes cached live-weekly response when pricing fingerprint changes within TTL", async () => {

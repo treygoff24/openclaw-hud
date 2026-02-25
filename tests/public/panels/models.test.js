@@ -41,7 +41,10 @@ describe("render", () => {
 
   it("renders model bars from live-weekly contract and period label", () => {
     HUD.models.render({
-      meta: { tz: "America/Chicago" },
+      meta: {
+        tz: "America/Chicago",
+        sessionsUsage: { monthToDate: { isPartial: true } },
+      },
       models: [
         {
           provider: "openai",
@@ -80,10 +83,42 @@ describe("render", () => {
     expect(cards[0].textContent).toContain("THIS WEEK SPEND");
     expect(cards[0].textContent).toContain("$0.22");
     expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).toContain("PARTIAL");
     expect(cards[1].textContent).toContain("$1.23");
     expect(cards[2].textContent).toContain("TOP MONTH MODEL");
     expect(cards[2].textContent).toContain("claude-sonnet-4 · $0.87");
     expect(document.getElementById("stat-monthly-spend").textContent).toBe("$1.23");
+  });
+
+  it("toggles month partial indicator on rerender with latest payload meta", () => {
+    HUD.models.render({
+      meta: { tz: "UTC", sessionsUsage: { monthToDate: { isPartial: true } } },
+      models: [{ provider: "x", model: "m1", totalTokens: 1, totalCost: 0.1 }],
+      summary: {
+        weekSpend: 0.1,
+        monthSpend: 1.11,
+        topMonthModel: { model: "m1", totalCost: 1.11 },
+      },
+    });
+
+    let cards = document.querySelectorAll(".model-summary-card");
+    expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).toContain("PARTIAL");
+
+    HUD.models.render({
+      meta: { tz: "UTC", sessionsUsage: { monthToDate: { isPartial: false } } },
+      models: [{ provider: "x", model: "m1", totalTokens: 1, totalCost: 0.1 }],
+      summary: {
+        weekSpend: 0.1,
+        monthSpend: 2.22,
+        topMonthModel: { model: "m1", totalCost: 2.22 },
+      },
+    });
+
+    cards = document.querySelectorAll(".model-summary-card");
+    expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).not.toContain("PARTIAL");
+    expect(cards[1].textContent).toContain("$2.22");
   });
 
   it("renders empty state for missing/empty models array", () => {

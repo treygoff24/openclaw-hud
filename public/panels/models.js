@@ -129,12 +129,17 @@ HUD.models = (function () {
     const topModel = explicitTop || derivedTopFromMonthRows || derivedTopFromWeeklyRows;
     const topModelName = topModel?.modelName || "";
     const topModelSpend = pickFirstFinite([topModel?.spend], 0);
+    const isMonthToDatePartial = Boolean(
+      payload?.meta?.sessionsUsage?.monthToDate &&
+      payload.meta.sessionsUsage.monthToDate.isPartial === true,
+    );
 
     return {
       weeklySpend,
       monthlySpend,
       topModelName,
       topModelSpend,
+      isMonthToDatePartial,
     };
   }
 
@@ -145,7 +150,10 @@ HUD.models = (function () {
 
     const cards = [
       { label: "THIS WEEK SPEND", value: formatCurrency(summary.weeklySpend) },
-      { label: "THIS MONTH SPEND", value: formatCurrency(summary.monthlySpend) },
+      {
+        label: summary.isMonthToDatePartial ? "THIS MONTH SPEND · PARTIAL" : "THIS MONTH SPEND",
+        value: formatCurrency(summary.monthlySpend),
+      },
       { label: "TOP MONTH MODEL", value: topModelDisplay },
     ];
 
