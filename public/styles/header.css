@@ -136,6 +136,10 @@
   color: var(--cyan);
   text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
+.stat-value.neon-amber {
+  color: var(--amber);
+  text-shadow: 0 0 10px rgba(255, 171, 0, 0.35);
+}
 .header-divider {
   width: 1px;
   height: 32px;

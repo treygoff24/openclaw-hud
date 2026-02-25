@@ -11,11 +11,21 @@
       function (selector) {
         return doc.querySelector(selector);
       };
-    const pageStartTime = Date.now();
+    let gatewayUptimeSnapshotMs = 0;
+    let gatewayUptimeSnapshotAtMs = Date.now();
+    let hasGatewayUptimeSnapshot = false;
     let connected = true;
 
+    function normalizeUptimeMs(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) return null;
+      return Math.floor(parsed);
+    }
+
     function updateUptime() {
-      const diff = Date.now() - pageStartTime;
+      const diff = hasGatewayUptimeSnapshot
+        ? gatewayUptimeSnapshotMs + Math.max(0, Date.now() - gatewayUptimeSnapshotAtMs)
+        : 0;
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
@@ -27,6 +37,15 @@
         String(m).padStart(2, "0") +
         ":" +
         String(s).padStart(2, "0");
+    }
+
+    function setGatewayUptimeSnapshot(uptimeMs) {
+      const normalized = normalizeUptimeMs(uptimeMs);
+      if (normalized === null) return;
+      hasGatewayUptimeSnapshot = true;
+      gatewayUptimeSnapshotMs = normalized;
+      gatewayUptimeSnapshotAtMs = Date.now();
+      updateUptime();
     }
 
     function updateClock() {
@@ -74,6 +93,7 @@
     return {
       start,
       setConnectionStatus,
+      setGatewayUptimeSnapshot,
       isConnected,
     };
   }

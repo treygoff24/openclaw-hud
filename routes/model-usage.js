@@ -2,7 +2,15 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { Router } = require("express");
-const { OPENCLAW_HOME, safeReaddir, safeRead, getLiveWeekWindow } = require("../lib/helpers");
+const {
+  OPENCLAW_HOME,
+  safeReaddir,
+  safeRead,
+  getLiveWeekWindow,
+  getTimezoneParts,
+  timezoneWallToUtcMs,
+  getModelAliasMap,
+} = require("../lib/helpers");
 const { requestSessionsUsage } = require("../lib/usage-rpc");
 const {
   getPricingConfigFingerprint,
@@ -72,21 +80,81 @@ function makeLinePreview(line) {
   return `${normalized.slice(0, 117)}...`;
 }
 
-function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, source, diagnostics }) {
+function createTimezoneFormatter(timeZone) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    hour12: false,
+  });
+}
+
+function getLiveMonthWindow(tz = "America/Chicago", nowMs = Date.now()) {
+  const timeZone = typeof tz === "string" && tz.trim().length > 0 ? tz : "America/Chicago";
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const formatter = createTimezoneFormatter(timeZone);
+  const nowParts = getTimezoneParts(formatter, now);
+  const monthStartWall = {
+    year: nowParts.year,
+    month: nowParts.month,
+    day: 1,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    millisecond: 0,
+  };
+  const monthStartMs = timezoneWallToUtcMs(formatter, timeZone, monthStartWall);
+  return { fromMs: monthStartMs, toMs: now };
+}
+
+function normalizeUsageRows(rows) {
   const normalizedRows = [];
-  for (const row of Array.isArray(usageRows) ? usageRows : []) {
+  for (const row of Array.isArray(rows) ? rows : []) {
     const modelRow = normalizeModelRow(row);
     // The live-weekly contract intentionally omits rows without usage.
     if (modelRow.totalTokens <= 0) continue;
     normalizedRows.push(modelRow);
   }
+  return normalizedRows;
+}
 
-  const pricingCatalog = loadPricingCatalog();
+function aggregateUsageRowsByModel(normalizedRows) {
+  const byModel = new Map();
+  for (const row of Array.isArray(normalizedRows) ? normalizedRows : []) {
+    const key = `${row.provider}::${row.model}`;
+    if (!byModel.has(key)) {
+      byModel.set(key, {
+        provider: row.provider,
+        model: row.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 0,
+        totalCost: 0,
+      });
+    }
+    const aggregate = byModel.get(key);
+    aggregate.inputTokens += row.inputTokens;
+    aggregate.outputTokens += row.outputTokens;
+    aggregate.cacheReadTokens += row.cacheReadTokens;
+    aggregate.cacheWriteTokens += row.cacheWriteTokens;
+    aggregate.totalTokens += row.totalTokens;
+  }
+  return [...byModel.values()];
+}
+
+function buildUsageBreakdown(normalizedRows, pricingCatalog) {
   const { rows: repricedRows, missingPricingModels } = repriceModelUsageRows(normalizedRows, {
     catalog: pricingCatalog,
   });
 
-  const models = [];
   const totals = {
     inputTokens: 0,
     outputTokens: 0,
@@ -97,7 +165,6 @@ function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, sour
   };
 
   for (const modelRow of repricedRows) {
-    models.push(modelRow);
     totals.inputTokens += modelRow.inputTokens;
     totals.outputTokens += modelRow.outputTokens;
     totals.cacheReadTokens += modelRow.cacheReadTokens;
@@ -106,6 +173,22 @@ function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, sour
     totals.totalCost += modelRow.totalCost;
   }
 
+  return {
+    models: repricedRows,
+    totals,
+    missingPricingModels,
+  };
+}
+
+function buildLiveWeeklyResponsePayload({
+  weeklyBreakdown,
+  summary,
+  tz,
+  liveWindow,
+  nowMs,
+  source,
+  diagnostics,
+}) {
   const meta = {
     period: "live-weekly",
     tz,
@@ -113,15 +196,142 @@ function buildLiveWeeklyResponsePayload({ usageRows, tz, liveWindow, nowMs, sour
     now: new Date(liveWindow.toMs).toISOString(),
     generatedAt: new Date(nowMs).toISOString(),
     source,
-    missingPricingModels,
+    missingPricingModels: weeklyBreakdown.missingPricingModels,
     sessionsUsage: Object.assign({}, diagnostics),
   };
 
   return {
     meta,
-    models,
-    totals,
+    models: weeklyBreakdown.models,
+    totals: weeklyBreakdown.totals,
+    summary,
   };
+}
+
+function resolveModelAlias(modelId, aliasMap) {
+  const model = typeof modelId === "string" ? modelId.trim() : "";
+  if (!model) return "unknown";
+  const config = aliasMap && typeof aliasMap === "object" ? aliasMap[model] : null;
+  if (typeof config === "string" && config.trim()) return config.trim();
+  if (
+    config &&
+    typeof config === "object" &&
+    typeof config.alias === "string" &&
+    config.alias.trim()
+  ) {
+    return config.alias.trim();
+  }
+  const shortName = model.split("/").pop();
+  return shortName || model;
+}
+
+function getTopMonthModel(monthModels, aliasMap) {
+  let topModel = null;
+  for (const row of Array.isArray(monthModels) ? monthModels : []) {
+    if (!topModel || row.totalCost > topModel.totalCost) {
+      topModel = row;
+    }
+  }
+  if (!topModel) return null;
+  return {
+    model: topModel.model,
+    alias: resolveModelAlias(topModel.model, aliasMap),
+    totalCost: topModel.totalCost,
+  };
+}
+
+function buildLiveWeeklySummary({ weeklyTotals, monthTotals, monthModels, aliasMap }) {
+  return {
+    weekSpend: Number(weeklyTotals?.totalCost) || 0,
+    monthSpend: Number(monthTotals?.totalCost) || 0,
+    topMonthModel: getTopMonthModel(monthModels, aliasMap),
+  };
+}
+
+function splitWindowByUtcDay({ fromMs, toMs }) {
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
+
+  const fromDayStart = new Date(fromMs);
+  fromDayStart.setUTCHours(0, 0, 0, 0);
+  const toDayStart = new Date(toMs);
+  toDayStart.setUTCHours(0, 0, 0, 0);
+  if (fromDayStart.getTime() === toDayStart.getTime()) return [];
+
+  const windows = [];
+  let windowStart = fromMs;
+  const cursor = new Date(fromDayStart.getTime());
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+
+  while (cursor.getTime() <= toMs) {
+    const boundary = cursor.getTime();
+    windows.push({ fromMs: windowStart, toMs: boundary - 1 });
+    windowStart = boundary;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  if (windowStart <= toMs) windows.push({ fromMs: windowStart, toMs });
+  return windows.length > 1 ? windows : [];
+}
+
+async function requestUsageWindow({ window, tz, sessionsLimit }) {
+  const payload = await requestSessionsUsage({
+    from: window.fromMs,
+    to: window.toMs,
+    timezone: tz,
+    limit: sessionsLimit,
+  });
+  const sessionsReturned = Array.isArray(payload?.result?.sessions)
+    ? payload.result.sessions.length
+    : null;
+  return {
+    usageRows: collectUsageRows(payload),
+    sessionsReturned,
+    sessionsMayBeTruncated:
+      Number.isFinite(sessionsReturned) &&
+      Number.isFinite(sessionsLimit) &&
+      sessionsReturned >= sessionsLimit,
+  };
+}
+
+async function collectMonthToDateUsageRows({ monthWindow, tz, sessionsLimit, requestId }) {
+  const pendingWindows = [monthWindow];
+  const usageRows = [];
+
+  while (pendingWindows.length > 0) {
+    const window = pendingWindows.shift();
+    const windowUsage = await requestUsageWindow({ window, tz, sessionsLimit });
+
+    if (windowUsage.sessionsMayBeTruncated) {
+      const splitWindows = splitWindowByUtcDay(window);
+      if (splitWindows.length > 1) {
+        console.warn(
+          "[model-usage/live-weekly] month usage window may be truncated; splitting by UTC day",
+          {
+            from: new Date(window.fromMs).toISOString(),
+            to: new Date(window.toMs).toISOString(),
+            splitCount: splitWindows.length,
+            sessionsLimit,
+            requestId,
+          },
+        );
+        pendingWindows.unshift(...splitWindows);
+        continue;
+      }
+      console.warn(
+        "[model-usage/live-weekly] month usage single-day window may still be truncated",
+        {
+          from: new Date(window.fromMs).toISOString(),
+          to: new Date(window.toMs).toISOString(),
+          sessionsLimit,
+          requestId,
+        },
+      );
+    }
+
+    usageRows.push(...windowUsage.usageRows);
+  }
+
+  return usageRows;
 }
 
 function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
@@ -158,6 +368,11 @@ function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason, requ
       cacheWriteTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+    },
+    summary: {
+      weekSpend: 0,
+      monthSpend: 0,
+      topMonthModel: null,
     },
   };
 }
@@ -293,35 +508,57 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
+  const monthWindow = getLiveMonthWindow(tz, nowMs);
 
   try {
-    const payload = await requestSessionsUsage({
-      from: liveWindow.fromMs,
-      to: liveWindow.toMs,
-      timezone: tz,
-      limit: sessionsLimit,
+    const weeklyWindowUsage = await requestUsageWindow({
+      window: liveWindow,
+      tz,
+      sessionsLimit,
     });
-    const sessionsReturned = Array.isArray(payload?.result?.sessions)
-      ? payload.result.sessions.length
-      : null;
-    const maybeTruncated = Number.isFinite(sessionsReturned) && sessionsReturned >= sessionsLimit;
+    const maybeTruncated = weeklyWindowUsage.sessionsMayBeTruncated;
     if (maybeTruncated) {
       console.warn("[model-usage/live-weekly] sessions.usage result may be truncated by limit", {
-        sessionsReturned,
+        sessionsReturned: weeklyWindowUsage.sessionsReturned,
         sessionsLimit,
         requestId: requestContext.requestId,
       });
     }
 
+    const pricingCatalog = loadPricingCatalog();
+    const weeklyBreakdown = buildUsageBreakdown(
+      normalizeUsageRows(weeklyWindowUsage.usageRows),
+      pricingCatalog,
+    );
+
+    const monthUsageRows = await collectMonthToDateUsageRows({
+      monthWindow,
+      tz,
+      sessionsLimit,
+      requestId: requestContext.requestId,
+    });
+    const monthBreakdown = buildUsageBreakdown(
+      aggregateUsageRowsByModel(normalizeUsageRows(monthUsageRows)),
+      pricingCatalog,
+    );
+    const modelAliases = getModelAliasMap();
+    const summary = buildLiveWeeklySummary({
+      weeklyTotals: weeklyBreakdown.totals,
+      monthTotals: monthBreakdown.totals,
+      monthModels: monthBreakdown.models,
+      aliasMap: modelAliases,
+    });
+
     const responsePayload = buildLiveWeeklyResponsePayload({
-      usageRows: collectUsageRows(payload),
+      weeklyBreakdown,
+      summary,
       tz,
       liveWindow,
       nowMs,
       source: "sessions.usage+config-reprice",
       diagnostics: {
         sessionsLimit,
-        sessionsReturned,
+        sessionsReturned: weeklyWindowUsage.sessionsReturned,
         sessionsMayBeTruncated: maybeTruncated,
       },
     });

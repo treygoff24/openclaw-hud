@@ -26,6 +26,145 @@ HUD.models = (function () {
     return String(n);
   }
 
+  function formatCurrency(amount) {
+    return `$${asNumber(amount).toFixed(2)}`;
+  }
+
+  function pickFirstFinite(values, fallback) {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  }
+
+  function getShortModelName(modelName) {
+    const raw = String(modelName || "");
+    if (!raw) return "";
+    return raw.split("/").pop() || raw;
+  }
+
+  function getTopModelFromRows(rows) {
+    const ranked = (Array.isArray(rows) ? rows : [])
+      .filter(function (row) {
+        return row && typeof row === "object";
+      })
+      .sort(function (a, b) {
+        return asNumber(b.totalCost) - asNumber(a.totalCost);
+      });
+    if (ranked.length === 0) return null;
+    const top = ranked[0];
+    return {
+      modelName: top.model || top.id || "",
+      spend: asNumber(top.totalCost),
+    };
+  }
+
+  function normalizeTopModel(topModel) {
+    if (typeof topModel === "string") {
+      return { modelName: topModel, spend: 0 };
+    }
+
+    if (!topModel || typeof topModel !== "object") return null;
+
+    return {
+      modelName:
+        topModel.alias ||
+        topModel.model ||
+        topModel.id ||
+        topModel.name ||
+        topModel.modelName ||
+        "",
+      spend: pickFirstFinite(
+        [topModel.totalCost, topModel.spend, topModel.cost, topModel.totalSpend],
+        0,
+      ),
+    };
+  }
+
+  function buildUsageSummary(usagePayload, rows) {
+    const payload = usagePayload && typeof usagePayload === "object" ? usagePayload : {};
+    const payloadSummary =
+      payload.summary && typeof payload.summary === "object" ? payload.summary : {};
+    const weeklySpend = pickFirstFinite(
+      [
+        payloadSummary.weekSpend,
+        payload?.totals?.totalCost,
+        (Array.isArray(rows) ? rows : []).reduce(function (sum, row) {
+          return sum + asNumber(row?.totalCost);
+        }, 0),
+      ],
+      0,
+    );
+
+    const monthlySpend = pickFirstFinite(
+      [
+        payloadSummary.monthSpend,
+        payload?.month?.totalCost,
+        payload?.monthToDate?.totalCost,
+        payload?.totals?.monthTotalCost,
+        payload?.totals?.monthSpend,
+        payload?.meta?.month?.totalCost,
+        payload?.meta?.monthToDate?.totalCost,
+        payload?.meta?.monthToDateCost,
+        payload?.meta?.monthSpend,
+      ],
+      weeklySpend,
+    );
+
+    const explicitTop = normalizeTopModel(
+      payloadSummary.topMonthModel ||
+        payload?.month?.topModel ||
+        payload?.monthToDate?.topModel ||
+        payload?.meta?.topMonthModel ||
+        payload?.meta?.monthTopModel,
+    );
+    const monthModels = Array.isArray(payload?.month?.models)
+      ? payload.month.models
+      : Array.isArray(payload?.monthToDate?.models)
+        ? payload.monthToDate.models
+        : [];
+    const derivedTopFromMonthRows = getTopModelFromRows(monthModels);
+    const derivedTopFromWeeklyRows = getTopModelFromRows(rows);
+    const topModel = explicitTop || derivedTopFromMonthRows || derivedTopFromWeeklyRows;
+    const topModelName = topModel?.modelName || "";
+    const topModelSpend = pickFirstFinite([topModel?.spend], 0);
+
+    return {
+      weeklySpend,
+      monthlySpend,
+      topModelName,
+      topModelSpend,
+    };
+  }
+
+  function renderSummaryCards(summary) {
+    const topModelDisplay = summary.topModelName
+      ? `${getShortModelName(summary.topModelName)} · ${formatCurrency(summary.topModelSpend)}`
+      : "—";
+
+    const cards = [
+      { label: "THIS WEEK SPEND", value: formatCurrency(summary.weeklySpend) },
+      { label: "THIS MONTH SPEND", value: formatCurrency(summary.monthlySpend) },
+      { label: "TOP MONTH MODEL", value: topModelDisplay },
+    ];
+
+    return `<div class="model-summary-grid">${cards
+      .map(function (card) {
+        return `<div class="model-summary-card">
+          <div class="model-summary-label">${escape(card.label)}</div>
+          <div class="model-summary-value">${escape(card.value)}</div>
+        </div>`;
+      })
+      .join("")}</div>`;
+  }
+
+  function updateMonthlySpendStat(summary) {
+    const statEl = $("#stat-monthly-spend");
+    if (!statEl) return;
+    statEl.textContent = formatCurrency(summary.monthlySpend);
+  }
+
   function normalizeRows(usage) {
     const payload = usage && typeof usage === "object" ? usage : {};
 
@@ -122,24 +261,29 @@ HUD.models = (function () {
     const mount = $("#model-usage");
     if (!mount) return;
 
-    const debug = getErrorDebugInfo(usage, responseMeta);
-    if (debug) {
-      renderErrorPanel(mount, debug);
-      return;
-    }
-
     const normalized = normalizeRows(usage);
-    const meta = normalized.meta;
-    const rows = normalized.rows
+    const sortedRows = normalized.rows
       .filter(function (row) {
         return row && typeof row === "object";
       })
       .sort(function (a, b) {
         return asNumber(b.totalTokens) - asNumber(a.totalTokens);
       });
+    const summary = buildUsageSummary(usage, sortedRows);
+    updateMonthlySpendStat(summary);
+
+    const debug = getErrorDebugInfo(usage, responseMeta);
+    if (debug) {
+      renderErrorPanel(mount, debug);
+      return;
+    }
+
+    const meta = normalized.meta;
+    const rows = sortedRows;
 
     const max = asNumber(rows[0]?.totalTokens) || 1;
-    const periodLabel = `<div class="models-period-label" style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px;margin-bottom:8px;">This week (Sun → now, ${escape(meta.tz || "local")})</div>`;
+    const periodLabel = `<div class="models-period-label">This week (Sun → now, ${escape(meta.tz || "local")})</div>`;
+    const summaryCards = renderSummaryCards(summary);
 
     const body = rows
       .map(function (data, i) {
@@ -178,6 +322,7 @@ HUD.models = (function () {
 
     mount.innerHTML =
       periodLabel +
+      summaryCards +
       (body ||
         '<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:13px;">No model data yet</div>');
   }

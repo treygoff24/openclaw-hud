@@ -49,6 +49,35 @@ test.describe("Dashboard Panels", () => {
     await expect(statusPanel).toContainText("18789");
   });
 
+  test("system channels/providers render as wrapped tags", async ({ page }) => {
+    const statusPanel = page.locator("#p-system");
+    await expect(statusPanel.locator(".sys-tag-list").first()).toBeVisible();
+    await expect(statusPanel.locator(".sys-tag", { hasText: "discord" })).toBeVisible();
+    await expect(statusPanel.locator(".sys-tag", { hasText: "telegram" })).toBeVisible();
+
+    const displayValue = await statusPanel
+      .locator(".sys-tag-list")
+      .first()
+      .evaluate((el) => {
+        return window.getComputedStyle(el).display;
+      });
+    expect(displayValue).toBe("flex");
+  });
+
+  test("model usage panel shows summary cards and monthly spend stat", async ({ page }) => {
+    const usagePanel = page.locator("#p-models");
+    await expect(usagePanel).toContainText("MODEL USAGE");
+
+    await expect(usagePanel.locator(".model-summary-card")).toHaveCount(3);
+    await expect(usagePanel).toContainText("THIS WEEK SPEND");
+    await expect(usagePanel).toContainText("THIS MONTH SPEND");
+    await expect(usagePanel).toContainText("TOP MONTH MODEL");
+
+    const monthStat = page.locator("#stat-monthly-spend");
+    await expect(monthStat).toBeVisible();
+    await expect(monthStat).toContainText("$");
+  });
+
   test("model usage panel shows either live data or empty-state message", async ({ page }) => {
     const usagePanel = page.locator("#p-models");
     await expect(usagePanel).toContainText("MODEL USAGE");
@@ -75,6 +104,14 @@ test.describe("Dashboard Panels", () => {
     await page.waitForTimeout(1100);
     const time2 = await clock.textContent();
     expect(time1).not.toBe(time2);
+  });
+
+  test("panel header typography is increased", async ({ page }) => {
+    const header = page.locator(".panel-header").first();
+    const fontSize = await header.evaluate((el) => {
+      return Number.parseFloat(window.getComputedStyle(el).fontSize || "0");
+    });
+    expect(fontSize).toBeGreaterThanOrEqual(14);
   });
 
   test("agent search/filter works", async ({ page }) => {

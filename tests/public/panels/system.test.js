@@ -30,10 +30,16 @@ describe("system.render", () => {
       channels: ["discord", "telegram"],
       providers: ["openai", "anthropic"],
     });
-    const html = document.getElementById("system-info").innerHTML;
+    const root = document.getElementById("system-info");
+    const html = root.innerHTML;
     expect(html).toContain("anthropic/claude-sonnet-4");
     expect(html).toContain("18789");
-    expect(html).toContain("discord, telegram");
+
+    const lists = root.querySelectorAll(".sys-tag-list");
+    expect(lists.length).toBeGreaterThanOrEqual(2);
+    const tags = root.querySelectorAll(".sys-tag");
+    expect(tags.length).toBeGreaterThanOrEqual(4);
+    expect(html).not.toContain("discord, telegram");
   });
 
   it("sets sys-model text", () => {

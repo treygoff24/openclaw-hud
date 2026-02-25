@@ -109,7 +109,7 @@ describe("GET /api/model-usage/live-weekly", () => {
     const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body)).toEqual(["meta", "models", "totals"]);
+    expect(Object.keys(res.body)).toEqual(["meta", "models", "totals", "summary"]);
 
     expect(res.body.meta).toMatchObject({
       period: "live-weekly",
@@ -167,6 +167,16 @@ describe("GET /api/model-usage/live-weekly", () => {
       cacheWriteTokens: 2,
       totalTokens: 57,
       totalCost: 0.000727,
+    });
+
+    expect(res.body.summary).toMatchObject({
+      weekSpend: 0.000727,
+      monthSpend: 0.000727,
+      topMonthModel: {
+        model: "gpt-5",
+        alias: "gpt-5",
+        totalCost: 0.000727,
+      },
     });
   });
 
@@ -296,15 +306,22 @@ describe("GET /api/model-usage/live-weekly", () => {
     await request(createApp()).get("/api/model-usage/live-weekly");
 
     const expected = getLiveWeekWindow(TEST_TZ, now);
-    const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
+    const weekArgs = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
+    const monthArgs = usageRpc.requestSessionsUsage.mock.calls[1]?.[0];
 
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
-    expect(args).toEqual({
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(weekArgs).toEqual({
       from: expected.fromMs,
       to: expected.toMs,
       timezone: TEST_TZ,
       limit: 500,
     });
+    expect(monthArgs).toMatchObject({
+      to: expected.toMs,
+      timezone: TEST_TZ,
+      limit: 500,
+    });
+    expect(monthArgs.from).toBeLessThanOrEqual(weekArgs.from);
   });
 
   it("uses configured sessions limit and marks potential truncation diagnostics", async () => {
@@ -336,6 +353,131 @@ describe("GET /api/model-usage/live-weekly", () => {
       sessionsLimit: 3,
       sessionsReturned: 3,
       sessionsMayBeTruncated: true,
+    });
+  });
+
+  it("adds summary with weekSpend/monthSpend/topMonthModel using month-to-date usage", async () => {
+    usageRpc.requestSessionsUsage
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 30,
+                output: 20,
+                cacheRead: 5,
+                cacheWrite: 2,
+                totalTokens: 57,
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 3_000,
+                output: 1_000,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 4_000,
+              },
+            },
+          ],
+        },
+      });
+
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary.weekSpend).toBeCloseTo(res.body.totals.totalCost, 12);
+    expect(res.body.summary.monthSpend).toBeCloseTo(0.05, 12);
+    expect(res.body.summary.topMonthModel).toEqual({
+      model: "gpt-5",
+      alias: "gpt-5",
+      totalCost: 0.05,
+    });
+  });
+
+  it("re-queries month usage in smaller windows when month-to-date call is truncated", async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "2";
+    const now = Date.parse("2026-01-02T18:00:00-06:00");
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    usageRpc.requestSessionsUsage
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 1_000, output: 0, totalTokens: 1_000 },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          sessions: [{ id: "s1" }, { id: "s2" }],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 100, output: 0, totalTokens: 100 },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          sessions: [{ id: "s3" }],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 2_000, output: 0, totalTokens: 2_000 },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          sessions: [{ id: "s4" }],
+          rows: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: { input: 3_000, output: 0, totalTokens: 3_000 },
+            },
+          ],
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        result: { sessions: [], rows: [] },
+      });
+
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
+
+    expect(res.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect(res.body.summary.monthSpend).toBeCloseTo(0.05, 12);
+    expect(res.body.summary.topMonthModel).toEqual({
+      model: "gpt-5",
+      alias: "gpt-5",
+      totalCost: 0.05,
     });
   });
 
@@ -396,7 +538,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).toBe(first.body.meta.generatedAt);
   });
 
@@ -431,7 +573,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
@@ -467,7 +609,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
@@ -502,7 +644,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 

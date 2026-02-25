@@ -23,6 +23,27 @@ function formatHostForUrl(host) {
   return normalized;
 }
 
+function normalizeUptimeMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
+function readGatewaySnapshotUptimeMs(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const candidates = [
+    snapshot.uptimeMs,
+    snapshot.gatewayUptimeMs,
+    snapshot.system && snapshot.system.uptimeMs,
+    snapshot.runtime && snapshot.runtime.uptimeMs,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeUptimeMs(candidate);
+    if (normalized !== null) return normalized;
+  }
+  return null;
+}
+
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
 const gatewayHost = gwConfig.host || gwConfig.bind || "127.0.0.1";
@@ -31,6 +52,17 @@ const gatewayWS = new GatewayWS({
   token: gwConfig.token,
   reconnect: { enabled: true, baseDelayMs: 1000, maxDelayMs: 30000, jitter: true },
 });
+
+function createGatewayStatusPayload(status) {
+  const payload = { type: "gateway-status", status };
+  if (status === "connected") {
+    const uptimeMs = readGatewaySnapshotUptimeMs(gatewayWS.snapshot);
+    if (uptimeMs !== null) {
+      payload.uptimeMs = uptimeMs;
+    }
+  }
+  return payload;
+}
 
 // Static files
 app.use(express.static(path.join(__dirname, "public")));
@@ -54,24 +86,18 @@ function broadcastAll(data) {
 }
 wss.on("connection", (socket) => {
   if (socket.readyState !== 1) return;
-  socket.send(
-    JSON.stringify({
-      type: "gateway-status",
-      status: gatewayWS.connected ? "connected" : "disconnected",
-    }),
-  );
+  const status = gatewayWS.connected ? "connected" : "disconnected";
+  socket.send(JSON.stringify(createGatewayStatusPayload(status)));
 });
 setInterval(() => broadcastAll({ type: "tick", timestamp: Date.now() }), 10000);
 
 // Gateway status broadcasts
-gatewayWS.on("connected", () => broadcastAll({ type: "gateway-status", status: "connected" }));
-gatewayWS.on("disconnected", () =>
-  broadcastAll({ type: "gateway-status", status: "disconnected" }),
-);
+gatewayWS.on("connected", () => broadcastAll(createGatewayStatusPayload("connected")));
+gatewayWS.on("disconnected", () => broadcastAll(createGatewayStatusPayload("disconnected")));
 gatewayWS.on("error", (err) => {
   const message = err instanceof Error ? err.message : String(err);
   console.error("Gateway WS error:", message);
-  broadcastAll({ type: "gateway-status", status: "disconnected" });
+  broadcastAll(createGatewayStatusPayload("disconnected"));
 });
 
 // Connect (non-blocking)

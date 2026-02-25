@@ -59,6 +59,7 @@
       wsLogPrefix: wsLogPrefix,
       fetchAll: HUD.fetchAll,
       setConnectionStatus: statusController.setConnectionStatus,
+      setGatewayUptimeSnapshot: statusController.setGatewayUptimeSnapshot,
       startPolling: pollingController.start,
       stopPolling: pollingController.stop,
       wsUrlFactory: function () {

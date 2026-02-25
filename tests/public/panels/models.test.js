@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 
-document.body.innerHTML = '<div id="model-usage"></div>';
+document.body.innerHTML = '<div id="model-usage"></div><span id="stat-monthly-spend">—</span>';
 window.HUD = window.HUD || {};
 window.escapeHtml = function (s) {
   if (s == null) return "";
@@ -36,6 +36,7 @@ describe("formatTokens", () => {
 describe("render", () => {
   beforeEach(() => {
     document.getElementById("model-usage").innerHTML = "";
+    document.getElementById("stat-monthly-spend").textContent = "—";
   });
 
   it("renders model bars from live-weekly contract and period label", () => {
@@ -53,7 +54,17 @@ describe("render", () => {
           agents: { myAgent: { totalTokens: 5000 } },
         },
       ],
-      totals: { totalTokens: 5000 },
+      totals: { totalTokens: 5000, totalCost: 0.15 },
+      // Summary should be the primary source for week/month/top model cards.
+      summary: {
+        weekSpend: 0.22,
+        monthSpend: 1.23,
+        topMonthModel: {
+          model: "anthropic/claude-sonnet-4",
+          alias: "claude-sonnet-4",
+          totalCost: 0.87,
+        },
+      },
     });
 
     const el = document.getElementById("model-usage");
@@ -63,6 +74,16 @@ describe("render", () => {
     );
     expect(el.querySelector(".model-bar-label").textContent).toContain("gpt-4");
     expect(el.querySelector(".token-cost").textContent).toBe("$0.15");
+
+    const cards = el.querySelectorAll(".model-summary-card");
+    expect(cards).toHaveLength(3);
+    expect(cards[0].textContent).toContain("THIS WEEK SPEND");
+    expect(cards[0].textContent).toContain("$0.22");
+    expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).toContain("$1.23");
+    expect(cards[2].textContent).toContain("TOP MONTH MODEL");
+    expect(cards[2].textContent).toContain("claude-sonnet-4 · $0.87");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$1.23");
   });
 
   it("renders empty state for missing/empty models array", () => {
@@ -71,6 +92,29 @@ describe("render", () => {
 
     HUD.models.render(null);
     expect(document.getElementById("model-usage").textContent).toContain("No model data yet");
+  });
+
+  it("falls back monthly spend/top model when monthly payload is unavailable", () => {
+    HUD.models.render({
+      meta: { tz: "UTC" },
+      models: [
+        {
+          provider: "b",
+          model: "big",
+          totalTokens: 9000,
+          inputTokens: 5000,
+          outputTokens: 4000,
+          cacheReadTokens: 0,
+          totalCost: 0.99,
+        },
+      ],
+      totals: { totalTokens: 9100, totalCost: 0.99 },
+    });
+
+    const cards = document.querySelectorAll(".model-summary-card");
+    expect(cards[1].textContent).toContain("$0.99");
+    expect(cards[2].textContent).toContain("big · $0.99");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$0.99");
   });
 
   it("sorts by totalTokens descending", () => {

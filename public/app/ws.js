@@ -14,6 +14,7 @@
     const wsLogPrefix = opts.wsLogPrefix || "[HUD-WS]";
     const fetchAll = opts.fetchAll;
     const setConnectionStatus = opts.setConnectionStatus;
+    const setGatewayUptimeSnapshot = opts.setGatewayUptimeSnapshot;
     const startPolling = opts.startPolling;
     const stopPolling = opts.stopPolling;
     const wsUrlFactory =
@@ -131,6 +132,9 @@
         const data = JSON.parse(event.data);
         if (data.type === "tick") {
           fetchAll();
+        }
+        if (data.type === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
+          setGatewayUptimeSnapshot(data.uptimeMs);
         }
         if (window.handleChatWsMessage) {
           window.handleChatWsMessage(data);

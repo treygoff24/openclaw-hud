@@ -204,6 +204,91 @@ describe("clock and uptime", () => {
   });
 });
 
+function uptimeToSeconds(text) {
+  const parts = String(text || "")
+    .split(":")
+    .map((part) => Number(part));
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return -1;
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+describe("gateway runtime uptime", () => {
+  it("uses gateway-status uptimeMs instead of page-open uptime", async () => {
+    const ws = getLatestWs();
+    if (ws.onmessage) {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: "gateway-status",
+          status: "connected",
+          uptimeMs: 5 * 60 * 1000,
+        }),
+      });
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+    const uptime = document.getElementById("stat-uptime").textContent;
+    expect(uptimeToSeconds(uptime)).toBe(300);
+  });
+
+  it("increments from the latest gateway uptime snapshot", async () => {
+    const ws = getLatestWs();
+    if (ws.onmessage) {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: "gateway-status",
+          status: "connected",
+          uptimeMs: 2000,
+        }),
+      });
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+    const before = uptimeToSeconds(document.getElementById("stat-uptime").textContent);
+
+    await new Promise((r) => setTimeout(r, 2200));
+    const after = uptimeToSeconds(document.getElementById("stat-uptime").textContent);
+
+    expect(before).toBe(2);
+    expect(after).toBeGreaterThanOrEqual(before + 1);
+  });
+
+  it("resets baseline when a new gateway uptime arrives after reconnect", async () => {
+    const ws = getLatestWs();
+
+    if (ws.onmessage) {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: "gateway-status",
+          status: "connected",
+          uptimeMs: 11 * 60 * 1000,
+        }),
+      });
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+    expect(uptimeToSeconds(document.getElementById("stat-uptime").textContent)).toBe(660);
+
+    if (ws.onmessage) {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: "gateway-status",
+          status: "disconnected",
+        }),
+      });
+      ws.onmessage({
+        data: JSON.stringify({
+          type: "gateway-status",
+          status: "connected",
+          uptimeMs: 4000,
+        }),
+      });
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+    expect(uptimeToSeconds(document.getElementById("stat-uptime").textContent)).toBe(4);
+  });
+});
+
 describe("event delegation", () => {
   beforeEach(() => {
     window.openChatPane = openChatPaneMock;
