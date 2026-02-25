@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.ChatCommandsModules = window.ChatCommandsModules || {};
 
@@ -14,7 +14,7 @@
   function find(input) {
     if (!input || input.length < 1) return null;
 
-    input = input.toLowerCase().replace(/^\//, '');
+    input = input.toLowerCase().replace(/^\//, "");
 
     let bestMatch = null;
     let bestScore = 0;
@@ -42,7 +42,7 @@
   function search(input) {
     if (!input || input.length < 1) return getAll();
 
-    input = input.toLowerCase().replace(/^\//, '');
+    input = input.toLowerCase().replace(/^\//, "");
 
     const results = [];
     for (const cmd of catalog.commands) {
@@ -66,27 +66,27 @@
       }
     }
 
-    results.sort(function(a, b) {
+    results.sort(function (a, b) {
       return b.score - a.score;
     });
-    return results.map(function(r) {
+    return results.map(function (r) {
       return r.command;
     });
   }
 
   function parse(input) {
-    if (!input || !input.startsWith('/')) {
-      return { isCommand: false, command: null, args: '' };
+    if (!input || !input.startsWith("/")) {
+      return { isCommand: false, command: null, args: "" };
     }
 
     const trimmed = input.slice(1).trim();
-    const firstSpace = trimmed.indexOf(' ');
+    const firstSpace = trimmed.indexOf(" ");
 
     let command;
     let args;
     if (firstSpace === -1) {
       command = trimmed;
-      args = '';
+      args = "";
     } else {
       command = trimmed.substring(0, firstSpace);
       args = trimmed.substring(firstSpace + 1).trim();
@@ -99,6 +99,6 @@
     getAll: getAll,
     find: find,
     search: search,
-    parse: parse
+    parse: parse,
   };
 })();

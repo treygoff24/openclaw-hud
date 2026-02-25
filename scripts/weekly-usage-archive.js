@@ -3,16 +3,16 @@
 // Archives weekly usage windows ending at the current week boundary in HUD_USAGE_TZ.
 // Automatically backfills missed weekly windows and treats EEXIST writes as idempotent success.
 
-const { getLiveWeekWindow } = require('../lib/helpers');
-const { requestSessionsUsage } = require('../lib/usage-rpc');
-const { loadPricingCatalog, repriceModelUsageRows } = require('../lib/pricing');
-const { writeWeeklySnapshot, readWeeklyHistory } = require('../lib/usage-archive');
-const { normalizeModelRow, collectUsageRows } = require('../lib/usage-normalize');
+const { getLiveWeekWindow } = require("../lib/helpers");
+const { requestSessionsUsage } = require("../lib/usage-rpc");
+const { loadPricingCatalog, repriceModelUsageRows } = require("../lib/pricing");
+const { writeWeeklySnapshot, readWeeklyHistory } = require("../lib/usage-archive");
+const { normalizeModelRow, collectUsageRows } = require("../lib/usage-normalize");
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getArchiveWeekWindows(options = {}, deps = {}) {
-  const tz = options.tz || process.env.HUD_USAGE_TZ || 'America/Chicago';
+  const tz = options.tz || process.env.HUD_USAGE_TZ || "America/Chicago";
   const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
   const currentWeekWindow = getLiveWeekWindow(tz, nowMs);
   const previousWeekStartMs = currentWeekWindow.fromMs - ONE_WEEK_MS;
@@ -22,7 +22,7 @@ function getArchiveWeekWindows(options = {}, deps = {}) {
 
   let latestArchivedWeekStartMs = null;
   for (const snapshot of readHistory(readHistoryOptions)) {
-    const weekStartMs = Date.parse(snapshot?.meta?.weekStart || '');
+    const weekStartMs = Date.parse(snapshot?.meta?.weekStart || "");
     if (!Number.isFinite(weekStartMs)) continue;
     if (weekStartMs >= currentWeekWindow.fromMs) continue;
     if (latestArchivedWeekStartMs === null || weekStartMs > latestArchivedWeekStartMs) {
@@ -86,12 +86,12 @@ function buildWeeklySnapshot(payload, { tz, weekStartMs, weekEndMs, generatedAtM
 
   return {
     meta: {
-      period: 'weekly',
+      period: "weekly",
       tz,
       weekStart: new Date(weekStartMs).toISOString(),
       now: new Date(weekEndMs).toISOString(),
       generatedAt: new Date(generatedAtMs).toISOString(),
-      source: 'sessions.usage+config-reprice',
+      source: "sessions.usage+config-reprice",
       missingPricingModels,
     },
     models,
@@ -100,7 +100,7 @@ function buildWeeklySnapshot(payload, { tz, weekStartMs, weekEndMs, generatedAtM
 }
 
 async function archiveWeeklyUsage(options = {}, deps = {}) {
-  const tz = options.tz || process.env.HUD_USAGE_TZ || 'America/Chicago';
+  const tz = options.tz || process.env.HUD_USAGE_TZ || "America/Chicago";
   const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
 
   const requestUsage = deps.requestSessionsUsage || requestSessionsUsage;
@@ -145,7 +145,7 @@ async function archiveWeeklyUsage(options = {}, deps = {}) {
       archivedCount += 1;
       lastPath = writeResult?.path || null;
     } catch (error) {
-      if (error && error.code === 'EEXIST') {
+      if (error && error.code === "EEXIST") {
         alreadyArchivedCount += 1;
         continue;
       }

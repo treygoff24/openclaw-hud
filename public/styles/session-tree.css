@@ -1,10 +1,20 @@
 /* Session Tree */
-#p-tree .panel-body { max-height: 500px; }
+#p-tree .panel-body {
+  max-height: 500px;
+}
 
-.tree-root { padding: 0; }
-.tree-children { padding-left: 0; }
-.tree-children.collapsed { display: none; }
-.tree-node { position: relative; }
+.tree-root {
+  padding: 0;
+}
+.tree-children {
+  padding-left: 0;
+}
+.tree-children.collapsed {
+  display: none;
+}
+.tree-node {
+  position: relative;
+}
 .tree-node-content {
   display: flex;
   align-items: center;
@@ -16,17 +26,17 @@
   outline: none;
 }
 .tree-node-content:hover {
-  background: rgba(0,229,255,0.06);
+  background: rgba(0, 229, 255, 0.06);
 }
 .tree-node-content:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: -2px;
-  background: rgba(0,229,255,0.1);
+  background: rgba(0, 229, 255, 0.1);
 }
 .tree-node-content.focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: -2px;
-  background: rgba(0,229,255,0.1);
+  background: rgba(0, 229, 255, 0.1);
 }
 
 .tree-indent {
@@ -50,7 +60,9 @@
   border-radius: 2px;
   outline: none;
 }
-.tree-toggle:hover { color: var(--cyan); }
+.tree-toggle:hover {
+  color: var(--cyan);
+}
 .tree-toggle:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
@@ -114,7 +126,7 @@
   font-size: var(--fs-base);
   color: var(--amber);
   font-family: var(--font-mono);
-  background: rgba(255,171,0,0.1);
+  background: rgba(255, 171, 0, 0.1);
   padding: 0 5px;
   border-radius: 2px;
   flex-shrink: 0;

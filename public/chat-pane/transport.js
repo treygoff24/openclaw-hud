@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
   var runtime = window.ChatPaneRuntime || (window.ChatPaneRuntime = {});
   var constants = runtime.constants;
 
@@ -7,14 +7,14 @@
 
   function sendWs(msg) {
     var payload = {
-      type: msg && msg.type ? msg.type : '',
-      sessionKey: msg && msg.sessionKey ? msg.sessionKey : '',
+      type: msg && msg.type ? msg.type : "",
+      sessionKey: msg && msg.sessionKey ? msg.sessionKey : "",
       queueLength: wsQueue.length,
     };
 
     if (window._hudWs && window._hudWs.readyState === WebSocket.OPEN) {
       window._hudWs.send(JSON.stringify(msg));
-      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'send_open', {
+      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "send_open", {
         type: payload.type,
         sessionKey: payload.sessionKey,
         queueLength: wsQueue.length,
@@ -23,13 +23,13 @@
     }
 
     if (
-      payload.type === 'chat-history' &&
+      payload.type === "chat-history" &&
       payload.sessionKey &&
-      wsQueue.some(function(queued) {
-        return queued && queued.type === 'chat-history' && queued.sessionKey === payload.sessionKey;
+      wsQueue.some(function (queued) {
+        return queued && queued.type === "chat-history" && queued.sessionKey === payload.sessionKey;
       })
     ) {
-      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'queue_skip_duplicate', {
+      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "queue_skip_duplicate", {
         type: payload.type,
         sessionKey: payload.sessionKey,
         queueLength: wsQueue.length,
@@ -40,14 +40,14 @@
     wsQueue.push(msg);
     payload.queueLength = wsQueue.length;
 
-    if (payload.type === 'chat-subscribe' || payload.type === 'chat-history') {
-      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'queue_enqueue', payload);
+    if (payload.type === "chat-subscribe" || payload.type === "chat-history") {
+      runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "queue_enqueue", payload);
     }
-    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'send_deferred', payload);
+    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "send_deferred", payload);
   }
 
   function flushWsQueue() {
-    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'queue_flush_start', {
+    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "queue_flush_start", {
       queued: wsQueue.length,
     });
 
@@ -63,7 +63,7 @@
       }
     }
 
-    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, 'queue_flush_end', {
+    runtime.hudDiagLog(constants.CHAT_LOG_PREFIX, "queue_flush_end", {
       flushed: flushed,
       remaining: wsQueue.length,
     });

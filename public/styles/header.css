@@ -5,11 +5,11 @@
   justify-content: space-between;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border-dim);
-  background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.05) 0%, transparent 100%);
   position: relative;
 }
 .hud-header::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: 0;
   left: 0;
@@ -28,10 +28,11 @@
   font-family: var(--font-mono);
   font-size: var(--fs-display);
   color: var(--amber);
-  text-shadow: 0 0 10px rgba(255,171,0,0.3);
+  text-shadow: 0 0 10px rgba(255, 171, 0, 0.3);
 }
 .hud-status-dot {
-  width: 8px; height: 8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 8px var(--green);
@@ -40,8 +41,13 @@
   animation: pulse-dot 2s infinite;
 }
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 /* Glitch Logo */
@@ -51,14 +57,19 @@
   font-size: 1.8rem;
   letter-spacing: 0.15em;
   color: var(--cyan);
-  text-shadow: 0 0 20px rgba(0,229,255,0.4), 0 0 40px rgba(0,229,255,0.1);
+  text-shadow:
+    0 0 20px rgba(0, 229, 255, 0.4),
+    0 0 40px rgba(0, 229, 255, 0.1);
   position: relative;
 }
 .logo-glitch::before,
 .logo-glitch::after {
   content: attr(data-text);
-  position: absolute; left: 0; top: 0;
-  width: 100%; height: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 .logo-glitch::before {
@@ -72,19 +83,41 @@
   clip-path: inset(65% 0 0 0);
 }
 @keyframes glitch1 {
-  0%, 95%, 100% { transform: translateX(0); }
-  96% { transform: translateX(-3px); }
-  97% { transform: translateX(3px); }
+  0%,
+  95%,
+  100% {
+    transform: translateX(0);
+  }
+  96% {
+    transform: translateX(-3px);
+  }
+  97% {
+    transform: translateX(3px);
+  }
 }
 @keyframes glitch2 {
-  0%, 93%, 100% { transform: translateX(0); }
-  94% { transform: translateX(4px); }
-  95% { transform: translateX(-2px); }
+  0%,
+  93%,
+  100% {
+    transform: translateX(0);
+  }
+  94% {
+    transform: translateX(4px);
+  }
+  95% {
+    transform: translateX(-2px);
+  }
 }
 
 /* Summary Stats Bar */
-.header-right { display: flex; align-items: center; gap: 24px; }
-.stat-block { text-align: center; }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.stat-block {
+  text-align: center;
+}
 .stat-label {
   display: block;
   font-family: var(--font-mono);
@@ -101,7 +134,7 @@
 }
 .stat-value.neon-cyan {
   color: var(--cyan);
-  text-shadow: 0 0 10px rgba(0,229,255,0.3);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
 .header-divider {
   width: 1px;
@@ -110,9 +143,16 @@
 }
 
 @media (max-width: 1024px) {
-  .header-right .stat-block { display: none; }
-  .header-divider { display: none; }
+  .header-right .stat-block {
+    display: none;
+  }
+  .header-divider {
+    display: none;
+  }
 }
 @media (max-width: 768px) {
-  .hud-header { flex-wrap: wrap; gap: 8px; }
+  .hud-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }

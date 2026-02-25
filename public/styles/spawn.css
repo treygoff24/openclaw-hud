@@ -17,7 +17,9 @@
 }
 
 /* Spawn Modal */
-.spawn-modal-content { max-width: 640px; }
+.spawn-modal-content {
+  max-width: 640px;
+}
 
 .label-hint {
   font-size: var(--fs-xs);

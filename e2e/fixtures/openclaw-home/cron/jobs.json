@@ -18,7 +18,12 @@
       "agentId": "test-agent",
       "sessionTarget": "isolated",
       "schedule": { "kind": "cron", "expr": "0 17 * * 5", "tz": "America/Chicago" },
-      "payload": { "kind": "agentTurn", "message": "Generate a weekly summary report.", "model": "anthropic/claude-sonnet-4", "timeoutSeconds": 300 },
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Generate a weekly summary report.",
+        "model": "anthropic/claude-sonnet-4",
+        "timeoutSeconds": 300
+      },
       "state": { "lastStatus": "skipped" }
     },
     {

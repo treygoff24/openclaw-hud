@@ -4,12 +4,16 @@
   gap: 12px;
   align-items: flex-start;
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(26,30,53,0.5);
+  border-bottom: 1px solid rgba(26, 30, 53, 0.5);
   cursor: pointer;
   transition: background 0.15s;
 }
-.cron-row-v2:hover { background: rgba(0,229,255,0.04); }
-.cron-main { flex: 1; }
+.cron-row-v2:hover {
+  background: rgba(0, 229, 255, 0.04);
+}
+.cron-main {
+  flex: 1;
+}
 .cron-name {
   font-family: var(--font-mono);
   font-size: var(--fs-xxl);
@@ -72,5 +76,9 @@
 }
 
 /* Cron Edit Form */
-.cron-edit-modal { max-width: 700px; }
-.cron-form-grid { gap: 0 20px; }
+.cron-edit-modal {
+  max-width: 700px;
+}
+.cron-form-grid {
+  gap: 0 20px;
+}

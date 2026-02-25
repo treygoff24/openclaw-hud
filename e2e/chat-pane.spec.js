@@ -1,75 +1,75 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require("@playwright/test");
 
-test.describe('Chat Pane', () => {
+test.describe("Chat Pane", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.tree-node-content');
+    await page.goto("/");
+    await page.waitForSelector(".tree-node-content");
   });
 
   async function openSession(page, sessionId) {
     await page.locator(`.tree-node-content[data-session="${sessionId}"]`).first().click();
-    await page.waitForSelector('.chat-open');
+    await page.waitForSelector(".chat-open");
     // Wait for chat history to load - use data-ready attribute for reliability
-    const messagesContainer = page.locator('#chat-messages');
-    await messagesContainer.waitFor({ state: 'visible' });
+    const messagesContainer = page.locator("#chat-messages");
+    await messagesContainer.waitFor({ state: "visible" });
     // Wait for the ready signal from the app
-    await expect(messagesContainer).toHaveAttribute('data-ready', 'true', { timeout: 10000 });
+    await expect(messagesContainer).toHaveAttribute("data-ready", "true", { timeout: 10000 });
   }
 
-  test('click session in tree opens chat pane', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await expect(page.locator('.hud-layout')).toHaveClass(/chat-open/);
+  test("click session in tree opens chat pane", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await expect(page.locator(".hud-layout")).toHaveClass(/chat-open/);
   });
 
-  test('chat pane header shows agent ID and session info', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await expect(page.locator('#chat-title')).toContainText('test-agent');
+  test("chat pane header shows agent ID and session info", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await expect(page.locator("#chat-title")).toContainText("test-agent");
   });
 
-  test('message area displays messages from fixture', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await page.waitForSelector('.chat-msg');
-    const msgs = page.locator('.chat-msg');
+  test("message area displays messages from fixture", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await page.waitForSelector(".chat-msg");
+    const msgs = page.locator(".chat-msg");
     await expect(msgs).not.toHaveCount(0);
-    await expect(page.locator('#chat-messages')).toContainText('Hello, can you help me');
+    await expect(page.locator("#chat-messages")).toContainText("Hello, can you help me");
   });
 
-  test('close button closes pane', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await page.click('#chat-close');
-    await expect(page.locator('.hud-layout')).not.toHaveClass(/chat-open/);
+  test("close button closes pane", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await page.click("#chat-close");
+    await expect(page.locator(".hud-layout")).not.toHaveClass(/chat-open/);
   });
 
-  test('escape closes pane when no modal open', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.hud-layout')).not.toHaveClass(/chat-open/);
+  test("escape closes pane when no modal open", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".hud-layout")).not.toHaveClass(/chat-open/);
   });
 
-  test('click different session swaps content', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await page.waitForSelector('.chat-msg');
-    await expect(page.locator('#chat-title')).toContainText('main');
+  test("click different session swaps content", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await page.waitForSelector(".chat-msg");
+    await expect(page.locator("#chat-title")).toContainText("main");
 
-    await openSession(page, 'sess-abc-002');
-    await expect(page.locator('#chat-title')).toContainText('research-task');
-    await page.waitForSelector('.chat-msg');
-    await expect(page.locator('#chat-messages')).toContainText('quantum computing');
+    await openSession(page, "sess-abc-002");
+    await expect(page.locator("#chat-title")).toContainText("research-task");
+    await page.waitForSelector(".chat-msg");
+    await expect(page.locator("#chat-messages")).toContainText("quantum computing");
   });
 
-  test('auto-scroll: messages area scrolled to bottom on open', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
-    await page.waitForSelector('.chat-msg');
+  test("auto-scroll: messages area scrolled to bottom on open", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
+    await page.waitForSelector(".chat-msg");
     const isNearBottom = await page.evaluate(() => {
-      const el = document.getElementById('chat-messages');
-      return (el.scrollHeight - el.scrollTop - el.clientHeight) < 100;
+      const el = document.getElementById("chat-messages");
+      return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     });
     expect(isNearBottom).toBe(true);
   });
 
-  test('localStorage persistence across reload', async ({ page }) => {
-    await openSession(page, 'sess-abc-001');
+  test("localStorage persistence across reload", async ({ page }) => {
+    await openSession(page, "sess-abc-001");
     await page.reload();
-    await expect(page.locator('.hud-layout')).toHaveClass(/chat-open/);
+    await expect(page.locator(".hud-layout")).toHaveClass(/chat-open/);
   });
 });

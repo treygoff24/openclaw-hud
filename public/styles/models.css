@@ -1,5 +1,7 @@
 /* Model Usage Bars */
-.model-bar-row { margin-bottom: 10px; }
+.model-bar-row {
+  margin-bottom: 10px;
+}
 .model-bar-label {
   font-family: var(--font-mono);
   font-size: var(--fs-lg);

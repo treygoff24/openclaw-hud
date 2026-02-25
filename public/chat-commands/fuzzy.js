@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.ChatCommandsModules = window.ChatCommandsModules || {};
 
@@ -21,7 +21,7 @@
         matrix[i][j] = Math.min(
           matrix[i - 1][j] + 1,
           matrix[i][j - 1] + 1,
-          matrix[i - 1][j - 1] + cost
+          matrix[i - 1][j - 1] + cost,
         );
       }
     }
@@ -47,6 +47,6 @@
 
   window.ChatCommandsModules.fuzzy = {
     levenshteinDistance: levenshteinDistance,
-    getFuzzyScore: getFuzzyScore
+    getFuzzyScore: getFuzzyScore,
   };
 })();

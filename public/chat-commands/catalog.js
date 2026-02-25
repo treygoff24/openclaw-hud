@@ -1,369 +1,370 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.ChatCommandsModules = window.ChatCommandsModules || {};
 
   const CATEGORIES = {
-    SESSION: 'Session',
-    MODEL: 'Model',
-    DISPLAY: 'Display',
-    TOOLS: 'Tools',
-    MEMORY: 'Memory',
-    SYSTEM: 'System',
-    CONFIG: 'Config'
+    SESSION: "Session",
+    MODEL: "Model",
+    DISPLAY: "Display",
+    TOOLS: "Tools",
+    MEMORY: "Memory",
+    SYSTEM: "System",
+    CONFIG: "Config",
   };
 
   const commands = [
     {
-      name: 'help',
-      aliases: ['h', 'commands', 'cmds'],
-      description: 'Show available commands and their usage',
+      name: "help",
+      aliases: ["h", "commands", "cmds"],
+      description: "Show available commands and their usage",
       category: CATEGORIES.SESSION,
       local: true,
-      args: []
+      args: [],
     },
     {
-      name: 'abort',
-      aliases: ['stop', 'cancel'],
-      description: 'Cancel the current operation',
+      name: "abort",
+      aliases: ["stop", "cancel"],
+      description: "Cancel the current operation",
       category: CATEGORIES.SESSION,
       local: true,
-      args: []
+      args: [],
     },
     {
-      name: 'new',
-      aliases: ['n', 'start'],
-      description: 'Start a new session',
+      name: "new",
+      aliases: ["n", "start"],
+      description: "Start a new session",
       category: CATEGORIES.SESSION,
       local: true,
-      args: [
-        { name: 'model', description: 'Model to use for new session', required: false }
-      ]
+      args: [{ name: "model", description: "Model to use for new session", required: false }],
     },
     {
-      name: 'reset',
-      aliases: ['r', 'clear-session'],
-      description: 'Reset the current session',
+      name: "reset",
+      aliases: ["r", "clear-session"],
+      description: "Reset the current session",
       category: CATEGORIES.SESSION,
       local: true,
-      args: [
-        { name: 'options', description: 'Reset options', required: false }
-      ]
+      args: [{ name: "options", description: "Reset options", required: false }],
     },
     {
-      name: 'clear',
-      aliases: ['cls', 'clr'],
-      description: 'Clear the chat display',
+      name: "clear",
+      aliases: ["cls", "clr"],
+      description: "Clear the chat display",
       category: CATEGORIES.DISPLAY,
       local: true,
-      args: []
+      args: [],
     },
     {
-      name: 'export',
-      aliases: ['save-session', 'backup'],
-      description: 'Export current session to HTML file',
+      name: "export",
+      aliases: ["save-session", "backup"],
+      description: "Export current session to HTML file",
       category: CATEGORIES.SESSION,
       local: false,
       args: [
-        { name: 'path', description: 'Output path (default: workspace)', required: false, default: '' }
-      ]
+        {
+          name: "path",
+          description: "Output path (default: workspace)",
+          required: false,
+          default: "",
+        },
+      ],
     },
     {
-      name: 'session',
-      aliases: ['sesh'],
-      description: 'Manage session settings (e.g., /session ttl 24h)',
+      name: "session",
+      aliases: ["sesh"],
+      description: "Manage session settings (e.g., /session ttl 24h)",
       category: CATEGORIES.SESSION,
       local: false,
       args: [
-        { name: 'action', description: 'ttl or other action', required: true },
-        { name: 'value', description: 'Duration or value', required: false }
-      ]
+        { name: "action", description: "ttl or other action", required: true },
+        { name: "value", description: "Duration or value", required: false },
+      ],
     },
     {
-      name: 'save',
+      name: "save",
       aliases: [],
-      description: 'Save the current state',
+      description: "Save the current state",
       category: CATEGORIES.SESSION,
       local: false,
-      args: [
-        { name: 'name', description: 'Save name', required: false }
-      ]
+      args: [{ name: "name", description: "Save name", required: false }],
     },
     {
-      name: 'load',
+      name: "load",
       aliases: [],
-      description: 'Load a saved state',
+      description: "Load a saved state",
       category: CATEGORIES.SESSION,
       local: false,
-      args: [
-        { name: 'name', description: 'Save name to load', required: true }
-      ]
+      args: [{ name: "name", description: "Save name to load", required: true }],
     },
     {
-      name: 'continue',
-      aliases: ['cont', 'c'],
-      description: 'Continue from previous response',
+      name: "continue",
+      aliases: ["cont", "c"],
+      description: "Continue from previous response",
       category: CATEGORIES.SESSION,
       local: false,
-      args: []
+      args: [],
     },
     {
-      name: 'retry',
-      aliases: ['again', 're'],
-      description: 'Retry the last message',
+      name: "retry",
+      aliases: ["again", "re"],
+      description: "Retry the last message",
       category: CATEGORIES.SESSION,
       local: false,
-      args: []
+      args: [],
     },
     {
-      name: 'model',
-      aliases: ['m', 'mdl'],
-      description: 'Show or set the active model',
+      name: "model",
+      aliases: ["m", "mdl"],
+      description: "Show or set the active model",
       category: CATEGORIES.MODEL,
       local: true,
       args: [
-        { name: 'name', description: 'Model ID (provider/model or shorthand)', required: false }
-      ]
+        { name: "name", description: "Model ID (provider/model or shorthand)", required: false },
+      ],
     },
     {
-      name: 'models',
-      aliases: ['list-models', 'modellist'],
-      description: 'List available models',
+      name: "models",
+      aliases: ["list-models", "modellist"],
+      description: "List available models",
       category: CATEGORIES.MODEL,
       local: true,
-      args: [
-        { name: 'provider', description: 'Filter by provider', required: false }
-      ]
+      args: [{ name: "provider", description: "Filter by provider", required: false }],
     },
     {
-      name: 'provider',
-      aliases: ['prov'],
-      description: 'Set or show the model provider',
+      name: "provider",
+      aliases: ["prov"],
+      description: "Set or show the model provider",
       category: CATEGORIES.MODEL,
       local: false,
-      args: [
-        { name: 'name', description: 'Provider name', required: false }
-      ]
+      args: [{ name: "name", description: "Provider name", required: false }],
     },
     {
-      name: 'temp',
-      aliases: ['temperature'],
-      description: 'Set temperature (0-2)',
+      name: "temp",
+      aliases: ["temperature"],
+      description: "Set temperature (0-2)",
       category: CATEGORIES.MODEL,
       local: false,
-      args: [
-        { name: 'value', description: 'Temperature value (0.0-2.0)', required: true }
-      ]
+      args: [{ name: "value", description: "Temperature value (0.0-2.0)", required: true }],
     },
     {
-      name: 'max-tokens',
-      aliases: ['maxtokens', 'tokens'],
-      description: 'Set maximum tokens for responses',
+      name: "max-tokens",
+      aliases: ["maxtokens", "tokens"],
+      description: "Set maximum tokens for responses",
       category: CATEGORIES.MODEL,
       local: false,
-      args: [
-        { name: 'count', description: 'Maximum token count', required: true }
-      ]
+      args: [{ name: "count", description: "Maximum token count", required: true }],
     },
     {
-      name: 'think',
-      aliases: ['thinking', 't'],
-      description: 'Toggle or set thinking level (on/off/minimal/low/medium/high/xhigh)',
+      name: "think",
+      aliases: ["thinking", "t"],
+      description: "Toggle or set thinking level (on/off/minimal/low/medium/high/xhigh)",
       category: CATEGORIES.DISPLAY,
       local: true,
       args: [
         {
-          name: 'level',
-          description: 'Thinking level',
+          name: "level",
+          description: "Thinking level",
           required: false,
-          choices: ['on', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-        }
-      ]
+          choices: ["on", "off", "minimal", "low", "medium", "high", "xhigh"],
+        },
+      ],
     },
     {
-      name: 'think-depth',
-      aliases: ['depth'],
-      description: 'Set thinking depth level',
+      name: "think-depth",
+      aliases: ["depth"],
+      description: "Set thinking depth level",
       category: CATEGORIES.DISPLAY,
       local: false,
-      args: [
-        { name: 'level', description: 'Depth level (1-5)', required: true }
-      ]
+      args: [{ name: "level", description: "Depth level (1-5)", required: true }],
     },
     {
-      name: 'verbose',
-      aliases: ['v', 'verbosity'],
-      description: 'Toggle verbose mode (on/off)',
+      name: "verbose",
+      aliases: ["v", "verbosity"],
+      description: "Toggle verbose mode (on/off)",
       category: CATEGORIES.DISPLAY,
       local: true,
       args: [
         {
-          name: 'mode',
-          description: 'on or off',
+          name: "mode",
+          description: "on or off",
           required: false,
-          choices: ['on', 'off']
-        }
-      ]
+          choices: ["on", "off"],
+        },
+      ],
     },
     {
-      name: 'reasoning',
-      aliases: ['reason', 'show-reasoning'],
-      description: 'Toggle reasoning visibility (on/off/stream)',
+      name: "reasoning",
+      aliases: ["reason", "show-reasoning"],
+      description: "Toggle reasoning visibility (on/off/stream)",
       category: CATEGORIES.DISPLAY,
       local: false,
       args: [
         {
-          name: 'mode',
-          description: 'on, off, or stream',
+          name: "mode",
+          description: "on, off, or stream",
           required: false,
-          choices: ['on', 'off', 'stream']
-        }
-      ]
+          choices: ["on", "off", "stream"],
+        },
+      ],
     },
     {
-      name: 'status',
-      aliases: ['stat', 'info'],
-      description: 'Show current session and system status',
+      name: "status",
+      aliases: ["stat", "info"],
+      description: "Show current session and system status",
       category: CATEGORIES.SYSTEM,
       local: true,
-      args: []
+      args: [],
     },
     {
-      name: 'output',
-      aliases: ['out'],
-      description: 'Configure output format',
+      name: "output",
+      aliases: ["out"],
+      description: "Configure output format",
+      category: CATEGORIES.DISPLAY,
+      local: false,
+      args: [{ name: "format", description: "Output format", required: false }],
+    },
+    {
+      name: "response",
+      aliases: ["resp"],
+      description: "Configure response settings",
       category: CATEGORIES.DISPLAY,
       local: false,
       args: [
-        { name: 'format', description: 'Output format', required: false }
-      ]
+        { name: "setting", description: "Setting name", required: true },
+        { name: "value", description: "Setting value", required: false },
+      ],
     },
     {
-      name: 'response',
-      aliases: ['resp'],
-      description: 'Configure response settings',
-      category: CATEGORIES.DISPLAY,
-      local: false,
-      args: [
-        { name: 'setting', description: 'Setting name', required: true },
-        { name: 'value', description: 'Setting value', required: false }
-      ]
-    },
-    {
-      name: 'search',
-      aliases: ['find', 'lookup'],
-      description: 'Search the web',
+      name: "search",
+      aliases: ["find", "lookup"],
+      description: "Search the web",
       category: CATEGORIES.TOOLS,
       local: false,
       args: [
-        { name: 'query', description: 'Search query', required: true, captureRemaining: true }
-      ]
+        { name: "query", description: "Search query", required: true, captureRemaining: true },
+      ],
     },
     {
-      name: 'web',
-      aliases: ['fetch', 'url', 'page'],
-      description: 'Fetch and read a webpage',
+      name: "web",
+      aliases: ["fetch", "url", "page"],
+      description: "Fetch and read a webpage",
       category: CATEGORIES.TOOLS,
       local: false,
       args: [
-        { name: 'url', description: 'URL to fetch', required: true },
-        { name: 'options', description: 'Fetch options', required: false }
-      ]
+        { name: "url", description: "URL to fetch", required: true },
+        { name: "options", description: "Fetch options", required: false },
+      ],
     },
     {
-      name: 'edit',
-      aliases: ['modify', 'change'],
-      description: 'Edit a file',
+      name: "edit",
+      aliases: ["modify", "change"],
+      description: "Edit a file",
       category: CATEGORIES.TOOLS,
       local: false,
       args: [
-        { name: 'path', description: 'File path', required: true },
-        { name: 'instruction', description: 'Edit instruction', required: true, captureRemaining: true }
-      ]
+        { name: "path", description: "File path", required: true },
+        {
+          name: "instruction",
+          description: "Edit instruction",
+          required: true,
+          captureRemaining: true,
+        },
+      ],
     },
     {
-      name: 'max-turns',
-      aliases: ['turns'],
-      description: 'Set maximum conversation turns',
+      name: "max-turns",
+      aliases: ["turns"],
+      description: "Set maximum conversation turns",
       category: CATEGORIES.TOOLS,
       local: false,
-      args: [
-        { name: 'count', description: 'Maximum number of turns', required: true }
-      ]
+      args: [{ name: "count", description: "Maximum number of turns", required: true }],
     },
     {
-      name: 'recall',
-      aliases: ['remember', 'mem'],
-      description: 'Recall information from memory',
+      name: "recall",
+      aliases: ["remember", "mem"],
+      description: "Recall information from memory",
       category: CATEGORIES.MEMORY,
       local: false,
-      args: [
-        { name: 'key', description: 'Memory key or query', required: false }
-      ]
+      args: [{ name: "key", description: "Memory key or query", required: false }],
     },
     {
-      name: 'memory',
-      aliases: ['memories', 'notes'],
-      description: 'Manage memory entries',
+      name: "memory",
+      aliases: ["memories", "notes"],
+      description: "Manage memory entries",
       category: CATEGORIES.MEMORY,
       local: false,
       args: [
         {
-          name: 'action',
-          description: 'add, remove, list, or search',
+          name: "action",
+          description: "add, remove, list, or search",
           required: false,
-          choices: ['add', 'remove', 'list', 'search']
+          choices: ["add", "remove", "list", "search"],
         },
-        { name: 'content', description: 'Memory content or query', required: false, captureRemaining: true }
-      ]
+        {
+          name: "content",
+          description: "Memory content or query",
+          required: false,
+          captureRemaining: true,
+        },
+      ],
     },
     {
-      name: 'alias',
-      aliases: ['shortcut', 'aka'],
-      description: 'Create a command alias',
+      name: "alias",
+      aliases: ["shortcut", "aka"],
+      description: "Create a command alias",
       category: CATEGORIES.MEMORY,
       local: false,
       args: [
-        { name: 'name', description: 'Alias name', required: true },
-        { name: 'command', description: 'Command to alias', required: true, captureRemaining: true }
-      ]
+        { name: "name", description: "Alias name", required: true },
+        {
+          name: "command",
+          description: "Command to alias",
+          required: true,
+          captureRemaining: true,
+        },
+      ],
     },
     {
-      name: 'context',
-      aliases: ['ctx'],
-      description: 'Manage context files or explain context usage',
+      name: "context",
+      aliases: ["ctx"],
+      description: "Manage context files or explain context usage",
       category: CATEGORIES.MEMORY,
       local: false,
       args: [
-        { name: 'action', description: 'add, remove, list, or explain', required: false },
-        { name: 'path', description: 'File path', required: false }
-      ]
+        { name: "action", description: "add, remove, list, or explain", required: false },
+        { name: "path", description: "File path", required: false },
+      ],
     },
     {
-      name: 'prompt',
-      aliases: ['system-prompt', 'sysprompt'],
-      description: 'Set or view the system prompt',
+      name: "prompt",
+      aliases: ["system-prompt", "sysprompt"],
+      description: "Set or view the system prompt",
       category: CATEGORIES.CONFIG,
       local: false,
       args: [
-        { name: 'text', description: 'System prompt text', required: false, captureRemaining: true }
-      ]
+        {
+          name: "text",
+          description: "System prompt text",
+          required: false,
+          captureRemaining: true,
+        },
+      ],
     },
     {
-      name: 'system',
-      aliases: ['sys', 'settings'],
-      description: 'Show or modify system settings',
+      name: "system",
+      aliases: ["sys", "settings"],
+      description: "Show or modify system settings",
       category: CATEGORIES.SYSTEM,
       local: false,
       args: [
-        { name: 'setting', description: 'Setting name', required: false },
-        { name: 'value', description: 'Setting value', required: false, captureRemaining: true }
-      ]
-    }
+        { name: "setting", description: "Setting name", required: false },
+        { name: "value", description: "Setting value", required: false, captureRemaining: true },
+      ],
+    },
   ];
 
   window.ChatCommandsModules.catalog = {
     CATEGORIES: CATEGORIES,
-    commands: commands
+    commands: commands,
   };
 })();

@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.ChatCommandsModules = window.ChatCommandsModules || {};
 
@@ -10,7 +10,9 @@
   const fuzzy = modules.fuzzy;
 
   if (!registry || !localExec || !help || !fuzzy) {
-    throw new Error('chat-commands modules missing. Load /chat-commands/*.js before /chat-commands.js');
+    throw new Error(
+      "chat-commands modules missing. Load /chat-commands/*.js before /chat-commands.js",
+    );
   }
 
   function parse(input) {
@@ -31,7 +33,7 @@
     const cmd = find(parsed.command);
 
     if (!cmd) {
-      return { handled: false, local: false, result: null, error: 'Unknown command' };
+      return { handled: false, local: false, result: null, error: "Unknown command" };
     }
 
     if (cmd.local) {
@@ -49,6 +51,6 @@
     execute: execute,
     renderHelp: help.renderHelp,
     _levenshtein: fuzzy.levenshteinDistance,
-    _getFuzzyScore: fuzzy.getFuzzyScore
+    _getFuzzyScore: fuzzy.getFuzzyScore,
   };
 })();

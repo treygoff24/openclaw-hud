@@ -1,21 +1,24 @@
 window.HUD = window.HUD || {};
-HUD.sessionTree = (function() {
-  'use strict';
-  const $ = s => document.querySelector(s);
+HUD.sessionTree = (function () {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
   const collapseState = {};
 
   function render(sessions) {
     for (const s of sessions) {
-      if (!s.sessionKey) throw new Error('sessionTree.render requires canonical sessionKey for each node');
+      if (!s.sessionKey)
+        throw new Error("sessionTree.render requires canonical sessionKey for each node");
     }
     window._treeData = sessions;
-    $('#tree-count').textContent = sessions.length;
+    $("#tree-count").textContent = sessions.length;
 
     const byKey = {};
-    sessions.forEach(s => { byKey[s.key] = s; });
+    sessions.forEach((s) => {
+      byKey[s.key] = s;
+    });
     const children = {};
     const roots = [];
-    sessions.forEach(s => {
+    sessions.forEach((s) => {
       if (s.spawnedBy && byKey[s.spawnedBy]) {
         if (!children[s.spawnedBy]) children[s.spawnedBy] = [];
         children[s.spawnedBy].push(s);
@@ -27,55 +30,63 @@ HUD.sessionTree = (function() {
     roots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
     function renderNode(node, prefix, isLast, level = 0) {
-      const statusMap = { active: 'status-dot-green', completed: 'status-dot-completed', warm: 'status-dot-amber', stale: 'status-dot-gray' };
-      const dotClass = statusMap[node.status] || 'status-dot-gray';
+      const statusMap = {
+        active: "status-dot-green",
+        completed: "status-dot-completed",
+        warm: "status-dot-amber",
+        stale: "status-dot-gray",
+      };
+      const dotClass = statusMap[node.status] || "status-dot-gray";
       const meta = window.SessionLabels.getDisplayMeta(node);
       const rawLabel = node.label || node.key;
       const sessionKey = node.sessionKey;
-      if (!sessionKey || typeof sessionKey !== 'string') {
-        throw new Error('sessionTree.render requires canonical sessionKey for each node');
+      if (!sessionKey || typeof sessionKey !== "string") {
+        throw new Error("sessionTree.render requires canonical sessionKey for each node");
       }
       const kids = children[node.key] || [];
       const hasKids = kids.length > 0;
       const collapsed = collapseState[node.key] === true;
-      const toggleChar = hasKids ? (collapsed ? '▸' : '▾') : ' ';
-      const countBadge = (hasKids && collapsed) ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>` : '';
-      const ariaExpanded = hasKids ? (collapsed ? 'false' : 'true') : undefined;
+      const toggleChar = hasKids ? (collapsed ? "▸" : "▾") : " ";
+      const countBadge =
+        hasKids && collapsed
+          ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>`
+          : "";
+      const ariaExpanded = hasKids ? (collapsed ? "false" : "true") : undefined;
       const fullContext = window.SessionLabels.buildSessionAriaLabel(node, meta);
 
-      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ''} aria-level="${level + 1}">
-        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || '')}" data-session="${escapeHtml(node.sessionId || '')}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(rawLabel)}" title="${escapeHtml(fullContext)}" aria-label="${escapeHtml(fullContext)}" tabindex="0" role="button">
+      let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ""} aria-level="${level + 1}">
+        <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || "")}" data-session="${escapeHtml(node.sessionId || "")}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(rawLabel)}" title="${escapeHtml(fullContext)}" aria-label="${escapeHtml(fullContext)}" tabindex="0" role="button">
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
-          <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-pressed="${!collapsed}">${toggleChar}</span>
+          <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? "Expand" : "Collapse"}" aria-pressed="${!collapsed}">${toggleChar}</span>
           <div class="${dotClass}" aria-hidden="true"></div>
           <span class="tree-label"><span class="session-label-role">${escapeHtml(meta.roleLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-model">${escapeHtml(meta.modelLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span></span>
-          <span class="tree-agent">${escapeHtml(node.agentId || '')}</span>
+          <span class="tree-agent">${escapeHtml(node.agentId || "")}</span>
           ${countBadge}
           <span class="tree-age" aria-hidden="true">${HUD.utils.timeAgo(node.updatedAt)}</span>
         </div>`;
 
       if (hasKids) {
-        html += `<div class="tree-children${collapsed ? ' collapsed' : ''}" role="group">`;
+        html += `<div class="tree-children${collapsed ? " collapsed" : ""}" role="group">`;
         kids.forEach((kid, i) => {
           const kidIsLast = i === kids.length - 1;
-          const childPrefix = prefix + (isLast ? '   ' : '│  ');
-          const connector = kidIsLast ? '└─ ' : '├─ ';
+          const childPrefix = prefix + (isLast ? "   " : "│  ");
+          const connector = kidIsLast ? "└─ " : "├─ ";
           html += renderNode(kid, childPrefix + connector, kidIsLast, level + 1);
         });
-        html += '</div>';
+        html += "</div>";
       }
-      html += '</div>';
+      html += "</div>";
       return html;
     }
 
     let html = '<div class="tree-root" role="tree">';
     roots.forEach((r, i) => {
-      const connector = i === roots.length - 1 ? '└─ ' : '├─ ';
+      const connector = i === roots.length - 1 ? "└─ " : "├─ ";
       html += renderNode(r, connector, i === roots.length - 1, 0);
     });
-    html += '</div>';
+    html += "</div>";
 
-    $('#tree-body').innerHTML = html;
+    $("#tree-body").innerHTML = html;
 
     // Add keyboard support after rendering
     addTreeKeyboardSupport();
@@ -88,22 +99,22 @@ HUD.sessionTree = (function() {
 
   function addTreeKeyboardSupport() {
     // Make tree nodes focusable and clickable via keyboard
-    document.querySelectorAll('.tree-node-content').forEach(node => {
+    document.querySelectorAll(".tree-node-content").forEach((node) => {
       window.makeFocusable(node, () => {
         const agent = node.dataset.agent;
         const session = node.dataset.session;
         if (agent && node.dataset.sessionKey) {
-          openChatPane(agent, session || '', node.dataset.label || '', node.dataset.sessionKey);
+          openChatPane(agent, session || "", node.dataset.label || "", node.dataset.sessionKey);
         }
       });
     });
 
     // Make toggles keyboard accessible
-    document.querySelectorAll('.tree-toggle').forEach(toggle => {
-      if (toggle.textContent.trim() === '') return; // Skip empty toggles
+    document.querySelectorAll(".tree-toggle").forEach((toggle) => {
+      if (toggle.textContent.trim() === "") return; // Skip empty toggles
 
-      toggle.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
+      toggle.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           e.stopPropagation();
           const key = this.dataset.toggleKey;
@@ -111,77 +122,79 @@ HUD.sessionTree = (function() {
         }
       });
 
-      toggle.addEventListener('focus', function() {
-        this.classList.add('focus-visible');
+      toggle.addEventListener("focus", function () {
+        this.classList.add("focus-visible");
       });
 
-      toggle.addEventListener('blur', function() {
-        this.classList.remove('focus-visible');
+      toggle.addEventListener("blur", function () {
+        this.classList.remove("focus-visible");
       });
     });
 
     // Add arrow key navigation for tree
-    document.querySelectorAll('.tree-node-content').forEach(node => {
-      node.addEventListener('keydown', function(e) {
-        const treeNode = this.closest('.tree-node');
+    document.querySelectorAll(".tree-node-content").forEach((node) => {
+      node.addEventListener("keydown", function (e) {
+        const treeNode = this.closest(".tree-node");
         if (!treeNode) return;
 
         switch (e.key) {
-          case 'ArrowRight':
+          case "ArrowRight":
             e.preventDefault();
             // Expand if collapsed and has children
-            const toggle = treeNode.querySelector('.tree-toggle');
-            if (toggle && toggle.textContent.includes('▸')) {
+            const toggle = treeNode.querySelector(".tree-toggle");
+            if (toggle && toggle.textContent.includes("▸")) {
               const key = toggle.dataset.toggleKey;
               if (key) toggleNode(key);
             } else {
               // Move to first child
-              const firstChild = treeNode.querySelector('.tree-children > .tree-node > .tree-node-content');
+              const firstChild = treeNode.querySelector(
+                ".tree-children > .tree-node > .tree-node-content",
+              );
               if (firstChild) firstChild.focus();
             }
             break;
-          case 'ArrowLeft':
+          case "ArrowLeft":
             e.preventDefault();
             // Collapse if expanded
-            const toggleLeft = treeNode.querySelector('.tree-toggle');
-            if (toggleLeft && toggleLeft.textContent.includes('▾')) {
+            const toggleLeft = treeNode.querySelector(".tree-toggle");
+            if (toggleLeft && toggleLeft.textContent.includes("▾")) {
               const key = toggleLeft.dataset.toggleKey;
               if (key) toggleNode(key);
             } else {
               // Move to parent
-              const parent = treeNode.closest('.tree-children')?.closest('.tree-node');
+              const parent = treeNode.closest(".tree-children")?.closest(".tree-node");
               if (parent) {
-                const parentContent = parent.querySelector('.tree-node-content');
+                const parentContent = parent.querySelector(".tree-node-content");
                 if (parentContent) parentContent.focus();
               }
             }
             break;
-          case 'ArrowDown':
+          case "ArrowDown":
             e.preventDefault();
             // Move to next visible node
-            const allNodes = Array.from(document.querySelectorAll('.tree-node-content'));
+            const allNodes = Array.from(document.querySelectorAll(".tree-node-content"));
             const currentIndex = allNodes.indexOf(this);
             if (currentIndex < allNodes.length - 1) {
               allNodes[currentIndex + 1].focus();
             }
             break;
-          case 'ArrowUp':
+          case "ArrowUp":
             e.preventDefault();
             // Move to previous visible node
-            const allNodesUp = Array.from(document.querySelectorAll('.tree-node-content'));
+            const allNodesUp = Array.from(document.querySelectorAll(".tree-node-content"));
             const currentIndexUp = allNodesUp.indexOf(this);
             if (currentIndexUp > 0) {
               allNodesUp[currentIndexUp - 1].focus();
             }
             break;
-          case 'Home':
+          case "Home":
             e.preventDefault();
-            const first = document.querySelector('.tree-root > .tree-node > .tree-node-content');
+            const first = document.querySelector(".tree-root > .tree-node > .tree-node-content");
             if (first) first.focus();
             break;
-          case 'End':
+          case "End":
             e.preventDefault();
-            const allNodesEnd = document.querySelectorAll('.tree-node-content');
+            const allNodesEnd = document.querySelectorAll(".tree-node-content");
             if (allNodesEnd.length > 0) {
               allNodesEnd[allNodesEnd.length - 1].focus();
             }

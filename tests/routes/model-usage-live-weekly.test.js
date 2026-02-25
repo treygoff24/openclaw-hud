@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import express from 'express';
-import request from 'supertest';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import express from "express";
+import request from "supertest";
 
-const usageRpc = require('../../lib/usage-rpc');
-const pricing = require('../../lib/pricing');
-const helpers = require('../../lib/helpers');
-const { getLiveWeekWindow } = await import('../../lib/helpers.js');
+const usageRpc = require("../../lib/usage-rpc");
+const pricing = require("../../lib/pricing");
+const helpers = require("../../lib/helpers");
+const { getLiveWeekWindow } = await import("../../lib/helpers.js");
 
 const originalRequestSessionsUsage = usageRpc.requestSessionsUsage;
 const originalLoadPricingCatalog = pricing.loadPricingCatalog;
@@ -14,23 +14,23 @@ const originalGetPricingConfigFingerprint = pricing.getPricingConfigFingerprint;
 const originalSafeReaddir = helpers.safeReaddir;
 const originalSafeRead = helpers.safeRead;
 const originalOpenclawHome = helpers.OPENCLAW_HOME;
-const TEST_TZ = 'America/Chicago';
+const TEST_TZ = "America/Chicago";
 const originalUsageTz = process.env.HUD_USAGE_TZ;
 const originalUsageCacheTtlMs = process.env.HUD_USAGE_CACHE_TTL_MS;
 const originalUsageSessionsLimit = process.env.HUD_USAGE_SESSIONS_LIMIT;
 
 function createApp() {
-  delete require.cache[require.resolve('../../routes/model-usage')];
-  const router = require('../../routes/model-usage');
+  delete require.cache[require.resolve("../../routes/model-usage")];
+  const router = require("../../routes/model-usage");
   const app = express();
   app.use(router);
   return app;
 }
 
-describe('GET /api/model-usage/live-weekly', () => {
+describe("GET /api/model-usage/live-weekly", () => {
   beforeEach(() => {
     process.env.HUD_USAGE_TZ = TEST_TZ;
-    process.env.HUD_USAGE_CACHE_TTL_MS = '15000';
+    process.env.HUD_USAGE_CACHE_TTL_MS = "15000";
     delete process.env.HUD_USAGE_SESSIONS_LIMIT;
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
@@ -41,7 +41,7 @@ describe('GET /api/model-usage/live-weekly', () => {
             openai: {
               models: [
                 {
-                  id: 'gpt-5',
+                  id: "gpt-5",
                   cost: { input: 10, output: 20, cacheRead: 5, cacheWrite: 1 },
                 },
               ],
@@ -50,8 +50,8 @@ describe('GET /api/model-usage/live-weekly', () => {
         },
       }),
     );
-    pricing.getPricingConfigFingerprint = vi.fn(() => 'pricing-v1');
-    helpers.OPENCLAW_HOME = '/mock/home';
+    pricing.getPricingConfigFingerprint = vi.fn(() => "pricing-v1");
+    helpers.OPENCLAW_HOME = "/mock/home";
     helpers.safeReaddir = vi.fn(() => []);
     helpers.safeRead = vi.fn(() => null);
   });
@@ -71,15 +71,15 @@ describe('GET /api/model-usage/live-weekly', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns contract schema keys with totals/models aggregated from sessions.usage', async () => {
+  it("returns contract schema keys with totals/models aggregated from sessions.usage", async () => {
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
         aggregates: {
           byModel: [
             {
-              provider: 'openai',
-              model: 'gpt-5',
+              provider: "openai",
+              model: "gpt-5",
               totals: {
                 input: 30,
                 output: 20,
@@ -90,8 +90,8 @@ describe('GET /api/model-usage/live-weekly', () => {
               },
             },
             {
-              provider: 'anthropic',
-              model: 'claude-4',
+              provider: "anthropic",
+              model: "claude-4",
               totals: {
                 input: 0,
                 output: 0,
@@ -106,15 +106,15 @@ describe('GET /api/model-usage/live-weekly', () => {
       },
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body)).toEqual(['meta', 'models', 'totals']);
+    expect(Object.keys(res.body)).toEqual(["meta", "models", "totals"]);
 
     expect(res.body.meta).toMatchObject({
-      period: 'live-weekly',
+      period: "live-weekly",
       tz: TEST_TZ,
-      source: 'sessions.usage+config-reprice',
+      source: "sessions.usage+config-reprice",
       missingPricingModels: [],
       sessionsUsage: {
         sessionsLimit: 500,
@@ -126,32 +126,32 @@ describe('GET /api/model-usage/live-weekly', () => {
     const metaKeys = Object.keys(res.body.meta);
     expect(metaKeys).toEqual(
       expect.arrayContaining([
-        'period',
-        'tz',
-        'weekStart',
-        'now',
-        'generatedAt',
-        'source',
-        'missingPricingModels',
-      ])
+        "period",
+        "tz",
+        "weekStart",
+        "now",
+        "generatedAt",
+        "source",
+        "missingPricingModels",
+      ]),
     );
 
     expect(Array.isArray(res.body.models)).toBe(true);
     expect(Object.keys(res.body.totals)).toEqual(
       expect.arrayContaining([
-        'inputTokens',
-        'outputTokens',
-        'cacheReadTokens',
-        'cacheWriteTokens',
-        'totalTokens',
-        'totalCost',
-      ])
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "totalTokens",
+        "totalCost",
+      ]),
     );
 
     expect(res.body.models).toHaveLength(1);
     expect(res.body.models[0]).toMatchObject({
-      provider: 'openai',
-      model: 'gpt-5',
+      provider: "openai",
+      model: "gpt-5",
       inputTokens: 30,
       outputTokens: 20,
       cacheReadTokens: 5,
@@ -170,15 +170,15 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
-  it('uses nested totals.cost.total when totals.cost is an object', async () => {
+  it("uses nested totals.cost.total when totals.cost is an object", async () => {
     pricing.repriceModelUsageRows = vi.fn((rows) => ({ rows, missingPricingModels: [] }));
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
+            provider: "openai",
+            model: "gpt-5",
             totals: {
               input: 3,
               output: 2,
@@ -190,7 +190,7 @@ describe('GET /api/model-usage/live-weekly', () => {
       },
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
     expect(res.body.models).toHaveLength(1);
@@ -198,13 +198,13 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(res.body.totals.totalCost).toBe(4.25);
   });
 
-  it('is null-safe when sessions.usage returns a null result payload', async () => {
+  it("is null-safe when sessions.usage returns a null result payload", async () => {
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: null,
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
     expect(res.body.models).toEqual([]);
@@ -218,17 +218,17 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
-  it('ignores malformed rows and drops zero-token rows', async () => {
+  it("ignores malformed rows and drops zero-token rows", async () => {
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
         rows: [
           null,
-          'bad-row',
+          "bad-row",
           123,
           {
-            provider: 'openai',
-            model: 'gpt-5',
+            provider: "openai",
+            model: "gpt-5",
             totals: {
               input: 1,
               output: 2,
@@ -236,8 +236,8 @@ describe('GET /api/model-usage/live-weekly', () => {
             },
           },
           {
-            provider: 'openai',
-            model: 'gpt-5',
+            provider: "openai",
+            model: "gpt-5",
             totals: {
               input: 0,
               output: 0,
@@ -248,25 +248,25 @@ describe('GET /api/model-usage/live-weekly', () => {
       },
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
     expect(res.body.models).toHaveLength(1);
     expect(res.body.models[0]).toMatchObject({
-      provider: 'openai',
-      model: 'gpt-5',
+      provider: "openai",
+      model: "gpt-5",
       totalTokens: 3,
     });
   });
 
-  it('falls back totalTokens to input+output+cache tokens when totals.totalTokens is absent', async () => {
+  it("falls back totalTokens to input+output+cache tokens when totals.totalTokens is absent", async () => {
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
+            provider: "openai",
+            model: "gpt-5",
             totals: {
               input: 7,
               output: 11,
@@ -278,22 +278,22 @@ describe('GET /api/model-usage/live-weekly', () => {
       },
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
     expect(res.body.models[0].totalTokens).toBe(23);
     expect(res.body.totals.totalTokens).toBe(23);
   });
 
-  it('forwards the live-week window computed by getLiveWeekWindow', async () => {
-    const now = Date.parse('2026-02-23T14:20:00-06:00');
-    vi.spyOn(Date, 'now').mockReturnValue(now);
+  it("forwards the live-week window computed by getLiveWeekWindow", async () => {
+    const now = Date.parse("2026-02-23T14:20:00-06:00");
+    vi.spyOn(Date, "now").mockReturnValue(now);
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: { rows: [] },
     });
 
-    await request(createApp()).get('/api/model-usage/live-weekly');
+    await request(createApp()).get("/api/model-usage/live-weekly");
 
     const expected = getLiveWeekWindow(TEST_TZ, now);
     const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
@@ -307,16 +307,16 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
-  it('uses configured sessions limit and marks potential truncation diagnostics', async () => {
-    process.env.HUD_USAGE_SESSIONS_LIMIT = '3';
+  it("uses configured sessions limit and marks potential truncation diagnostics", async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "3";
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
-        sessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+        sessions: [{ id: "a" }, { id: "b" }, { id: "c" }],
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
+            provider: "openai",
+            model: "gpt-5",
             totals: {
               input: 2,
               output: 1,
@@ -327,7 +327,7 @@ describe('GET /api/model-usage/live-weekly', () => {
       },
     });
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
     const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
 
     expect(res.status).toBe(200);
@@ -339,35 +339,35 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
-  it('clamps configured sessions limit to the safe max', async () => {
-    process.env.HUD_USAGE_SESSIONS_LIMIT = '99999';
+  it("clamps configured sessions limit to the safe max", async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "99999";
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: { rows: [] },
     });
 
-    await request(createApp()).get('/api/model-usage/live-weekly');
+    await request(createApp()).get("/api/model-usage/live-weekly");
 
     const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
     expect(args.limit).toBe(2000);
   });
 
-  it('clamps configured sessions limit to the safe min', async () => {
-    process.env.HUD_USAGE_SESSIONS_LIMIT = '0';
+  it("clamps configured sessions limit to the safe min", async () => {
+    process.env.HUD_USAGE_SESSIONS_LIMIT = "0";
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: { rows: [] },
     });
 
-    await request(createApp()).get('/api/model-usage/live-weekly');
+    await request(createApp()).get("/api/model-usage/live-weekly");
 
     const args = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
     expect(args.limit).toBe(1);
   });
 
-  it('serves cached live-weekly response within TTL and keeps generatedAt stable', async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
-    const nowSpy = vi.spyOn(Date, 'now');
+  it("serves cached live-weekly response within TTL and keeps generatedAt stable", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
+    const nowSpy = vi.spyOn(Date, "now");
     nowSpy.mockReturnValueOnce(1_000).mockReturnValueOnce(1_200);
 
     usageRpc.requestSessionsUsage.mockResolvedValue({
@@ -375,17 +375,24 @@ describe('GET /api/model-usage/live-weekly', () => {
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
-            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
           },
         ],
       },
     });
 
     const app = createApp();
-    const first = await request(app).get('/api/model-usage/live-weekly');
-    const second = await request(app).get('/api/model-usage/live-weekly');
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    const second = await request(app).get("/api/model-usage/live-weekly");
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -393,9 +400,9 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(second.body.meta.generatedAt).toBe(first.body.meta.generatedAt);
   });
 
-  it('refreshes cached live-weekly response after TTL expiry', async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
-    const nowSpy = vi.spyOn(Date, 'now');
+  it("refreshes cached live-weekly response after TTL expiry", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
+    const nowSpy = vi.spyOn(Date, "now");
     nowSpy.mockReturnValueOnce(2_000).mockReturnValueOnce(3_500);
 
     usageRpc.requestSessionsUsage.mockResolvedValue({
@@ -403,17 +410,24 @@ describe('GET /api/model-usage/live-weekly', () => {
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
-            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
           },
         ],
       },
     });
 
     const app = createApp();
-    const first = await request(app).get('/api/model-usage/live-weekly');
-    const second = await request(app).get('/api/model-usage/live-weekly');
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    const second = await request(app).get("/api/model-usage/live-weekly");
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -421,9 +435,9 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
-  it('refreshes cached live-weekly response when pricing fingerprint changes within TTL', async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
-    const nowSpy = vi.spyOn(Date, 'now');
+  it("refreshes cached live-weekly response when pricing fingerprint changes within TTL", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
+    const nowSpy = vi.spyOn(Date, "now");
     nowSpy.mockReturnValueOnce(5_000).mockReturnValueOnce(5_100);
 
     usageRpc.requestSessionsUsage.mockResolvedValue({
@@ -431,18 +445,25 @@ describe('GET /api/model-usage/live-weekly', () => {
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
-            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
           },
         ],
       },
     });
 
     const app = createApp();
-    const first = await request(app).get('/api/model-usage/live-weekly');
-    pricing.getPricingConfigFingerprint.mockReturnValue('pricing-v2');
-    const second = await request(app).get('/api/model-usage/live-weekly');
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    pricing.getPricingConfigFingerprint.mockReturnValue("pricing-v2");
+    const second = await request(app).get("/api/model-usage/live-weekly");
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -450,9 +471,9 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
-  it('bypasses cache when refresh=1 is provided', async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = '1000';
-    const nowSpy = vi.spyOn(Date, 'now');
+  it("bypasses cache when refresh=1 is provided", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
+    const nowSpy = vi.spyOn(Date, "now");
     nowSpy.mockReturnValueOnce(4_000).mockReturnValueOnce(4_100);
 
     usageRpc.requestSessionsUsage.mockResolvedValue({
@@ -460,17 +481,24 @@ describe('GET /api/model-usage/live-weekly', () => {
       result: {
         rows: [
           {
-            provider: 'openai',
-            model: 'gpt-5',
-            totals: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, totalCost: 1 },
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
           },
         ],
       },
     });
 
     const app = createApp();
-    const first = await request(app).get('/api/model-usage/live-weekly');
-    const second = await request(app).get('/api/model-usage/live-weekly?refresh=1');
+    const first = await request(app).get("/api/model-usage/live-weekly");
+    const second = await request(app).get("/api/model-usage/live-weekly?refresh=1");
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -478,45 +506,45 @@ describe('GET /api/model-usage/live-weekly', () => {
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
-  it('surfaces gateway error when sessions.usage is unavailable (no fallback payload)', async () => {
-    const err = new Error('Gateway error: Tool not available: sessions.usage');
-    err.code = 'GATEWAY_SESSIONS_USAGE_UNAVAILABLE';
+  it("surfaces gateway error when sessions.usage is unavailable (no fallback payload)", async () => {
+    const err = new Error("Gateway error: Tool not available: sessions.usage");
+    err.code = "GATEWAY_SESSIONS_USAGE_UNAVAILABLE";
     err.status = 404;
-    err.gatewayCode = 'TOOL_NOT_AVAILABLE';
-    err.gatewayMethod = 'sessions.usage';
-    err.requestId = 'gw-req-123';
+    err.gatewayCode = "TOOL_NOT_AVAILABLE";
+    err.gatewayMethod = "sessions.usage";
+    err.requestId = "gw-req-123";
     usageRpc.requestSessionsUsage.mockRejectedValue(err);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe('Failed to load live weekly usage');
-    expect(res.body.message).toBe('Gateway error: Tool not available: sessions.usage');
-    expect(res.body.code).toBe('GATEWAY_SESSIONS_USAGE_UNAVAILABLE');
+    expect(res.body.error).toBe("Failed to load live weekly usage");
+    expect(res.body.message).toBe("Gateway error: Tool not available: sessions.usage");
+    expect(res.body.code).toBe("GATEWAY_SESSIONS_USAGE_UNAVAILABLE");
     expect(res.body.status).toBe(404);
     expect(res.body.requestId).toEqual(expect.any(String));
     expect(helpers.safeReaddir).not.toHaveBeenCalled();
     expect(helpers.safeRead).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(
-      '[model-usage/live-weekly] failed',
+      "[model-usage/live-weekly] failed",
       expect.objectContaining({
         status: 404,
-        code: 'GATEWAY_SESSIONS_USAGE_UNAVAILABLE',
+        code: "GATEWAY_SESSIONS_USAGE_UNAVAILABLE",
         requestId: expect.any(String),
       }),
     );
   });
 
-  it('returns empty live-weekly payload when gateway token is not configured', async () => {
-    const err = new Error('Gateway token not configured');
-    err.code = 'GATEWAY_TOKEN_MISSING';
+  it("returns empty live-weekly payload when gateway token is not configured", async () => {
+    const err = new Error("Gateway token not configured");
+    err.code = "GATEWAY_TOKEN_MISSING";
     usageRpc.requestSessionsUsage.mockRejectedValue(err);
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
-    expect(res.body.meta.unavailable).toBe('gateway-token-missing');
+    expect(res.body.meta.unavailable).toBe("gateway-token-missing");
     expect(res.body.models).toEqual([]);
     expect(res.body.totals).toEqual({
       inputTokens: 0,
@@ -528,15 +556,15 @@ describe('GET /api/model-usage/live-weekly', () => {
     });
   });
 
-  it('returns empty live-weekly payload when gateway is unreachable', async () => {
-    const err = new Error('Gateway request failed: fetch failed');
-    err.code = 'GATEWAY_UNREACHABLE';
+  it("returns empty live-weekly payload when gateway is unreachable", async () => {
+    const err = new Error("Gateway request failed: fetch failed");
+    err.code = "GATEWAY_UNREACHABLE";
     usageRpc.requestSessionsUsage.mockRejectedValue(err);
 
-    const res = await request(createApp()).get('/api/model-usage/live-weekly');
+    const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
-    expect(res.body.meta.unavailable).toBe('gateway-unreachable');
+    expect(res.body.meta.unavailable).toBe("gateway-unreachable");
     expect(res.body.models).toEqual([]);
     expect(res.body.totals.totalTokens).toBe(0);
   });

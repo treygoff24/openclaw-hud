@@ -1,5 +1,5 @@
-const path = require('path');
-const { Router } = require('express');
+const path = require("path");
+const { Router } = require("express");
 const {
   OPENCLAW_HOME,
   safeJSON,
@@ -9,8 +9,8 @@ const {
   canonicalizeSessionKey,
   canonicalizeRelationshipKey,
   getModelAliasMap,
-  enrichSessionMetadata
-} = require('../lib/helpers');
+  enrichSessionMetadata,
+} = require("../lib/helpers");
 
 const router = Router();
 
@@ -34,14 +34,14 @@ function mergeCanonicalSessionEntry(allSessions, candidate) {
   }
 }
 
-router.get('/api/sessions', (req, res) => {
-  const agentsDir = path.join(OPENCLAW_HOME, 'agents');
+router.get("/api/sessions", (req, res) => {
+  const agentsDir = path.join(OPENCLAW_HOME, "agents");
   const agents = safeReaddir(agentsDir);
   const modelAliases = getModelAliasMap();
   const all = [];
   const invalid = [];
   for (const agentId of agents) {
-    const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
+    const sessFile = path.join(agentsDir, agentId, "sessions", "sessions.json");
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
       try {
@@ -57,39 +57,41 @@ router.get('/api/sessions', (req, res) => {
     }
   }
   if (invalid.length > 0) {
-    return res.status(500).json({ error: 'Invalid session keys in sessions.json', invalid });
+    return res.status(500).json({ error: "Invalid session keys in sessions.json", invalid });
   }
-  const recent = all.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
+  const recent = all.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(recent.slice(0, 100));
 });
 
-router.get('/api/session-log/:agentId/:sessionId', (req, res) => {
+router.get("/api/session-log/:agentId/:sessionId", (req, res) => {
   const { agentId, sessionId } = req.params;
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId) || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
-    return res.status(400).json({ error: 'Invalid parameters' });
+    return res.status(400).json({ error: "Invalid parameters" });
   }
   const limit = parseInt(req.query.limit) || 50;
-  const logFile = path.join(OPENCLAW_HOME, 'agents', agentId, 'sessions', `${sessionId}.jsonl`);
+  const logFile = path.join(OPENCLAW_HOME, "agents", agentId, "sessions", `${sessionId}.jsonl`);
   const raw = safeRead(logFile);
   if (!raw) return res.json([]);
-  const lines = raw.trim().split('\n').filter(Boolean);
+  const lines = raw.trim().split("\n").filter(Boolean);
   const entries = [];
   for (const line of lines.slice(-limit)) {
-    try { entries.push(JSON.parse(line)); } catch {}
+    try {
+      entries.push(JSON.parse(line));
+    } catch {}
   }
   res.json(entries);
 });
 
-router.get('/api/session-tree', (req, res) => {
-  const agentsDir = path.join(OPENCLAW_HOME, 'agents');
+router.get("/api/session-tree", (req, res) => {
+  const agentsDir = path.join(OPENCLAW_HOME, "agents");
   const agents = safeReaddir(agentsDir);
   const modelAliases = getModelAliasMap();
   const allSessions = {};
   const invalid = [];
 
   for (const agentId of agents) {
-    const sessFile = path.join(agentsDir, agentId, 'sessions', 'sessions.json');
+    const sessFile = path.join(agentsDir, agentId, "sessions", "sessions.json");
     const sessions = safeJSON(sessFile) || {};
     for (const [key, val] of Object.entries(sessions)) {
       try {
@@ -99,7 +101,7 @@ router.get('/api/session-tree', (req, res) => {
           key,
           sessionKey,
           agentId,
-          canonicalSpawnedBy: canonicalizeRelationshipKey(agentId, val.spawnedBy)
+          canonicalSpawnedBy: canonicalizeRelationshipKey(agentId, val.spawnedBy),
         });
       } catch (err) {
         invalid.push({ agentId, key, error: err.message });
@@ -107,7 +109,7 @@ router.get('/api/session-tree', (req, res) => {
     }
   }
   if (invalid.length > 0) {
-    return res.status(500).json({ error: 'Invalid session keys in sessions.json', invalid });
+    return res.status(500).json({ error: "Invalid session keys in sessions.json", invalid });
   }
 
   const childCounts = {};
@@ -117,7 +119,7 @@ router.get('/api/session-tree', (req, res) => {
     }
   }
 
-  const result = Object.values(allSessions).map(s => {
+  const result = Object.values(allSessions).map((s) => {
     const parent = s.canonicalSpawnedBy ? allSessions[s.canonicalSpawnedBy] : null;
     const displayMeta = enrichSessionMetadata(s.key, s, { sessionKey: s.sessionKey, modelAliases });
     return {
@@ -133,11 +135,11 @@ router.get('/api/session-tree', (req, res) => {
       groupChannel: s.groupChannel || null,
       childCount: childCounts[s.sessionKey] || 0,
       status: getSessionStatus(s),
-      ...displayMeta
+      ...displayMeta,
     };
   });
 
-  const filtered = result.filter(s => s.updatedAt && (Date.now() - s.updatedAt) < ONE_DAY);
+  const filtered = result.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(filtered);
 });

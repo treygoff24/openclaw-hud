@@ -1,18 +1,18 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
-  const ROLE_MAIN = 'main';
-  const ROLE_SUBAGENT = 'subagent';
+  const ROLE_MAIN = "main";
+  const ROLE_SUBAGENT = "subagent";
   const ROLE_LABEL_MAP = {
-    [ROLE_MAIN]: 'Main',
-    [ROLE_SUBAGENT]: 'Subagent'
+    [ROLE_MAIN]: "Main",
+    [ROLE_SUBAGENT]: "Subagent",
   };
-  const SEPARATOR = ' · ';
-  const UNKNOWN_MODEL = 'unknown model';
-  const UNKNOWN_ALIAS = 'session';
+  const SEPARATOR = " · ";
+  const UNKNOWN_MODEL = "unknown model";
+  const UNKNOWN_ALIAS = "session";
 
   function toText(value) {
-    if (value == null) return '';
+    if (value == null) return "";
     return String(value).trim();
   }
 
@@ -21,11 +21,11 @@
       const text = toText(value);
       if (text) return text;
     }
-    return '';
+    return "";
   }
 
   function toCompactAlias(value) {
-    return toText(value).replace(/\s+/g, ' ');
+    return toText(value).replace(/\s+/g, " ");
   }
 
   function deriveSessionRole(session) {
@@ -49,14 +49,14 @@
     ]);
     const normalized = toCompactAlias(rawModel);
     if (!normalized) return UNKNOWN_MODEL;
-    const normalizedParts = normalized.split('/');
+    const normalizedParts = normalized.split("/");
     return normalizedParts[normalizedParts.length - 1];
   }
 
   function deriveAliasFromKey(value) {
     const key = toText(value);
-    if (!key) return '';
-    return key.split(':').pop();
+    if (!key) return "";
+    return key.split(":").pop();
   }
 
   function deriveAlias(session) {
@@ -66,22 +66,19 @@
       session && session.label,
       deriveAliasFromKey(session && session.key),
       deriveAliasFromKey(session && session.sessionKey),
-      session && session.sessionId
+      session && session.sessionId,
     ]);
     const normalizedAlias = toCompactAlias(rawAlias);
     return normalizedAlias || UNKNOWN_ALIAS;
   }
 
   function deriveFullSlug(session) {
-    const key = firstNonEmpty([
-      session && session.sessionKey,
-      session && session.key
-    ]);
+    const key = firstNonEmpty([session && session.sessionKey, session && session.key]);
     if (key) return key;
     if (session && session.agentId && session.sessionId) {
       return `agent:${session.agentId}:${session.sessionId}`;
     }
-    return '';
+    return "";
   }
 
   function buildCompactLabel(sessionRole, modelLabel, sessionAlias) {
@@ -90,7 +87,7 @@
   }
 
   function getDisplayMeta(session) {
-    const safeSession = (session && typeof session === 'object') ? session : {};
+    const safeSession = session && typeof session === "object" ? session : {};
     const sessionRole = deriveSessionRole(safeSession);
     const modelLabel = deriveModelLabel(safeSession);
     const sessionAlias = deriveAlias(safeSession);
@@ -103,25 +100,25 @@
       modelLabel,
       sessionAlias,
       fullSlug,
-      compactLabel
+      compactLabel,
     };
   }
 
   function buildSessionAriaLabel(session, meta) {
-    const safeSession = (session && typeof session === 'object') ? session : {};
+    const safeSession = session && typeof session === "object" ? session : {};
     const data = meta || getDisplayMeta(safeSession);
     const roleLabel = data.roleLabel || ROLE_LABEL_MAP[ROLE_MAIN];
     const modelLabel = data.modelLabel || UNKNOWN_MODEL;
     const sessionAlias = data.sessionAlias || UNKNOWN_ALIAS;
-    const fullSlug = data.fullSlug || deriveFullSlug(safeSession) || 'unknown session';
-    const agentId = toText(safeSession.agentId) || 'unknown';
-    const status = toText(safeSession.status) || 'unknown';
+    const fullSlug = data.fullSlug || deriveFullSlug(safeSession) || "unknown session";
+    const agentId = toText(safeSession.agentId) || "unknown";
+    const status = toText(safeSession.status) || "unknown";
 
     return `Session ${fullSlug}; role ${roleLabel}; model ${modelLabel}; alias ${sessionAlias}; agent ${agentId}; status ${status}`;
   }
 
   window.SessionLabels = {
     getDisplayMeta,
-    buildSessionAriaLabel
+    buildSessionAriaLabel,
   };
 })();

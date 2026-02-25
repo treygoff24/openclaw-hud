@@ -13,7 +13,7 @@
 }
 .agent-card:hover {
   border-color: var(--cyan);
-  box-shadow: 0 0 12px rgba(0,229,255,0.1);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.1);
   transform: translateX(4px);
 }
 .agent-id {
@@ -26,7 +26,7 @@
   font-family: var(--font-mono);
   font-size: var(--fs-lg);
   color: var(--text-dim);
-  background: rgba(0,229,255,0.08);
+  background: rgba(0, 229, 255, 0.08);
   padding: 2px 8px;
   border-radius: 2px;
 }
@@ -47,9 +47,11 @@
 }
 .search-box:focus {
   border-color: var(--cyan);
-  box-shadow: 0 0 8px rgba(0,229,255,0.1);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.1);
 }
-.search-box::placeholder { color: rgba(201, 212, 223, 0.72); }
+.search-box::placeholder {
+  color: rgba(201, 212, 223, 0.72);
+}
 
 @container dashboard (max-width: 900px) {
   .agent-card {

@@ -39,10 +39,20 @@ See [CONFIGURATION.md](./CONFIGURATION.md) for troubleshooting and runtime detai
 ## Scripts
 
 - `npm start` — run server
+- `npm run fmt` — apply Oxc formatter
+- `npm run fmt:check` — fail if formatting differs
+- `npm run lint` — run Oxlint (warnings fail)
+- `npm run lint:type-aware` — run Oxlint type-aware alpha checks
+- `npm run quality` — run formatter check, lint, coverage, and bundle checks
 - `npm test` — run unit tests
 - `npm run test:coverage` — run tests with coverage
 - `npm run test:e2e` — run Playwright tests
 - `npm run bundle:analyze` — bundle/asset analysis
+
+## E2E Notes
+
+- Playwright runs can execute without a gateway token. In that mode, model-usage can legitimately render the empty state (`No model data yet`) instead of live per-model bars.
+- The spawn modal does not include a `mode` field; `mode` is enforced server-side as `run`.
 
 ## Development
 

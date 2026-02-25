@@ -1,4 +1,12 @@
-const CHAT_MESSAGE_TYPES = ['chat-subscribe', 'chat-unsubscribe', 'chat-send', 'chat-history', 'chat-abort', 'chat-new', 'models-list'];
+const CHAT_MESSAGE_TYPES = [
+  "chat-subscribe",
+  "chat-unsubscribe",
+  "chat-send",
+  "chat-history",
+  "chat-abort",
+  "chat-new",
+  "models-list",
+];
 
 function isChatMessage(type) {
   return CHAT_MESSAGE_TYPES.includes(type);

@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.HUDApp = window.HUDApp || {};
 
@@ -10,15 +10,19 @@
 
   function createWsController(options) {
     const opts = options || {};
-    const diagLog = opts.diagLog || function() {};
-    const wsLogPrefix = opts.wsLogPrefix || '[HUD-WS]';
+    const diagLog = opts.diagLog || function () {};
+    const wsLogPrefix = opts.wsLogPrefix || "[HUD-WS]";
     const fetchAll = opts.fetchAll;
     const setConnectionStatus = opts.setConnectionStatus;
     const startPolling = opts.startPolling;
     const stopPolling = opts.stopPolling;
-    const wsUrlFactory = opts.wsUrlFactory || function() {
-      return (window.HUD && window.HUD.utils ? window.HUD.utils.wsUrl(location) : 'ws://localhost:3777/ws');
-    };
+    const wsUrlFactory =
+      opts.wsUrlFactory ||
+      function () {
+        return window.HUD && window.HUD.utils
+          ? window.HUD.utils.wsUrl(location)
+          : "ws://localhost:3777/ws";
+      };
 
     let wsReconnectAttempts = 0;
     let wsReconnectTimer = null;
@@ -41,11 +45,11 @@
         delayMs = WS_POST_OPEN_RECONNECT_MS;
         reconnectAttempt = wsReconnectAttempts + 1;
         wsReconnectAttempts += 1;
-        diagLog(wsLogPrefix, 'reconnect_scheduled', {
-          trigger: trigger || 'unknown',
+        diagLog(wsLogPrefix, "reconnect_scheduled", {
+          trigger: trigger || "unknown",
           reconnectAttempt: reconnectAttempt,
           delayMs: delayMs,
-          type: 'post_open',
+          type: "post_open",
         });
       } else {
         const exp = Math.min(wsReconnectAttempts, 6);
@@ -54,19 +58,19 @@
         delayMs = backoff + jitter;
         reconnectAttempt = wsReconnectAttempts + 1;
         wsReconnectAttempts += 1;
-        diagLog(wsLogPrefix, 'reconnect_scheduled', {
-          trigger: trigger || 'unknown',
+        diagLog(wsLogPrefix, "reconnect_scheduled", {
+          trigger: trigger || "unknown",
           reconnectAttempt: reconnectAttempt,
           delayMs: delayMs,
           backoffMs: backoff,
           jitterMs: jitter,
-          type: 'pre_open',
+          type: "pre_open",
         });
       }
 
-      wsReconnectTimer = setTimeout(function() {
+      wsReconnectTimer = setTimeout(function () {
         wsReconnectTimer = null;
-        diagLog(wsLogPrefix, 'reconnect_fired', {
+        diagLog(wsLogPrefix, "reconnect_fired", {
           reconnectAttempt: reconnectAttempt,
         });
         connect();
@@ -75,13 +79,16 @@
 
     function connect() {
       const existing = window._hudWs;
-      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+      if (
+        existing &&
+        (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+      ) {
         return;
       }
 
       const attempt = ++wsConnectAttempt;
       const wsUrl = wsUrlFactory();
-      diagLog(wsLogPrefix, 'connect_attempt', {
+      diagLog(wsLogPrefix, "connect_attempt", {
         attempt: attempt,
         url: wsUrl,
       });
@@ -90,20 +97,20 @@
       try {
         ws = new WebSocket(wsUrl);
       } catch {
-        diagLog(wsLogPrefix, 'connect_constructor_error', {
+        diagLog(wsLogPrefix, "connect_constructor_error", {
           attempt: attempt,
           url: wsUrl,
         });
         startPolling();
         setConnectionStatus(false);
-        scheduleWsReconnect('constructor_error', wsEverOpened);
+        scheduleWsReconnect("constructor_error", wsEverOpened);
         return;
       }
 
       window._hudWs = ws;
       let opened = false;
 
-      ws.onopen = function() {
+      ws.onopen = function () {
         if (window._hudWs !== ws) return;
         opened = true;
         wsEverOpened = true;
@@ -111,7 +118,7 @@
         clearWsReconnectTimer();
         stopPolling();
         setConnectionStatus(true);
-        diagLog(wsLogPrefix, 'open', {
+        diagLog(wsLogPrefix, "open", {
           attempt: attempt,
           url: wsUrl,
         });
@@ -120,9 +127,9 @@
         }
       };
 
-      ws.onmessage = function(event) {
+      ws.onmessage = function (event) {
         const data = JSON.parse(event.data);
-        if (data.type === 'tick') {
+        if (data.type === "tick") {
           fetchAll();
         }
         if (window.handleChatWsMessage) {
@@ -130,34 +137,34 @@
         }
       };
 
-      ws.onclose = function(evt) {
+      ws.onclose = function (evt) {
         if (window._hudWs === ws) {
           window._hudWs = null;
         }
         startPolling();
         setConnectionStatus(false);
-        diagLog(wsLogPrefix, 'close', {
+        diagLog(wsLogPrefix, "close", {
           attempt: attempt,
           url: wsUrl,
-          code: evt && typeof evt.code === 'number' ? evt.code : '',
-          reason: evt && typeof evt.reason === 'string' ? evt.reason : '',
-          wasClean: evt && typeof evt.wasClean === 'boolean' ? evt.wasClean : '',
+          code: evt && typeof evt.code === "number" ? evt.code : "",
+          reason: evt && typeof evt.reason === "string" ? evt.reason : "",
+          wasClean: evt && typeof evt.wasClean === "boolean" ? evt.wasClean : "",
           opened: opened,
           wsEverOpened: wsEverOpened,
         });
-        scheduleWsReconnect(opened ? 'close_after_open' : 'close_before_open', wsEverOpened);
+        scheduleWsReconnect(opened ? "close_after_open" : "close_before_open", wsEverOpened);
       };
 
-      ws.onerror = function() {
+      ws.onerror = function () {
         setConnectionStatus(false);
-        diagLog(wsLogPrefix, 'error', {
+        diagLog(wsLogPrefix, "error", {
           attempt: attempt,
           url: wsUrl,
           opened: opened,
           wsEverOpened: wsEverOpened,
         });
         if (!opened) {
-          scheduleWsReconnect('error_before_open', wsEverOpened);
+          scheduleWsReconnect("error_before_open", wsEverOpened);
         }
       };
     }

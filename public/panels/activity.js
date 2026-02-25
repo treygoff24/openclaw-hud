@@ -1,7 +1,7 @@
 window.HUD = window.HUD || {};
-HUD.activity = (function() {
-  'use strict';
-  const $ = s => document.querySelector(s);
+HUD.activity = (function () {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
 
   let _previousCount = 0;
 
@@ -10,28 +10,36 @@ HUD.activity = (function() {
     const hasNewActivity = newCount > _previousCount;
     _previousCount = newCount;
 
-    $('#activity-count').textContent = newCount;
-    $('#activity-feed').innerHTML = events.map(e => {
-      const t = new Date(e.timestamp);
-      const time = t.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-      let content = e.content || e.type || '';
-      if (e.toolName) content = `⚡ ${e.toolName}`;
-      return `<div class="activity-item" role="listitem" aria-label="${escapeHtml(e.type || 'activity')} from ${escapeHtml(e.agentId || 'unknown')} at ${time}">
+    $("#activity-count").textContent = newCount;
+    $("#activity-feed").innerHTML = events
+      .map((e) => {
+        const t = new Date(e.timestamp);
+        const time = t.toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        let content = e.content || e.type || "";
+        if (e.toolName) content = `⚡ ${e.toolName}`;
+        return `<div class="activity-item" role="listitem" aria-label="${escapeHtml(e.type || "activity")} from ${escapeHtml(e.agentId || "unknown")} at ${time}">
         <span class="activity-time" aria-hidden="true">${time}</span>
-        <span class="activity-type ${escapeHtml(e.type || 'session')}" aria-hidden="true">${escapeHtml(e.type || '?')}</span>
+        <span class="activity-type ${escapeHtml(e.type || "session")}" aria-hidden="true">${escapeHtml(e.type || "?")}</span>
         <span class="activity-agent" aria-hidden="true">${escapeHtml(e.agentId)}</span>
         <span class="activity-content" aria-hidden="true">${escapeHtml(content)}</span>
       </div>`;
-    }).join('');
+      })
+      .join("");
 
     // Announce new activity to screen readers
     if (hasNewActivity && window.A11yAnnouncer && events.length > 0) {
       const latest = events[0];
-      const activityDesc = latest.toolName ? `tool use: ${latest.toolName}` : latest.content || latest.type || 'activity';
+      const activityDesc = latest.toolName
+        ? `tool use: ${latest.toolName}`
+        : latest.content || latest.type || "activity";
       window.A11yAnnouncer.announce(
-        `${latest.agentId || 'System'}: ${activityDesc}`,
-        'activity-feed',
-        1000
+        `${latest.agentId || "System"}: ${activityDesc}`,
+        "activity-feed",
+        1000,
       );
     }
   }

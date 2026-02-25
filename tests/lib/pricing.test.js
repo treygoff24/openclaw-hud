@@ -1,17 +1,17 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from "vitest";
 
-const { buildPricingCatalog, repriceModelUsageRows } = require('../../lib/pricing');
+const { buildPricingCatalog, repriceModelUsageRows } = require("../../lib/pricing");
 
-describe('pricing repricer', () => {
-  it('reprices token buckets from config rates', () => {
+describe("pricing repricer", () => {
+  it("reprices token buckets from config rates", () => {
     const catalog = buildPricingCatalog({
       models: {
         providers: {
           openai: {
             models: [
               {
-                id: 'gpt-5',
+                id: "gpt-5",
                 cost: { input: 10, output: 20, cacheRead: 5, cacheWrite: 1 },
               },
             ],
@@ -23,8 +23,8 @@ describe('pricing repricer', () => {
     const { rows, missingPricingModels } = repriceModelUsageRows(
       [
         {
-          provider: 'openai',
-          model: 'gpt-5',
+          provider: "openai",
+          model: "gpt-5",
           inputTokens: 1000,
           outputTokens: 500,
           cacheReadTokens: 200,
@@ -41,14 +41,14 @@ describe('pricing repricer', () => {
     expect(missingPricingModels).toEqual([]);
   });
 
-  it('keeps zero-priced models at zero without marking missing', () => {
+  it("keeps zero-priced models at zero without marking missing", () => {
     const catalog = buildPricingCatalog({
       models: {
         providers: {
           anthropic: {
             models: [
               {
-                id: 'claude-haiku-4',
+                id: "claude-haiku-4",
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               },
             ],
@@ -60,8 +60,8 @@ describe('pricing repricer', () => {
     const { rows, missingPricingModels } = repriceModelUsageRows(
       [
         {
-          provider: 'anthropic',
-          model: 'claude-haiku-4',
+          provider: "anthropic",
+          model: "claude-haiku-4",
           inputTokens: 2000,
           outputTokens: 1000,
           cacheReadTokens: 500,
@@ -77,14 +77,14 @@ describe('pricing repricer', () => {
     expect(missingPricingModels).toEqual([]);
   });
 
-  it('returns zero and diagnostics when pricing is missing', () => {
+  it("returns zero and diagnostics when pricing is missing", () => {
     const catalog = buildPricingCatalog({ models: { providers: { openai: { models: [] } } } });
 
     const { rows, missingPricingModels } = repriceModelUsageRows(
       [
         {
-          provider: 'openai',
-          model: 'gpt-unknown',
+          provider: "openai",
+          model: "gpt-unknown",
           inputTokens: 10,
           outputTokens: 10,
           cacheReadTokens: 0,
@@ -93,8 +93,8 @@ describe('pricing repricer', () => {
           totalCost: 5,
         },
         {
-          provider: 'openai',
-          model: 'gpt-unknown',
+          provider: "openai",
+          model: "gpt-unknown",
           inputTokens: 5,
           outputTokens: 5,
           cacheReadTokens: 0,
@@ -107,6 +107,6 @@ describe('pricing repricer', () => {
     );
 
     expect(rows.map((r) => r.totalCost)).toEqual([0, 0]);
-    expect(missingPricingModels).toEqual(['openai/gpt-unknown']);
+    expect(missingPricingModels).toEqual(["openai/gpt-unknown"]);
   });
 });

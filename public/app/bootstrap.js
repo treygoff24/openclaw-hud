@@ -1,5 +1,5 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.HUDApp = window.HUDApp || {};
 
@@ -7,10 +7,12 @@
     const opts = options || {};
     const doc = opts.document || document;
     const HUD = opts.HUD || window.HUD;
-    const $ = function(selector) { return doc.querySelector(selector); };
+    const $ = function (selector) {
+      return doc.querySelector(selector);
+    };
 
     const diagLog = window.HUDApp.diagnostics.ensureHudDiagLogger();
-    const wsLogPrefix = '[HUD-WS]';
+    const wsLogPrefix = "[HUD-WS]";
 
     const statusController = window.HUDApp.status.createStatusController({
       document: doc,
@@ -32,11 +34,13 @@
     const dataController = window.HUDApp.data.createDataController({
       document: doc,
       HUD: HUD,
-      getFetch: function() { return window.fetch.bind(window); },
+      getFetch: function () {
+        return window.fetch.bind(window);
+      },
       renderPanelSafe: uiController.renderPanelSafe,
       setConnectionStatus: statusController.setConnectionStatus,
-      onChatRestore: function(sessions) {
-        if (typeof window.restoreSavedChatSession === 'function') {
+      onChatRestore: function (sessions) {
+        if (typeof window.restoreSavedChatSession === "function") {
           window.restoreSavedChatSession(sessions);
         }
       },
@@ -57,7 +61,9 @@
       setConnectionStatus: statusController.setConnectionStatus,
       startPolling: pollingController.start,
       stopPolling: pollingController.stop,
-      wsUrlFactory: function() { return HUD.utils.wsUrl(location); },
+      wsUrlFactory: function () {
+        return HUD.utils.wsUrl(location);
+      },
     });
 
     HUD.agents.init();

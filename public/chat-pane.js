@@ -1,24 +1,26 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   var runtime = window.ChatPaneRuntime;
   var requiredApi = [
-    'openChatPane',
-    'closeChatPane',
-    'restoreSavedChatSession',
-    'handleChatWsMessage',
-    'flushWsQueue',
-    'exportChatSession',
-    'ChatState'
+    "openChatPane",
+    "closeChatPane",
+    "restoreSavedChatSession",
+    "handleChatWsMessage",
+    "flushWsQueue",
+    "exportChatSession",
+    "ChatState",
   ];
 
   if (!runtime) {
-    throw new Error('ChatPaneRuntime is missing. Ensure chat-pane modules load before chat-pane.js.');
+    throw new Error(
+      "ChatPaneRuntime is missing. Ensure chat-pane modules load before chat-pane.js.",
+    );
   }
 
   for (var i = 0; i < requiredApi.length; i += 1) {
     if (runtime[requiredApi[i]] == null) {
-      throw new Error('ChatPaneRuntime missing required API: ' + requiredApi[i]);
+      throw new Error("ChatPaneRuntime missing required API: " + requiredApi[i]);
     }
   }
 

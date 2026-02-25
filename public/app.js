@@ -1,22 +1,22 @@
 // app.js — Thin facade: validates app modules and boots runtime
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   window.HUD = window.HUD || {};
 
   const root = window.HUDApp;
   const requiredPaths = [
-    'diagnostics.ensureHudDiagLogger',
-    'status.createStatusController',
-    'ui.createUiController',
-    'data.createDataController',
-    'polling.createPollingController',
-    'ws.createWsController',
-    'bootstrap.initApp',
+    "diagnostics.ensureHudDiagLogger",
+    "status.createStatusController",
+    "ui.createUiController",
+    "data.createDataController",
+    "polling.createPollingController",
+    "ws.createWsController",
+    "bootstrap.initApp",
   ];
 
   function hasPath(obj, path) {
-    return path.split('.').every(function(segment) {
+    return path.split(".").every(function (segment) {
       if (!obj || !Object.prototype.hasOwnProperty.call(obj, segment)) {
         obj = null;
         return false;
@@ -27,15 +27,16 @@
   }
 
   if (!root) {
-    throw new Error('[HUD] App bootstrap failed: window.HUDApp is not initialized.');
+    throw new Error("[HUD] App bootstrap failed: window.HUDApp is not initialized.");
   }
 
-  const missing = requiredPaths.filter(function(path) {
+  const missing = requiredPaths.filter(function (path) {
     return !hasPath(root, path);
   });
 
   if (missing.length > 0) {
-    const message = '[HUD] App bootstrap failed: missing required module APIs: ' + missing.join(', ');
+    const message =
+      "[HUD] App bootstrap failed: missing required module APIs: " + missing.join(", ");
     console.error(message);
     throw new Error(message);
   }

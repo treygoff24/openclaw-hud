@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "server.js",
+    "lib/**/*.js",
+    "routes/**/*.js",
+    "ws/**/*.js",
+    "scripts/**/*.js",
+    "public/**/*.js",
+    "tests/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "coverage",
+    "dist",
+    "playwright-report",
+    "test-results",
+    "public/vendor/**/*.js"
+  ]
+}

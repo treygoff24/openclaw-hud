@@ -28,6 +28,7 @@ Make chat history load succeed on first pass via gateway (no fallback in normal 
 - Fail closed on missing token/nonce/identity; never log private key or token.
 
 Acceptance:
+
 - One canonical codepath builds signed device connect payloads.
 - No duplicated handshake-signing logic across modules.
 
@@ -39,6 +40,7 @@ Acceptance:
 - Ensure reconnect path reuses the same handshake builder (no shortcut path without device proof).
 
 Acceptance:
+
 - Main WS client can call `chat.history` immediately after connect without scope error.
 - Existing connection/reconnect behavior remains intact.
 
@@ -49,6 +51,7 @@ Acceptance:
 - Keep this step isolated and verifiable; revert independently if any usage regression appears.
 
 Acceptance:
+
 - `requestSessionsUsage` still succeeds.
 - No behavior regressions in usage error mapping.
 
@@ -62,6 +65,7 @@ Acceptance:
 - Update usage-rpc tests if needed for shared builder integration.
 
 Acceptance:
+
 - Targeted suite passes.
 - New tests fail on pre-fix code and pass post-fix.
 
@@ -73,6 +77,7 @@ Acceptance:
 - `agent:codex:discord:channel:1475972666773995580` (if available)
 
 Acceptance:
+
 - Logs show `gateway-success` on first request; no fallback for normal startup path.
 
 ### D6 - Cross-Model Review and Incorporation
@@ -83,6 +88,7 @@ Acceptance:
 - Incorporate concrete, non-conflicting suggestions into implementation/tests.
 
 Acceptance:
+
 - Both review outputs captured.
 - Incorporated deltas are test-validated.
 

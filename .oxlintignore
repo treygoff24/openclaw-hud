@@ -1,0 +1,7 @@
+coverage/
+node_modules/
+public/vendor/*.min.js
+public/vendor/*.js
+dist/
+playwright-report/
+test-results/

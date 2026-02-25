@@ -1,64 +1,65 @@
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   const MAX_FILE_SIZE = 5 * 1024 * 1024;
   const pendingAttachments = [];
   let fileInputElement = null;
 
   function initAttachments() {
-    const inputArea = document.getElementById('chat-input-area');
+    const inputArea = document.getElementById("chat-input-area");
     if (!inputArea) return;
-    if (inputArea.dataset.attachmentsInitialized === '1') return;
+    if (inputArea.dataset.attachmentsInitialized === "1") return;
 
-    fileInputElement = document.getElementById('file-input');
+    fileInputElement = document.getElementById("file-input");
     if (!fileInputElement) {
-      fileInputElement = document.createElement('input');
-      fileInputElement.id = 'file-input';
-      fileInputElement.type = 'file';
-      fileInputElement.accept = 'image/*';
+      fileInputElement = document.createElement("input");
+      fileInputElement.id = "file-input";
+      fileInputElement.type = "file";
+      fileInputElement.accept = "image/*";
       fileInputElement.multiple = true;
-      fileInputElement.style.display = 'none';
+      fileInputElement.style.display = "none";
       inputArea.appendChild(fileInputElement);
     }
 
-    let attachBtn = document.getElementById('chat-attach-btn');
+    let attachBtn = document.getElementById("chat-attach-btn");
     if (!attachBtn) {
-      attachBtn = document.createElement('button');
-      attachBtn.id = 'chat-attach-btn';
-      attachBtn.className = 'chat-attach-btn';
-      attachBtn.title = 'Attach image';
-      attachBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
+      attachBtn = document.createElement("button");
+      attachBtn.id = "chat-attach-btn";
+      attachBtn.className = "chat-attach-btn";
+      attachBtn.title = "Attach image";
+      attachBtn.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
       inputArea.appendChild(attachBtn);
     }
 
-    attachBtn.addEventListener('click', function(e) {
+    attachBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       fileInputElement.click();
     });
 
-    fileInputElement.addEventListener('change', function(e) {
+    fileInputElement.addEventListener("change", function (e) {
       handleFiles(e.target.files);
-      fileInputElement.value = '';
+      fileInputElement.value = "";
     });
 
-    inputArea.addEventListener('dragover', function(e) {
+    inputArea.addEventListener("dragover", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
-        inputArea.classList.add('drag-over');
+      if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes("Files")) {
+        inputArea.classList.add("drag-over");
       }
     });
 
-    inputArea.addEventListener('dragleave', function(e) {
+    inputArea.addEventListener("dragleave", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      inputArea.classList.remove('drag-over');
+      inputArea.classList.remove("drag-over");
     });
 
-    inputArea.addEventListener('drop', function(e) {
+    inputArea.addEventListener("drop", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      inputArea.classList.remove('drag-over');
+      inputArea.classList.remove("drag-over");
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
@@ -66,15 +67,15 @@
       }
     });
 
-    const chatInput = document.getElementById('chat-input');
+    const chatInput = document.getElementById("chat-input");
     if (chatInput) {
-      chatInput.addEventListener('paste', function(e) {
+      chatInput.addEventListener("paste", function (e) {
         const items = e.clipboardData.items;
         if (!items) return;
 
         const imageFiles = [];
         for (let i = 0; i < items.length; i++) {
-          if (items[i].type.indexOf('image') !== -1) {
+          if (items[i].type.indexOf("image") !== -1) {
             const file = items[i].getAsFile();
             if (file) {
               imageFiles.push(file);
@@ -89,16 +90,16 @@
       });
     }
 
-    inputArea.dataset.attachmentsInitialized = '1';
+    inputArea.dataset.attachmentsInitialized = "1";
   }
 
   function validateFile(file) {
     if (file.size > MAX_FILE_SIZE) {
-      alert('File too large. Maximum size is 5MB.');
+      alert("File too large. Maximum size is 5MB.");
       return false;
     }
-    if (!file.type.startsWith('image/')) {
-      alert('Only image files are allowed.');
+    if (!file.type.startsWith("image/")) {
+      alert("Only image files are allowed.");
       return false;
     }
     return true;
@@ -116,34 +117,36 @@
 
       const attachment = {
         file: file,
-        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+        id: Date.now() + "-" + Math.random().toString(36).substr(2, 9),
       };
 
       pendingAttachments.push(attachment);
 
-      fileToBase64(file).then(function(dataUrl) {
-        attachment.dataUrl = dataUrl;
-        renderPreviews();
-      }).catch(function() {
-        const index = pendingAttachments.indexOf(attachment);
-        if (index !== -1) {
-          pendingAttachments.splice(index, 1);
+      fileToBase64(file)
+        .then(function (dataUrl) {
+          attachment.dataUrl = dataUrl;
           renderPreviews();
-        }
-      });
+        })
+        .catch(function () {
+          const index = pendingAttachments.indexOf(attachment);
+          if (index !== -1) {
+            pendingAttachments.splice(index, 1);
+            renderPreviews();
+          }
+        });
     }
   }
 
   function fileToBase64(file) {
-    return new Promise(function(resolve, reject) {
+    return new Promise(function (resolve, reject) {
       const reader = new FileReader();
-      reader.onload = function(e) {
+      reader.onload = function (e) {
         resolve(e.target.result);
       };
-      reader.onerror = function(e) {
+      reader.onerror = function (e) {
         reject(e);
       };
-      reader.onabort = function(e) {
+      reader.onabort = function (e) {
         reject(e);
       };
       reader.readAsDataURL(file);
@@ -151,18 +154,18 @@
   }
 
   function renderPreviews() {
-    const existing = document.querySelector('.attachment-previews');
+    const existing = document.querySelector(".attachment-previews");
     if (existing) existing.remove();
 
     if (pendingAttachments.length === 0) return;
 
-    const inputArea = document.getElementById('chat-input-area');
+    const inputArea = document.getElementById("chat-input-area");
     if (!inputArea) return;
 
-    const previewsContainer = document.createElement('div');
-    previewsContainer.className = 'attachment-previews';
+    const previewsContainer = document.createElement("div");
+    previewsContainer.className = "attachment-previews";
 
-    pendingAttachments.forEach(function(attachment, index) {
+    pendingAttachments.forEach(function (attachment, index) {
       const preview = createPreviewElement(attachment, index);
       previewsContainer.appendChild(preview);
     });
@@ -171,19 +174,19 @@
   }
 
   function createPreviewElement(attachment, index) {
-    const preview = document.createElement('div');
-    preview.className = 'attachment-preview';
+    const preview = document.createElement("div");
+    preview.className = "attachment-preview";
 
-    const img = document.createElement('img');
+    const img = document.createElement("img");
     img.src = attachment.dataUrl;
     img.alt = attachment.file.name;
     preview.appendChild(img);
 
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'attachment-remove';
-    removeBtn.innerHTML = '×';
-    removeBtn.title = 'Remove';
-    removeBtn.onclick = function(e) {
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "attachment-remove";
+    removeBtn.innerHTML = "×";
+    removeBtn.title = "Remove";
+    removeBtn.onclick = function (e) {
       e.stopPropagation();
       removeAttachment(index);
     };
@@ -200,25 +203,25 @@
   }
 
   function attachmentToMessageAttachment(attachment) {
-    if (!attachment || typeof attachment.dataUrl !== 'string') return null;
+    if (!attachment || typeof attachment.dataUrl !== "string") return null;
 
     const match = attachment.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) return null;
 
     return {
-      type: 'image',
+      type: "image",
       source: {
-        type: 'base64',
+        type: "base64",
         media_type: match[1],
-        data: match[2]
-      }
+        data: match[2],
+      },
     };
   }
 
   function getAttachments() {
-    return pendingAttachments
-      .map(attachmentToMessageAttachment)
-      .filter(function(attachment) { return attachment !== null; });
+    return pendingAttachments.map(attachmentToMessageAttachment).filter(function (attachment) {
+      return attachment !== null;
+    });
   }
 
   function clearSentAttachments() {
@@ -238,7 +241,7 @@
   function addAttachment(file) {
     const attachment = {
       file: file,
-      id: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+      id: Date.now() + "-" + Math.random().toString(36).substr(2, 9),
     };
     pendingAttachments.push(attachment);
     renderPreviews();
@@ -254,6 +257,6 @@
     fileToBase64: fileToBase64,
     clearAttachments: clearAttachments,
     clearSentAttachments: clearSentAttachments,
-    getAttachments: getAttachments
+    getAttachments: getAttachments,
   };
 })();

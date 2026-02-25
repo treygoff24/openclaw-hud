@@ -5,7 +5,8 @@
 
 ## Validation
 
-- [ ] `npm test` passes locally
+- [ ] `npm run quality` passes locally
+- [ ] `npm run lint:type-aware` reviewed (alpha, non-blocking in CI)
 - [ ] Added/updated tests for behavior changes
 - [ ] Updated docs/config references (if applicable)
 

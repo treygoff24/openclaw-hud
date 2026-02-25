@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-22  
 **Status:** Ready for execution  
-**Baseline:** Phase C complete (commit f891eef)  
+**Baseline:** Phase C complete (commit f891eef)
 
 ---
 
@@ -30,6 +30,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 ```
 
 **Tech Stack:**
+
 - **Frontend:** Vanilla JS (ES modules via script tags), CSS custom properties, WebSocket
 - **Backend:** Node.js 18+, Express 4, ws (WebSocket library)
 - **Testing:** Vitest (unit), Playwright (e2e), jsdom, supertest
@@ -45,6 +46,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 **Goal:** Deterministic builds, no flaky tests, clear update path.
 
 #### D1.1 — Version Pinning & Lockfile Hygiene
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `package.json`, `package-lock.json`
@@ -58,6 +60,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** `npm ci` succeeds in fresh clone; `npm audit` shows 0 high/critical
 
 #### D1.2 — Release Script & Changelog Automation
+
 - **Parallel:** Yes (blocked by D1.1 only for version consistency)
 - **Blocked by:** D1.1
 - **Owned files:** `scripts/release.sh`, `CHANGELOG.md`, `package.json` (add script)
@@ -78,6 +81,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Running release script creates annotated git tag, updates CHANGELOG.md, bumps package.json version
 
 #### D1.3 — Local CI/Testing Pipeline
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `scripts/test-all.sh`, `package.json` (add script)
@@ -89,6 +93,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** `npm run test:all` runs full verification suite locally
 
 #### D1.4 — Test Flake Elimination
+
 - **Parallel:** No (requires understanding current flake patterns)
 - **Blocked by:** None
 - **Owned files:** `tests/**/*.test.js`, `e2e/**/*.spec.js`, `playwright.config.js`
@@ -105,6 +110,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** 10 consecutive test runs pass with no flakes
 
 #### D1.5 — Health Check Endpoint
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `routes/health.js`, `server.js`, `tests/routes/health.test.js`
@@ -132,6 +138,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** `curl http://localhost:3777/health` returns 200; e2e test verifies response schema
 
 #### D1.6 — Rollback Procedure Documentation
+
 - **Parallel:** Yes
 - **Blocked by:** D1.2
 - **Owned files:** `docs/operations/rollback.md`
@@ -150,6 +157,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 **Goal:** Delight with copy-to-clipboard, message search, and inline previews.
 
 #### D2.1 — Copy-to-Clipboard for Code Blocks
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/chat-markdown.js`, `public/chat-pane.css`, `e2e/chat-rich-content.spec.js`
@@ -170,6 +178,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Clicking copy button on code block copies exact text; visual feedback shows "Copied!"
 
 #### D2.2 — Message Search (In-Chat)
+
 - **Parallel:** Yes (blocked by D2.3 for UI consistency)
 - **Blocked by:** D2.3 (search input component)
 - **Owned files:** `public/chat-pane.js`, `public/chat-pane.css`, `public/chat-message.js`
@@ -193,6 +202,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Typing in search box filters messages; matches are highlighted; clearing shows all
 
 #### D2.3 — Keyboard Shortcuts System
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/chat-input.js`, `public/chat-pane.js`, `public/chat-pane.css`
@@ -218,6 +228,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** All shortcuts work in Chrome, Firefox, Safari
 
 #### D2.4 — Message Time Display
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/chat-message.js`, `public/chat-pane.css`
@@ -231,6 +242,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Each message shows relative timestamp; hover shows exact ISO time
 
 #### D2.5 — Inline Image Preview
+
 - **Parallel:** Yes (blocked by D2.1 for copy pattern consistency)
 - **Blocked by:** D2.1 (copy button pattern)
 - **Owned files:** `public/chat-markdown.js`, `public/chat-pane.css`, `e2e/chat-rich-content.spec.js`
@@ -251,6 +263,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 **Goal:** Smooth performance at 1000+ messages, large tool results, and concurrent sessions.
 
 #### D3.1 — Virtual Scrolling for Large Conversations
+
 - **Parallel:** No (foundational)
 - **Blocked by:** None
 - **Owned files:** `public/chat-messages.js` (create), `public/chat-pane.js`, `public/chat-pane.css`
@@ -272,6 +285,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Scroll through 1000 messages maintains 55fps+; no memory leaks on session switch
 
 #### D3.2 — Progressive Rendering for Tool Results
+
 - **Parallel:** Yes (extends D3.1 concepts)
 - **Blocked by:** D3.1 (virtual scroll patterns)
 - **Owned files:** `public/chat-tool-blocks.js`, `public/chat-pane.css`
@@ -285,6 +299,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Tool result >50KB renders without blocking input; progress bar shows status
 
 #### D3.3 — Memory Leak Audit & Fix
+
 - **Parallel:** No (requires analysis)
 - **Blocked by:** None
 - **Owned files:** All `public/*.js` files
@@ -302,6 +317,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Heap size after 100 session switches within 10% of baseline
 
 #### D3.4 — WebSocket Message Batching
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/chat-ws-handler.js`, `ws/chat-handlers.js`
@@ -316,6 +332,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** 100 rapid messages result in ≤5 DOM updates; UI remains responsive
 
 #### D3.5 — Bundle Analysis & Lazy Loading
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/index.html`, `public/app.js`
@@ -335,6 +352,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 **Goal:** Graceful degradation when CDN fails, WS drops, or browser lacks features.
 
 #### D4.1 — CDN Dependency Local Fallback
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/index.html`, `public/vendor/` (create), `scripts/vendor-sync.js`
@@ -357,6 +375,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** With CDN blocked, HUD loads successfully; vendor files served locally
 
 #### D4.2 — WebSocket Reconnection with Exponential Backoff
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/app.js`, `public/chat-pane.js`
@@ -370,6 +389,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** WS drop reconnects automatically; UI shows reconnection status; max 30s retry
 
 #### D4.3 — Graceful Degradation without JavaScript
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/index.html`, `public/styles/base.css`
@@ -383,6 +403,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** With JS disabled, user sees clear message; no broken layout
 
 #### D4.4 — LocalStorage Quota Handling
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/chat-pane.js`, `public/utils.js`
@@ -396,6 +417,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** When quota exceeded, old sessions evicted; new saves succeed; no console errors
 
 #### D4.5 — Offline Mode Detection
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/app.js`, `public/styles/base.css`
@@ -416,6 +438,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 **Goal:** WCAG 2.1 AA compliance, full keyboard navigation, screen reader support.
 
 #### D5.1 — Keyboard Navigation for All Interactive Elements
+
 - **Parallel:** No (foundational)
 - **Blocked by:** None
 - **Owned files:** All `public/panels/*.js`, `public/chat-*.js`
@@ -430,6 +453,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Tab traverses all interactive elements; Enter/Space activates; focus visible
 
 #### D5.2 — ARIA Live Regions for Dynamic Content
+
 - **Parallel:** Yes (extends D5.1)
 - **Blocked by:** D5.1 (focus management)
 - **Owned files:** `public/chat-message.js`, `public/chat-ws-handler.js`, `public/panels/activity.js`
@@ -445,6 +469,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Screen reader announces new messages; errors announced immediately
 
 #### D5.3 — Focus Trap in Modals
+
 - **Parallel:** Yes
 - **Blocked by:** D5.1
 - **Owned files:** `public/panels/spawn.js`, `public/panels/cron.js`
@@ -459,6 +484,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** Tab cycles within open modal; Escape closes and returns focus to trigger
 
 #### D5.4 — Color Contrast Audit & Fix
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/styles/*.css`
@@ -471,6 +497,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** All text meets 4.5:1 contrast ratio; large text 3:1
 
 #### D5.5 — Screen Reader Labels & Descriptions
+
 - **Parallel:** Yes
 - **Blocked by:** D5.2
 - **Owned files:** All `public/*.js`, `public/index.html`
@@ -487,6 +514,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - **Acceptance:** All buttons have accessible names; form inputs have labels
 
 #### D5.6 — Reduced Motion Support
+
 - **Parallel:** Yes
 - **Blocked by:** None
 - **Owned files:** `public/styles/*.css`, `public/chat-pane.css`
@@ -503,72 +531,52 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 
 ## 4. File Ownership Matrix
 
-| File | Primary Owner | Secondary | Tracks |
-|------|---------------|-----------|--------|
-| `public/chat-markdown.js` | D2 | D4, D5 | Copy, images, security |
-| `public/chat-tool-blocks.js` | D2 | D3, D5 | Progressive render, a11y |
-| `public/chat-message.js` | D5 | D2, D3 | ARIA, timestamps, virtual scroll |
-| `public/chat-pane.js` | D3 | D2, D4, D5 | Virtual scroll, search, offline |
-| `public/chat-ws-handler.js` | D4 | D3 | Batching, reconnection |
-| `public/keyboard-shortcuts.js` | D2 | D5 | Shortcuts, focus mgmt |
-| `public/chat-messages.js` | D3 | — | Virtual scroll controller |
-| `public/app.js` | D4 | D3, D5 | Reconnection, offline, a11y |
-| `public/index.html` | D4 | D5 | CDN fallback, noscript |
-| `public/styles/*.css` | D5 | D2, D3 | Contrast, motion, focus |
-| `routes/health.js` | D1 | — | Health endpoint |
-| `scripts/release.sh` | D1 | — | Release automation |
-| `scripts/test-all.sh` | D1 | — | Local CI |
-| `tests/**/*.test.js` | D1 | All | Test reliability |
-| `e2e/**/*.spec.js` | D1 | All | E2E coverage |
-| `docs/operations/*.md` | D1 | — | Operations docs |
+| File                           | Primary Owner | Secondary  | Tracks                           |
+| ------------------------------ | ------------- | ---------- | -------------------------------- |
+| `public/chat-markdown.js`      | D2            | D4, D5     | Copy, images, security           |
+| `public/chat-tool-blocks.js`   | D2            | D3, D5     | Progressive render, a11y         |
+| `public/chat-message.js`       | D5            | D2, D3     | ARIA, timestamps, virtual scroll |
+| `public/chat-pane.js`          | D3            | D2, D4, D5 | Virtual scroll, search, offline  |
+| `public/chat-ws-handler.js`    | D4            | D3         | Batching, reconnection           |
+| `public/keyboard-shortcuts.js` | D2            | D5         | Shortcuts, focus mgmt            |
+| `public/chat-messages.js`      | D3            | —          | Virtual scroll controller        |
+| `public/app.js`                | D4            | D3, D5     | Reconnection, offline, a11y      |
+| `public/index.html`            | D4            | D5         | CDN fallback, noscript           |
+| `public/styles/*.css`          | D5            | D2, D3     | Contrast, motion, focus          |
+| `routes/health.js`             | D1            | —          | Health endpoint                  |
+| `scripts/release.sh`           | D1            | —          | Release automation               |
+| `scripts/test-all.sh`          | D1            | —          | Local CI                         |
+| `tests/**/*.test.js`           | D1            | All        | Test reliability                 |
+| `e2e/**/*.spec.js`             | D1            | All        | E2E coverage                     |
+| `docs/operations/*.md`         | D1            | —          | Operations docs                  |
 
 ---
 
 ## 5. Execution Order / Priorities
 
 **Priority 1: Foundation (Start Here)**
+
 1. **D1.1** — Version pinning (deterministic builds)
 2. **D1.4** — Test flake elimination (trustworthy tests)
 3. **D4.1** — CDN fallback (works offline/in walled gardens)
 4. **D1.5** — Health endpoint (visibility into system state)
 
-**Priority 2: Resilience & Core UX**
-5. **D4.2** — WS reconnection (survives network blips)
-6. **D4.4** — LocalStorage quota (handles large session history)
-7. **D2.1** — Copy-to-clipboard (daily quality-of-life)
-8. **D2.3** — Keyboard shortcuts (power user features)
-9. **D2.4** — Message timestamps (contextual awareness)
+**Priority 2: Resilience & Core UX** 5. **D4.2** — WS reconnection (survives network blips) 6. **D4.4** — LocalStorage quota (handles large session history) 7. **D2.1** — Copy-to-clipboard (daily quality-of-life) 8. **D2.3** — Keyboard shortcuts (power user features) 9. **D2.4** — Message timestamps (contextual awareness)
 
-**Priority 3: Performance**
-10. **D3.1** — Virtual scrolling (handles long conversations)
-11. **D3.3** — Memory leak audit (stable long-running sessions)
-12. **D3.2** — Progressive tool render (smooth large outputs)
-13. **D3.4** — WS batching (responsive during high activity)
+**Priority 3: Performance** 10. **D3.1** — Virtual scrolling (handles long conversations) 11. **D3.3** — Memory leak audit (stable long-running sessions) 12. **D3.2** — Progressive tool render (smooth large outputs) 13. **D3.4** — WS batching (responsive during high activity)
 
-**Priority 4: Search & Advanced Features**
-14. **D2.2** — Message search (find anything in history)
-15. **D2.5** — Inline image preview (rich content)
-16. **D4.5** — Offline mode (full offline resilience)
+**Priority 4: Search & Advanced Features** 14. **D2.2** — Message search (find anything in history) 15. **D2.5** — Inline image preview (rich content) 16. **D4.5** — Offline mode (full offline resilience)
 
-**Priority 5: Polish & Accessibility**
-17. **D5.1** — Keyboard navigation (no-mouse operation)
-18. **D5.4** — Color contrast (comfortable reading)
-19. **D5.6** — Reduced motion (respects system preferences)
-20. **D5.3** — Focus trap (modal safety)
-21. **D5.2** — ARIA live regions (screen reader support)
-22. **D5.5** — Screen reader labels (complete a11y)
+**Priority 5: Polish & Accessibility** 17. **D5.1** — Keyboard navigation (no-mouse operation) 18. **D5.4** — Color contrast (comfortable reading) 19. **D5.6** — Reduced motion (respects system preferences) 20. **D5.3** — Focus trap (modal safety) 21. **D5.2** — ARIA live regions (screen reader support) 22. **D5.5** — Screen reader labels (complete a11y)
 
-**Priority 6: Automation & Docs**
-23. **D1.2** — Release script (easy versioning)
-24. **D1.3** — Local test pipeline (one-command verification)
-25. **D1.6** — Rollback docs (recovery path)
-26. **D4.3** — No-JS fallback (complete degradation handling)
+**Priority 6: Automation & Docs** 23. **D1.2** — Release script (easy versioning) 24. **D1.3** — Local test pipeline (one-command verification) 25. **D1.6** — Rollback docs (recovery path) 26. **D4.3** — No-JS fallback (complete degradation handling)
 
 ---
 
 ## 6. Acceptance Criteria by Track
 
 ### D1: Reliability & Quality Hygiene
+
 - [ ] `npm ci` produces deterministic builds
 - [ ] Release script creates tagged release with changelog
 - [ ] `npm run test:all` passes locally (unit + e2e + lint + audit)
@@ -577,6 +585,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - [ ] Rollback procedure documented and tested
 
 ### D2: Chat UX Power-Ups
+
 - [ ] Code block copy button works in all browsers
 - [ ] Search filters messages with <100ms latency
 - [ ] All documented keyboard shortcuts work
@@ -584,6 +593,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - [ ] Images render as thumbnails with lightbox
 
 ### D3: Performance at Scale
+
 - [ ] 1000 messages scroll at 55fps+
 - [ ] 50KB+ tool results render progressively
 - [ ] 100 session switches cause <10% heap growth
@@ -591,6 +601,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - [ ] Initial bundle <100KB, lazy chunks on demand
 
 ### D4: Resilience / Fallback
+
 - [ ] HUD loads with CDN blocked (local vendor)
 - [ ] WS reconnects automatically with exponential backoff
 - [ ] No-JS shows meaningful message
@@ -598,6 +609,7 @@ Phase D takes openclaw-hud from "feature complete" to "stable and polished." Fiv
 - [ ] Offline mode detected, messages queued and flushed
 
 ### D5: Accessibility Hardening
+
 - [ ] All interactive elements keyboard accessible
 - [ ] Screen reader announces new messages
 - [ ] Modal focus traps cycle correctly
@@ -622,14 +634,14 @@ Before creating any release tag:
 
 ## 8. Summary
 
-| Track | Tasks | Key Deliverable |
-|-------|-------|-----------------|
-| **D1** Reliability & Quality Hygiene | 6 | Automated release, zero flakes, local test suite |
-| **D2** Chat UX Power-Ups | 5 | Copy, search, shortcuts, timestamps, images |
-| **D3** Performance at Scale | 5 | Virtual scroll, progressive render, memory stable |
-| **D4** Resilience / Fallback | 5 | CDN fallback, WS reconnection, offline mode |
-| **D5** Accessibility Hardening | 6 | WCAG AA compliance, full keyboard nav |
-| **Total** | 27 tasks | Stable, polished HUD for daily personal use |
+| Track                                | Tasks    | Key Deliverable                                   |
+| ------------------------------------ | -------- | ------------------------------------------------- |
+| **D1** Reliability & Quality Hygiene | 6        | Automated release, zero flakes, local test suite  |
+| **D2** Chat UX Power-Ups             | 5        | Copy, search, shortcuts, timestamps, images       |
+| **D3** Performance at Scale          | 5        | Virtual scroll, progressive render, memory stable |
+| **D4** Resilience / Fallback         | 5        | CDN fallback, WS reconnection, offline mode       |
+| **D5** Accessibility Hardening       | 6        | WCAG AA compliance, full keyboard nav             |
+| **Total**                            | 27 tasks | Stable, polished HUD for daily personal use       |
 
 ---
 

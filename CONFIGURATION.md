@@ -32,9 +32,11 @@ Open `http://localhost:3777`.
 ### `Gateway not connected`
 
 - Confirm gateway is running:
+
 ```bash
 openclaw gateway status
 ```
+
 - Confirm token exists in OpenClaw config.
 
 ### `EADDRINUSE: 127.0.0.1:3777`
@@ -46,6 +48,7 @@ openclaw gateway status
 
 - Confirm gateway method availability and auth scopes.
 - Run:
+
 ```bash
 openclaw doctor
 ```

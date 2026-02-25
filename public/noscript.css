@@ -5,14 +5,14 @@ noscript {
   padding: 20px;
   background: #0a0e27;
   color: #ff4d4d;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: "Share Tech Mono", monospace;
   text-align: center;
   border: 2px solid #ff4d4d;
   margin: 20px;
 }
 
 noscript::before {
-  content: '⚠ JavaScript is required to run the OpenClaw HUD. Please enable JavaScript in your browser settings.';
+  content: "⚠ JavaScript is required to run the OpenClaw HUD. Please enable JavaScript in your browser settings.";
   display: block;
   font-size: var(--fs-huge);
 }

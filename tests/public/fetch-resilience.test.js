@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Set up minimal DOM that app.js expects
 document.body.innerHTML = `
@@ -43,18 +43,18 @@ document.body.innerHTML = `
 `;
 
 window.HUD = window.HUD || {};
-window.makeFocusable = function(el, handler) {
+window.makeFocusable = function (el, handler) {
   el.tabIndex = 0;
-  el.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' || e.key === ' ') {
+  el.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handler();
     }
   });
 };
-window.escapeHtml = function(s) {
-  if (s == null) return '';
-  const d = document.createElement('div');
+window.escapeHtml = function (s) {
+  if (s == null) return "";
+  const d = document.createElement("div");
   d.textContent = String(s);
   return d.innerHTML;
 };
@@ -66,8 +66,13 @@ window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }))
 const createdSockets = [];
 function createMockWs() {
   return {
-    onopen: null, onmessage: null, onclose: null, onerror: null,
-    send: vi.fn(), close: vi.fn(), readyState: 0,
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
+    send: vi.fn(),
+    close: vi.fn(),
+    readyState: 0,
   };
 }
 window.WebSocket = vi.fn(function MockWebSocket() {
@@ -81,76 +86,82 @@ window.WebSocket.CONNECTING = 0;
 // crypto.randomUUID
 let uuidCounter = 0;
 if (!globalThis.crypto) globalThis.crypto = {};
-if (!globalThis.crypto.randomUUID) globalThis.crypto.randomUUID = () => 'uuid-' + (++uuidCounter);
+if (!globalThis.crypto.randomUUID) globalThis.crypto.randomUUID = () => "uuid-" + ++uuidCounter;
 
 // Mock localStorage
 const _store = {};
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(window, "localStorage", {
   value: {
-    getItem: vi.fn(k => Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null),
-    setItem: vi.fn((k, v) => { _store[k] = v; }),
-    removeItem: vi.fn(k => { delete _store[k]; }),
-    clear: vi.fn(() => { Object.keys(_store).forEach(k => delete _store[k]); }),
+    getItem: vi.fn((k) => (Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null)),
+    setItem: vi.fn((k, v) => {
+      _store[k] = v;
+    }),
+    removeItem: vi.fn((k) => {
+      delete _store[k];
+    }),
+    clear: vi.fn(() => {
+      Object.keys(_store).forEach((k) => delete _store[k]);
+    }),
   },
   writable: true,
 });
 
 // Load all panels and app.js
-await import('../../public/utils.js');
-await import('../../public/label-sanitizer.js');
-await import('../../public/session-labels.js');
-await import('../../public/panels/activity.js');
-await import('../../public/panels/sessions.js');
-await import('../../public/panels/agents.js');
-await import('../../public/panels/cron.js');
-await import('../../public/panels/models.js');
-await import('../../public/panels/session-tree.js');
-await import('../../public/panels/system.js');
-await import('../../public/panels/spawn.js');
-await import('../../public/copy-utils.js');
-await import('../../public/chat-message.js');
-await import('../../public/chat-input/attachments.js');
-await import('../../public/chat-input/autocomplete.js');
-await import('../../public/chat-input/send-flow.js');
-await import('../../public/chat-input/model-picker.js');
-await import('../../public/chat-commands/catalog.js');
-await import('../../public/chat-commands/fuzzy.js');
-await import('../../public/chat-commands/registry.js');
-await import('../../public/chat-commands/help.js');
-await import('../../public/chat-commands/local-exec.js');
-await import('../../public/chat-commands.js');
-await import('../../public/chat-input.js');
-await import('../../public/chat-ws/runtime.js');
-await import('../../public/chat-ws/history-log.js');
-await import('../../public/chat-ws/stream-events.js');
-await import('../../public/chat-ws/system-events.js');
-await import('../../public/chat-ws-handler.js');
-await import('../../public/app/diagnostics.js');
-await import('../../public/app/status.js');
-await import('../../public/app/ui.js');
-await import('../../public/app/data.js');
-await import('../../public/app/polling.js');
-await import('../../public/app/ws.js');
-await import('../../public/app/bootstrap.js');
-await import('../../public/app.js');
-await import('../../public/chat-pane/constants.js');
-await import('../../public/chat-pane/diagnostics.js');
-await import('../../public/chat-pane/session-metadata.js');
-await import('../../public/chat-pane/history-timeout.js');
-await import('../../public/chat-pane/transport.js');
-await import('../../public/chat-pane/state.js');
-await import('../../public/chat-pane/pane-lifecycle.js');
-await import('../../public/chat-pane/session-restore.js');
-await import('../../public/chat-pane/ws-bridge.js');
-await import('../../public/chat-pane/export.js');
-await import('../../public/chat-pane.js');
+await import("../../public/utils.js");
+await import("../../public/label-sanitizer.js");
+await import("../../public/session-labels.js");
+await import("../../public/panels/activity.js");
+await import("../../public/panels/sessions.js");
+await import("../../public/panels/agents.js");
+await import("../../public/panels/cron.js");
+await import("../../public/panels/models.js");
+await import("../../public/panels/session-tree.js");
+await import("../../public/panels/system.js");
+await import("../../public/panels/spawn.js");
+await import("../../public/copy-utils.js");
+await import("../../public/chat-message.js");
+await import("../../public/chat-input/attachments.js");
+await import("../../public/chat-input/autocomplete.js");
+await import("../../public/chat-input/send-flow.js");
+await import("../../public/chat-input/model-picker.js");
+await import("../../public/chat-commands/catalog.js");
+await import("../../public/chat-commands/fuzzy.js");
+await import("../../public/chat-commands/registry.js");
+await import("../../public/chat-commands/help.js");
+await import("../../public/chat-commands/local-exec.js");
+await import("../../public/chat-commands.js");
+await import("../../public/chat-input.js");
+await import("../../public/chat-ws/runtime.js");
+await import("../../public/chat-ws/history-log.js");
+await import("../../public/chat-ws/stream-events.js");
+await import("../../public/chat-ws/system-events.js");
+await import("../../public/chat-ws-handler.js");
+await import("../../public/app/diagnostics.js");
+await import("../../public/app/status.js");
+await import("../../public/app/ui.js");
+await import("../../public/app/data.js");
+await import("../../public/app/polling.js");
+await import("../../public/app/ws.js");
+await import("../../public/app/bootstrap.js");
+await import("../../public/app.js");
+await import("../../public/chat-pane/constants.js");
+await import("../../public/chat-pane/diagnostics.js");
+await import("../../public/chat-pane/session-metadata.js");
+await import("../../public/chat-pane/history-timeout.js");
+await import("../../public/chat-pane/transport.js");
+await import("../../public/chat-pane/state.js");
+await import("../../public/chat-pane/pane-lifecycle.js");
+await import("../../public/chat-pane/session-restore.js");
+await import("../../public/chat-pane/ws-bridge.js");
+await import("../../public/chat-pane/export.js");
+await import("../../public/chat-pane.js");
 
-describe('fetchAll resilient fetching', () => {
+describe("fetchAll resilient fetching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('calls fetch for all endpoints', async () => {
+  it("calls fetch for all endpoints", async () => {
     const fetchCalls = [];
     window.fetch = vi.fn((url) => {
       fetchCalls.push(url);
@@ -159,23 +170,23 @@ describe('fetchAll resilient fetching', () => {
 
     await HUD.fetchAll();
 
-    expect(fetchCalls).toContain('/api/agents');
-    expect(fetchCalls).toContain('/api/sessions');
-    expect(fetchCalls).toContain('/api/config');
-    expect(fetchCalls).toContain('/api/model-usage/live-weekly');
-    expect(fetchCalls).not.toContain('/api/model-usage');
+    expect(fetchCalls).toContain("/api/agents");
+    expect(fetchCalls).toContain("/api/sessions");
+    expect(fetchCalls).toContain("/api/config");
+    expect(fetchCalls).toContain("/api/model-usage/live-weekly");
+    expect(fetchCalls).not.toContain("/api/model-usage");
   });
 
-  it('renders panels even when some endpoints fail', async () => {
+  it("renders panels even when some endpoints fail", async () => {
     const renderSpies = {
-      agents: vi.spyOn(HUD.agents, 'render'),
-      sessions: vi.spyOn(HUD.sessions, 'render'),
-      system: vi.spyOn(HUD.system, 'render'),
+      agents: vi.spyOn(HUD.agents, "render"),
+      sessions: vi.spyOn(HUD.sessions, "render"),
+      system: vi.spyOn(HUD.system, "render"),
     };
 
     window.fetch = vi.fn((url) => {
-      if (url === '/api/agents') {
-        return Promise.reject(new Error('agents failed'));
+      if (url === "/api/agents") {
+        return Promise.reject(new Error("agents failed"));
       }
       return Promise.resolve({ json: () => Promise.resolve([]) });
     });
@@ -190,30 +201,30 @@ describe('fetchAll resilient fetching', () => {
     renderSpies.system.mockRestore();
   });
 
-  it('renders available panels when all endpoints fail', async () => {
+  it("renders available panels when all endpoints fail", async () => {
     const renderSpies = {
-      agents: vi.spyOn(HUD.agents, 'render'),
-      sessions: vi.spyOn(HUD.sessions, 'render'),
-      cron: vi.spyOn(HUD.cron, 'render'),
-      system: vi.spyOn(HUD.system, 'render'),
-      models: vi.spyOn(HUD.models, 'render'),
-      activity: vi.spyOn(HUD.activity, 'render'),
-      sessionTree: vi.spyOn(HUD.sessionTree, 'render'),
+      agents: vi.spyOn(HUD.agents, "render"),
+      sessions: vi.spyOn(HUD.sessions, "render"),
+      cron: vi.spyOn(HUD.cron, "render"),
+      system: vi.spyOn(HUD.system, "render"),
+      models: vi.spyOn(HUD.models, "render"),
+      activity: vi.spyOn(HUD.activity, "render"),
+      sessionTree: vi.spyOn(HUD.sessionTree, "render"),
     };
 
-    window.fetch = vi.fn(() => Promise.reject(new Error('network error')));
+    window.fetch = vi.fn(() => Promise.reject(new Error("network error")));
 
     await HUD.fetchAll();
 
-    Object.values(renderSpies).forEach(spy => {
+    Object.values(renderSpies).forEach((spy) => {
       expect(spy).toHaveBeenCalled();
     });
 
-    Object.values(renderSpies).forEach(spy => spy.mockRestore());
+    Object.values(renderSpies).forEach((spy) => spy.mockRestore());
   });
 });
 
-describe('renderPanelSafe error boundaries', () => {
+describe("renderPanelSafe error boundaries", () => {
   beforeEach(() => {
     // Clear any existing error panels
     document.body.innerHTML = `
@@ -223,65 +234,65 @@ describe('renderPanelSafe error boundaries', () => {
     `;
   });
 
-  it('catches render errors and shows unavailable state', () => {
-    if (typeof renderPanelSafe !== 'function') return;
+  it("catches render errors and shows unavailable state", () => {
+    if (typeof renderPanelSafe !== "function") return;
 
-    const panelEl = document.getElementById('test-panel');
+    const panelEl = document.getElementById("test-panel");
 
     const failingRender = () => {
-      throw new Error('render failed');
+      throw new Error("render failed");
     };
 
     // renderPanelSafe signature: (panelName, panelEl, renderFn, data)
-    renderPanelSafe('test-panel', panelEl, failingRender, {});
+    renderPanelSafe("test-panel", panelEl, failingRender, {});
 
-    expect(panelEl.innerHTML).toContain('—');
-    expect(panelEl.innerHTML).toContain('panel-error');
-    expect(panelEl.innerHTML).toContain('panel-retry-btn');
+    expect(panelEl.innerHTML).toContain("—");
+    expect(panelEl.innerHTML).toContain("panel-error");
+    expect(panelEl.innerHTML).toContain("panel-retry-btn");
   });
 
-  it('calls retryPanel when retry button is clicked', () => {
-    if (typeof retryPanel !== 'function' || typeof renderPanelSafe !== 'function') return;
+  it("calls retryPanel when retry button is clicked", () => {
+    if (typeof retryPanel !== "function" || typeof renderPanelSafe !== "function") return;
 
-    const panelEl = document.getElementById('test-panel');
+    const panelEl = document.getElementById("test-panel");
 
     const failingRender = () => {
-      throw new Error('render failed');
+      throw new Error("render failed");
     };
 
-    renderPanelSafe('test-panel', panelEl, failingRender, {});
+    renderPanelSafe("test-panel", panelEl, failingRender, {});
 
-    const retryBtn = panelEl.querySelector('.panel-retry-btn');
+    const retryBtn = panelEl.querySelector(".panel-retry-btn");
     expect(retryBtn).not.toBeNull();
 
     // Verify the onclick handler is set correctly
-    expect(retryBtn.getAttribute('onclick')).toContain("retryPanel('test-panel')");
+    expect(retryBtn.getAttribute("onclick")).toContain("retryPanel('test-panel')");
   });
 
-  it('renders normally when no error', () => {
-    if (typeof renderPanelSafe !== 'function') return;
+  it("renders normally when no error", () => {
+    if (typeof renderPanelSafe !== "function") return;
 
-    const panelEl = document.getElementById('test-panel');
+    const panelEl = document.getElementById("test-panel");
 
     const successfulRender = (el, data) => {
       el.innerHTML = `<div class="success">${data.value}</div>`;
     };
 
-    renderPanelSafe('test-panel', panelEl, successfulRender, { value: 'test-value' });
+    renderPanelSafe("test-panel", panelEl, successfulRender, { value: "test-value" });
 
-    expect(panelEl.innerHTML).toContain('test-value');
-    expect(panelEl.innerHTML).not.toContain('panel-error');
+    expect(panelEl.innerHTML).toContain("test-value");
+    expect(panelEl.innerHTML).not.toContain("panel-error");
   });
 });
 
-describe('setConnectionStatus with per-panel states', () => {
-  it('shows disconnected badge when all panels fail', async () => {
-    window.fetch = vi.fn(() => Promise.reject(new Error('network')));
+describe("setConnectionStatus with per-panel states", () => {
+  it("shows disconnected badge when all panels fail", async () => {
+    window.fetch = vi.fn(() => Promise.reject(new Error("network")));
 
     await HUD.fetchAll();
 
-    const badge = document.getElementById('connection-badge');
+    const badge = document.getElementById("connection-badge");
     expect(badge).not.toBeNull();
-    expect(badge.textContent).toContain('DISCONNECTED');
+    expect(badge.textContent).toContain("DISCONNECTED");
   });
 });

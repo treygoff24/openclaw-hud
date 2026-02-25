@@ -15,11 +15,12 @@
   background: rgba(10, 15, 30, 0.98);
   border: 1px solid var(--neon-cyan, #00f0ff);
   border-radius: 6px;
-  box-shadow: 0 -4px 20px rgba(0, 240, 255, 0.2),
-              0 0 0 1px rgba(0, 240, 255, 0.1);
+  box-shadow:
+    0 -4px 20px rgba(0, 240, 255, 0.2),
+    0 0 0 1px rgba(0, 240, 255, 0.1);
   z-index: 1000;
   backdrop-filter: blur(8px);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: "Share Tech Mono", monospace;
   font-size: 0.9rem;
 }
 
@@ -110,11 +111,12 @@
   background: rgba(10, 15, 30, 0.98);
   border: 1px solid var(--neon-magenta, #ff00ff);
   border-radius: 6px;
-  box-shadow: 0 -4px 20px rgba(255, 0, 255, 0.15),
-              0 0 0 1px rgba(255, 0, 255, 0.1);
+  box-shadow:
+    0 -4px 20px rgba(255, 0, 255, 0.15),
+    0 0 0 1px rgba(255, 0, 255, 0.1);
   z-index: 999;
   backdrop-filter: blur(8px);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: "Share Tech Mono", monospace;
   font-size: 0.85rem;
   display: flex;
   align-items: center;
@@ -164,7 +166,7 @@
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(0, 240, 255, 0.3);
   border-radius: 6px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: "Share Tech Mono", monospace;
   font-size: 0.85rem;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.9);
@@ -205,24 +207,24 @@
     max-height: 220px;
     font-size: 0.85rem;
   }
-  
+
   .slash-item {
     padding: 8px 12px;
   }
-  
+
   .slash-name {
     font-size: 0.95rem;
   }
-  
+
   .slash-desc {
     font-size: 0.75rem;
   }
-  
+
   .slash-hints {
     padding: 8px 12px;
     font-size: 0.8rem;
   }
-  
+
   .command-output {
     font-size: 0.75rem;
     padding: 10px 12px;

@@ -1,14 +1,17 @@
 # OpenClaw HUD — Full Spec
 
 ## Overview
+
 Build a local-only web dashboard ("HUD") for OpenClaw — a real-time heads-up display showing all agents, sessions, cron jobs, and system status. Think cyberpunk hacker terminal meets mission control. This runs on `localhost` and reads local data files directly.
 
 ## Tech Stack
+
 - **Frontend:** Single-page app. HTML/CSS/JS. You may use React, Vue, Svelte, or vanilla — your choice. Must look stunning.
 - **Backend:** Node.js (Express or Fastify) or Python (FastAPI/Flask). Serves the frontend + API endpoints that read OpenClaw data files.
 - **No external databases.** All data comes from local JSON/JSONL files on disk.
 
 ## Design Direction
+
 **Cyberpunk hacker HUD.** Think: dark backgrounds, neon accents (cyan, magenta, amber), scanline effects, monospace fonts mixed with sleek sans-serif, glowing borders, terminal-style animations. NOT generic Bootstrap/Tailwind dashboard. This should feel like you're piloting a fleet of AI agents from a command center.
 
 **Must be visually distinctive and memorable.** Apply the Frontend Design skill guidelines — bold aesthetic choices, unexpected layouts, atmospheric backgrounds, creative typography. No AI slop.
@@ -18,11 +21,13 @@ Build a local-only web dashboard ("HUD") for OpenClaw — a real-time heads-up d
 All data lives under `~/.openclaw/` (use environment variable `OPENCLAW_HOME` with fallback to `~/.openclaw`).
 
 ### 1. Agents
+
 - **Agent list:** Read from `~/.openclaw/config/source-of-truth.json5` → `agents.list[]` array. Each has `id` field.
 - **Agent directories:** `~/.openclaw/agents/<id>/` — one folder per agent.
 - **Display:** Show all agents as cards/tiles with their ID, status indicator, and any active sessions.
 
 ### 2. Sessions
+
 - **Session index:** `~/.openclaw/agents/<agentId>/sessions/sessions.json` — JSON object where keys are session keys and values contain:
   - `sessionId`, `updatedAt` (unix ms), `label`, `spawnedBy`, `spawnDepth`, `lastChannel`, `groupChannel`
 - **Session logs:** `~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl` — newline-delimited JSON. Each line has:
@@ -34,6 +39,7 @@ All data lives under `~/.openclaw/` (use environment variable `OPENCLAW_HOME` wi
 - **Display:** Active sessions panel. Show session key, label, age, last activity, parent agent, spawn depth. Clicking a session shows its message log.
 
 ### 3. Cron Jobs
+
 - **Jobs file:** `~/.openclaw/cron/jobs.json` — structure:
   ```json
   {
@@ -63,6 +69,7 @@ All data lives under `~/.openclaw/` (use environment variable `OPENCLAW_HOME` wi
 - **Display:** Cron dashboard showing all jobs, their schedule, last run status, next run time, error count. Color-code: green=healthy, red=erroring, yellow=skipped/disabled.
 
 ### 4. System Status
+
 - **Config:** `~/.openclaw/config/source-of-truth.json5` — parse as JSON5 (strip comments). Contains:
   - `agents.defaults.model.primary` — default model
   - `agents.defaults.maxConcurrent` — concurrency limit
@@ -72,6 +79,7 @@ All data lives under `~/.openclaw/` (use environment variable `OPENCLAW_HOME` wi
 - **Display:** System info panel showing gateway port, mode, default model, concurrency limits, channel status.
 
 ### 5. Model Usage (from session logs)
+
 - Parse JSONL session logs for `type: "model_change"` events to track which models are in use.
 - Count messages per model, per agent.
 - **Display:** Model usage breakdown — which agents used which models, message counts, a visual chart or graph.
@@ -98,6 +106,7 @@ Design a single-page dashboard with these panels (layout is your creative choice
 7. Include at least basic error handling
 
 ## Bonus Points
+
 - Real-time WebSocket updates instead of polling
 - Animations on data changes (new sessions appearing, status changes)
 - Click-to-expand session logs
@@ -105,6 +114,7 @@ Design a single-page dashboard with these panels (layout is your creative choice
 - Sound effects or visual alerts for errors
 
 ## What NOT to Build
+
 - No authentication (local only)
 - No write operations (read-only dashboard)
 - No external API calls

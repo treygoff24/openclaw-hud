@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
-const source = fs.readFileSync(
-  path.resolve(process.cwd(), 'public/chat-ws-handler.js'),
-  'utf8'
-);
+const source = fs.readFileSync(path.resolve(process.cwd(), "public/chat-ws-handler.js"), "utf8");
 
-describe('chat-ws-handler facade', () => {
+describe("chat-ws-handler facade", () => {
   beforeEach(() => {
     delete window.ChatWsRuntime;
     delete window.ChatWsHistoryLog;
@@ -18,13 +15,13 @@ describe('chat-ws-handler facade', () => {
     delete window.WebSocketMessageBatcher;
   });
 
-  it('fails fast when required module APIs are missing', () => {
+  it("fails fast when required module APIs are missing", () => {
     expect(() => window.eval(source)).toThrow(
-      '[ChatWsHandler] Missing ChatWsRuntime.updateButtons. Check script load order.'
+      "[ChatWsHandler] Missing ChatWsRuntime.updateButtons. Check script load order.",
     );
   });
 
-  it('binds handler API when runtime modules are complete', () => {
+  it("binds handler API when runtime modules are complete", () => {
     const updateButtons = vi.fn();
     const showLive = vi.fn();
     const createRetryBtn = vi.fn();
@@ -41,7 +38,7 @@ describe('chat-ws-handler facade', () => {
     window.ChatWsStreamEvents = {
       handleChatEvent,
       processChatEventBatch,
-      initializeBatcher
+      initializeBatcher,
     };
     window.ChatWsSystemEvents = { handleSendAck, handleGatewayStatus };
     window.ChatState = { currentSession: null, cachedModels: null };
@@ -53,6 +50,6 @@ describe('chat-ws-handler facade', () => {
     expect(initializeBatcher).toHaveBeenCalledTimes(1);
     expect(window.ChatWsHandler.updateButtons).toBe(updateButtons);
     expect(window.ChatWsHandler.processChatEventBatch).toBe(processChatEventBatch);
-    expect(typeof window.ChatWsHandler.handle).toBe('function');
+    expect(typeof window.ChatWsHandler.handle).toBe("function");
   });
 });

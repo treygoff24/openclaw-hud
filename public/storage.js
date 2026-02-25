@@ -1,14 +1,18 @@
 // HUD Storage Module — Safe localStorage wrapper with quota handling
-(function() {
-  'use strict';
-  var PREFIX = 'hud-';
+(function () {
+  "use strict";
+  var PREFIX = "hud-";
 
   function safeParse(json) {
-    try { return JSON.parse(json); } catch (e) { return null; }
+    try {
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
   }
 
   var Storage = {
-    get: function(key, defaultValue) {
+    get: function (key, defaultValue) {
       try {
         var raw = localStorage.getItem(PREFIX + key);
         if (raw === null) return defaultValue !== undefined ? defaultValue : null;
@@ -19,24 +23,26 @@
       }
     },
 
-    set: function(key, value, options) {
+    set: function (key, value, options) {
       options = options || {};
       try {
         localStorage.setItem(PREFIX + key, JSON.stringify(value));
         return true;
       } catch (e) {
-        if (e.name === 'QuotaExceededError' || e.code === 22) {
-          console.warn('HUD.Storage: Quota exceeded for key', key);
+        if (e.name === "QuotaExceededError" || e.code === 22) {
+          console.warn("HUD.Storage: Quota exceeded for key", key);
         }
         return false;
       }
     },
 
-    remove: function(key) {
-      try { localStorage.removeItem(PREFIX + key); } catch (e) {}
+    remove: function (key) {
+      try {
+        localStorage.removeItem(PREFIX + key);
+      } catch (e) {}
     },
 
-    getStorageInfo: function() {
+    getStorageInfo: function () {
       var used = 0;
       try {
         for (var i = 0; i < localStorage.length; i++) {
@@ -50,7 +56,7 @@
       return { used: used, available: true, percentUsed: 0, itemCount: 0 };
     },
 
-    clearNamespace: function() {
+    clearNamespace: function () {
       try {
         for (var i = localStorage.length - 1; i >= 0; i--) {
           var k = localStorage.key(i);
@@ -59,14 +65,16 @@
       } catch (e) {}
     },
 
-    isAvailable: function() {
+    isAvailable: function () {
       try {
-        var test = '__hud_test__';
-        localStorage.setItem(test, '1');
+        var test = "__hud_test__";
+        localStorage.setItem(test, "1");
         localStorage.removeItem(test);
         return true;
-      } catch (e) { return false; }
-    }
+      } catch (e) {
+        return false;
+      }
+    },
   };
 
   window.HUD = window.HUD || {};

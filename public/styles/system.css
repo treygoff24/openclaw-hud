@@ -3,7 +3,7 @@
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
-  border-bottom: 1px solid rgba(26,30,53,0.3);
+  border-bottom: 1px solid rgba(26, 30, 53, 0.3);
 }
 .sys-label {
   font-family: var(--font-display);
