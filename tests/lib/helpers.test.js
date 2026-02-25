@@ -22,7 +22,6 @@ const {
   safeReaddir,
   stripSecrets,
   getSessionStatus,
-  getGatewayConfig,
   getLiveWeekWindow,
   OPENCLAW_HOME
 } = await import('../../lib/helpers.js');
@@ -213,13 +212,85 @@ describe('getLiveWeekWindow', () => {
 
 // --------------- getGatewayConfig ---------------
 describe('getGatewayConfig', () => {
-  it('returns port and token from config', () => {
-    // getGatewayConfig reads OPENCLAW_HOME/openclaw.json (primary)
-    // or OPENCLAW_HOME/config/source-of-truth.json5 (legacy fallback)
-    const cfg = getGatewayConfig();
-    expect(cfg).toHaveProperty('port');
-    expect(typeof cfg.port).toBe('number');
-    expect(cfg).toHaveProperty('token');
+  const originalOpenclawHome = process.env.OPENCLAW_HOME;
+
+  async function loadGatewayConfigForHome(openclawHome) {
+    process.env.OPENCLAW_HOME = openclawHome;
+    vi.resetModules();
+    const helpers = await import('../../lib/helpers.js');
+    return helpers.getGatewayConfig();
+  }
+
+  beforeEach(() => {
+    delete process.env.OPENCLAW_HOME;
+  });
+
+  afterAll(() => {
+    if (originalOpenclawHome === undefined) delete process.env.OPENCLAW_HOME;
+    else process.env.OPENCLAW_HOME = originalOpenclawHome;
+    vi.resetModules();
+  });
+
+  it('returns defaults when no config files exist', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-none');
+    fs.mkdirSync(openclawHome, { recursive: true });
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 18789, token: null });
+  });
+
+  it('reads from openclaw.json when present', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-primary');
+    fs.mkdirSync(openclawHome, { recursive: true });
+    fs.writeFileSync(path.join(openclawHome, 'openclaw.json'), JSON.stringify({
+      gateway: {
+        port: 19999,
+        auth: { token: 'primary-token' }
+      }
+    }));
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 19999, token: 'primary-token' });
+  });
+
+  it('falls back to legacy source-of-truth.json5 when openclaw.json is missing', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-legacy');
+    const legacyDir = path.join(openclawHome, 'config');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'source-of-truth.json5'), `{
+      gateway: {
+        port: 18888,
+        auth: { token: 'legacy-token' },
+      },
+    }`);
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 18888, token: 'legacy-token' });
+  });
+
+  it('prefers openclaw.json over legacy source-of-truth.json5', async () => {
+    const openclawHome = path.join(TMPDIR, 'gateway-config-both');
+    const legacyDir = path.join(openclawHome, 'config');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(openclawHome, 'openclaw.json'), JSON.stringify({
+      gateway: {
+        port: 17777,
+        auth: { token: 'primary-token' }
+      }
+    }));
+    fs.writeFileSync(path.join(legacyDir, 'source-of-truth.json5'), `{
+      gateway: {
+        port: 16666,
+        auth: { token: 'legacy-token' },
+      },
+    }`);
+
+    const cfg = await loadGatewayConfigForHome(openclawHome);
+
+    expect(cfg).toEqual({ port: 17777, token: 'primary-token' });
   });
 });
 
