@@ -97,7 +97,9 @@ HUD.spawn = (function () {
 
       close();
       HUD.showToast(`Session launched: ${data.label || data.agentId}`);
-      setTimeout(HUD.fetchAll, 2000);
+      setTimeout(function () {
+        if (typeof HUD.fetchAll === "function") HUD.fetchAll();
+      }, 2000);
     } catch (err) {
       errorEl.textContent = err.message;
       errorEl.style.display = "block";

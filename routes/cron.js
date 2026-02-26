@@ -3,8 +3,17 @@ const path = require("path");
 const express = require("express");
 const { Router } = require("express");
 const { OPENCLAW_HOME, safeJSON, safeJSON5, stripSecrets } = require("../lib/helpers");
+const { isLoopbackOrigin } = require("../lib/ws-origin-guard");
 
 const router = Router();
+
+function requireLocalOrigin(req, res, next) {
+  const origin = req.headers?.origin;
+  if (origin && !isLoopbackOrigin(origin)) {
+    return res.status(403).json({ error: "Forbidden origin" });
+  }
+  return next();
+}
 
 router.get("/api/cron", (req, res) => {
   const jobs = safeJSON(path.join(OPENCLAW_HOME, "cron", "jobs.json"));
@@ -21,7 +30,7 @@ router.get("/api/cron", (req, res) => {
   res.json(stripSecrets({ version: jobs?.version || 1, jobs: enrichedJobs }));
 });
 
-router.put("/api/cron/:jobId", express.json(), (req, res) => {
+router.put("/api/cron/:jobId", requireLocalOrigin, express.json(), (req, res) => {
   if (!/^[a-zA-Z0-9_-]+$/.test(req.params.jobId)) {
     return res.status(400).json({ error: "Invalid job ID" });
   }
@@ -36,7 +45,7 @@ router.put("/api/cron/:jobId", express.json(), (req, res) => {
     fs.copyFileSync(jobsPath, jobsPath + ".bak");
   } catch {}
 
-  const updates = req.body;
+  const updates = req.body && typeof req.body === "object" ? req.body : {};
   const job = data.jobs[jobIndex];
   const editable = [
     "name",
@@ -50,6 +59,10 @@ router.put("/api/cron/:jobId", express.json(), (req, res) => {
   ];
   for (const key of editable) {
     if (updates[key] !== undefined) job[key] = updates[key];
+  }
+
+  if (!job.payload || typeof job.payload !== "object" || Array.isArray(job.payload)) {
+    job.payload = {};
   }
 
   if (job.sessionTarget === "main" && job.payload?.kind !== "systemEvent")
@@ -66,7 +79,7 @@ router.put("/api/cron/:jobId", express.json(), (req, res) => {
   }
 });
 
-router.post("/api/cron/:jobId/toggle", (req, res) => {
+router.post("/api/cron/:jobId/toggle", requireLocalOrigin, (req, res) => {
   if (!/^[a-zA-Z0-9_-]+$/.test(req.params.jobId)) {
     return res.status(400).json({ error: "Invalid job ID" });
   }

@@ -2,10 +2,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock clipboard API
+const clipboardWriteTextMock = vi.fn().mockResolvedValue(undefined);
+const clipboardReadTextMock = vi.fn().mockResolvedValue("");
 Object.assign(navigator, {
   clipboard: {
-    writeText: vi.fn().mockResolvedValue(undefined),
-    readText: vi.fn().mockResolvedValue(""),
+    writeText: clipboardWriteTextMock,
+    readText: clipboardReadTextMock,
   },
 });
 
@@ -25,7 +27,7 @@ await import("../../public/chat-message.js");
 describe("Copy Buttons", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    navigator.clipboard.writeText.mockClear();
+    clipboardWriteTextMock.mockClear();
   });
 
   describe("Tool Use Block Copy Button", () => {
@@ -52,8 +54,8 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalled();
-      const copiedText = navigator.clipboard.writeText.mock.calls[0][0];
+      expect(clipboardWriteTextMock).toHaveBeenCalled();
+      const copiedText = clipboardWriteTextMock.mock.calls[0][0];
       const parsed = JSON.parse(copiedText);
       expect(parsed.name).toBe("exec");
       expect(parsed.input.command).toBe("ls -la");
@@ -87,7 +89,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(content);
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith(content);
     });
 
     it("copies full content when truncated", async () => {
@@ -98,7 +100,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(fullContent);
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith(fullContent);
     });
 
     it("formats tool result as code block", () => {
@@ -130,7 +132,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Hello world");
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("Hello world");
     });
 
     it("copies all text content from multiple blocks", async () => {
@@ -148,7 +150,7 @@ describe("Copy Buttons", () => {
       await copyBtn.click();
 
       // Content blocks are joined with newline (first part has trailing space)
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("First part \nSecond part");
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("First part \nSecond part");
     });
 
     it("shows copied state after click", async () => {
@@ -186,7 +188,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("User message");
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("User message");
     });
   });
 
@@ -217,7 +219,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      const copiedText = navigator.clipboard.writeText.mock.calls[0][0];
+      const copiedText = clipboardWriteTextMock.mock.calls[0][0];
       const parsed = JSON.parse(copiedText);
       expect(parsed.name).toBe("exec");
     });
@@ -229,7 +231,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("");
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("");
     });
 
     it("handles null content in tool result", async () => {
@@ -239,7 +241,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalled();
+      expect(clipboardWriteTextMock).toHaveBeenCalled();
     });
 
     it("handles empty message content", async () => {
@@ -253,7 +255,7 @@ describe("Copy Buttons", () => {
       const copyBtn = el.querySelector(".copy-btn");
       await copyBtn.click();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("");
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("");
     });
 
     it("handles object content in tool result", async () => {
@@ -264,7 +266,7 @@ describe("Copy Buttons", () => {
       await copyBtn.click();
 
       const expected = JSON.stringify({ result: "value", nested: { key: "val" } }, null, 2);
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expected);
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith(expected);
     });
   });
 });

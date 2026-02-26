@@ -15,9 +15,23 @@ function logHistory(event, fields = {}) {
   const parts = [];
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
-    parts.push(`${key}=${typeof value === "string" ? JSON.stringify(value) : String(value)}`);
+    parts.push(`${key}=${formatHistoryFieldValue(value)}`);
   }
   console.log(`${CHAT_HISTORY_LOG_PREFIX} ${event}${parts.length ? ` ${parts.join(" ")}` : ""}`);
+}
+
+function formatHistoryFieldValue(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+    return String(value);
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return "[function]";
+  if (value === null) return "null";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 function toMessageContent(content) {

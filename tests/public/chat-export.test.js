@@ -2,15 +2,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock clipboard API
+const clipboardWriteTextMock = vi.fn().mockResolvedValue(undefined);
+const clipboardReadTextMock = vi.fn().mockResolvedValue("");
 Object.assign(navigator, {
   clipboard: {
-    writeText: vi.fn().mockResolvedValue(undefined),
-    readText: vi.fn().mockResolvedValue(""),
+    writeText: clipboardWriteTextMock,
+    readText: clipboardReadTextMock,
   },
 });
 
 // Mock URL.createObjectURL and URL.revokeObjectURL
-global.URL.createObjectURL = vi.fn(() => "blob:mock-url");
+const createObjectUrlMock = vi.fn(() => "blob:mock-url");
+global.URL.createObjectURL = createObjectUrlMock;
 global.URL.revokeObjectURL = vi.fn();
 
 window.escapeHtml = function (s) {
@@ -269,8 +272,8 @@ describe("8b: Per-turn copy button", () => {
     const copyTurnBtn = document.querySelector(".chat-msg.assistant .copy-turn-btn");
     await copyTurnBtn.click();
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalled();
-    const copiedText = navigator.clipboard.writeText.mock.calls[0][0];
+    expect(clipboardWriteTextMock).toHaveBeenCalled();
+    const copiedText = clipboardWriteTextMock.mock.calls[0][0];
     expect(copiedText).toContain("## User");
     expect(copiedText).toContain("What is the answer?");
     expect(copiedText).toContain("## Assistant");
@@ -297,7 +300,7 @@ describe("8b: Per-turn copy button", () => {
     const copyTurnBtn = document.querySelector(".chat-msg.assistant .copy-turn-btn");
     await copyTurnBtn.click();
 
-    const copiedText = navigator.clipboard.writeText.mock.calls[0][0];
+    const copiedText = clipboardWriteTextMock.mock.calls[0][0];
     expect(copiedText).toContain("```json");
     expect(copiedText).toContain("Tool: exec");
     expect(copiedText).toContain('"command": "ls -la"');
@@ -372,9 +375,9 @@ describe("8c: Export session button", () => {
     expect(typeof window.exportChatSession).toBe("function");
 
     // Verify Blob URL was created during export
-    URL.createObjectURL.mockClear();
+    createObjectUrlMock.mockClear();
     window.exportChatSession();
-    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(createObjectUrlMock).toHaveBeenCalled();
   });
 
   it("markdown document has correct structure", async () => {

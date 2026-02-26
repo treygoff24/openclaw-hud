@@ -4,6 +4,8 @@ const os = require("os");
 const express = require("express");
 const { Router } = require("express");
 const { getGatewayConfig } = require("../lib/helpers");
+const { resolveGatewayInvokeBaseUrl } = require("../lib/gateway-http");
+const { isLoopbackOrigin } = require("../lib/ws-origin-guard");
 
 const router = Router();
 
@@ -16,6 +18,14 @@ const ALLOWED_ROOTS = [
   path.join(os.homedir(), ".openclaw"),
   path.join(os.homedir(), "Dropbox"),
 ];
+
+function requireLocalOrigin(req, res, next) {
+  const origin = req.headers?.origin;
+  if (origin && !isLoopbackOrigin(origin)) {
+    return res.status(403).json({ error: "Forbidden origin" });
+  }
+  return next();
+}
 
 function validateContextFiles(filesText) {
   const files = filesText
@@ -52,13 +62,14 @@ function resolveAliasFromModel(modelId, modelList) {
   return entry?.alias || entry?.name || undefined;
 }
 
-router.post("/api/spawn", express.json(), async (req, res) => {
-  const { agentId, model, prompt, contextFiles, timeout, mode } = req.body;
+router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) => {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const { agentId, model, prompt, contextFiles, timeout } = body;
 
   // Resolve label from model alias if no label provided (sanitized for valid label format)
   const resolvedAlias = resolveAliasFromModel(model, cachedModels);
   const sanitizedAlias = resolvedAlias && resolvedAlias.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const label = req.body.label || sanitizedAlias || undefined;
+  const label = body.label || sanitizedAlias || undefined;
 
   // Rate limit
   const now = Date.now();
@@ -68,7 +79,9 @@ router.post("/api/spawn", express.json(), async (req, res) => {
   }
 
   // Validate
-  if (!prompt?.trim()) return res.status(400).json({ error: "Prompt is required" });
+  if (prompt === undefined) return res.status(400).json({ error: "Prompt is required" });
+  if (typeof prompt !== "string") return res.status(400).json({ error: "Prompt must be a string" });
+  if (!prompt.trim()) return res.status(400).json({ error: "Prompt is required" });
   if (prompt.length > 50000)
     return res.status(400).json({ error: "Prompt too long (max 50,000 chars)" });
   if (!agentId) return res.status(400).json({ error: "Agent is required" });
@@ -78,6 +91,8 @@ router.post("/api/spawn", express.json(), async (req, res) => {
       .json({ error: "Invalid label: alphanumeric, hyphens, underscores only (max 64 chars)" });
   if (timeout != null && (timeout < 0 || timeout > 7200))
     return res.status(400).json({ error: "Timeout must be 0-7200 seconds" });
+  if (contextFiles !== undefined && typeof contextFiles !== "string")
+    return res.status(400).json({ error: "ContextFiles must be a string" });
 
   // Build task prompt
   let task = prompt.trim();
@@ -90,11 +105,20 @@ router.post("/api/spawn", express.json(), async (req, res) => {
   // Gateway config
   const gw = getGatewayConfig();
   if (!gw.token) return res.status(500).json({ error: "Gateway token not configured" });
+  let gatewayInvokeBaseUrl;
+  try {
+    gatewayInvokeBaseUrl = resolveGatewayInvokeBaseUrl(gw);
+  } catch (err) {
+    if (err?.code === "GATEWAY_HOST_UNSUPPORTED") {
+      return res.status(502).json({ error: err.message, code: err.code });
+    }
+    throw err;
+  }
 
   spawnTimestamps.push(Date.now());
 
   try {
-    const gwRes = await fetch(`http://127.0.0.1:${gw.port}/tools/invoke`, {
+    const gwRes = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

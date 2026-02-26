@@ -1,14 +1,36 @@
 {
-  "name": "openclaw-hud-kimi",
+  "name": "openclaw-hud",
   "version": "1.0.0",
-  "description": "OpenClaw HUD Dashboard — Cyberpunk Command Center by Kimi K2.5",
+  "private": true,
+  "description": "OpenClaw HUD Dashboard for local runtime visibility.",
+  "homepage": "https://github.com/treygoff24/openclaw-hud#readme",
+  "bugs": {
+    "url": "https://github.com/treygoff24/openclaw-hud/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/treygoff24/openclaw-hud.git"
+  },
+  "files": [
+    "server.js",
+    "lib/",
+    "routes/",
+    "public/",
+    "ws/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "SUPPORT.md"
+  ],
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "fmt": "oxfmt . --ignore-path .oxfmtignore --write",
     "fmt:check": "oxfmt . --ignore-path .oxfmtignore --check",
     "lint": "oxlint . --ignore-path .oxlintignore --deny-warnings -A no-unused-vars -A no-control-regex -A no-useless-escape -A unicorn/no-useless-fallback-in-spread",
-    "lint:type-aware": "oxlint . --ignore-path .oxlintignore --type-aware --tsconfig tsconfig.oxlint.json --deny-warnings -A no-unused-vars -A no-control-regex -A no-useless-escape -A unicorn/no-useless-fallback-in-spread",
+    "lint:type-aware": "oxlint . --ignore-path .oxlintignore --type-aware --tsconfig tsconfig.oxlint.json -A no-unused-vars -A no-control-regex -A no-useless-escape -A unicorn/no-useless-fallback-in-spread",
     "quality": "npm run fmt:check && npm run lint && npm run test:coverage && npm run bundle:analyze",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -34,5 +56,9 @@
     "oxlint-tsgolint": "0.15.0",
     "supertest": "7.2.2",
     "vitest": "4.0.18"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
   }
 }

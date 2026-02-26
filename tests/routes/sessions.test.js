@@ -89,14 +89,20 @@ describe("GET /api/sessions", () => {
     expect(res.body[0].sessionKey).toBe("agent:agentA:main");
   });
 
-  it("returns explicit error for invalid stored session keys", async () => {
+  it("skips invalid stored session keys and exposes warning headers", async () => {
     const now = Date.now();
     helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({ "bad key": { sessionId: "s1", updatedAt: now } });
+    helpers.safeJSON.mockReturnValue({
+      validKey: { sessionId: "s-ok", updatedAt: now },
+      "bad key": { sessionId: "s1", updatedAt: now },
+    });
     const res = await request(createApp()).get("/api/sessions");
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe("Invalid session keys in sessions.json");
-    expect(res.body.invalid[0].key).toBe("bad key");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].key).toBe("validKey");
+    expect(res.headers["x-openclaw-warning-code"]).toBe("INVALID_SESSION_KEYS");
+    expect(res.headers["x-openclaw-warning-count"]).toBe("1");
+    expect(res.headers["x-openclaw-warning-route"]).toBe("/api/sessions");
   });
 
   it("enriches sessions with display metadata and preserves slug fields", async () => {
@@ -404,16 +410,20 @@ describe("GET /api/session-tree", () => {
     expect(res.body[0].sessionKey).toBe("agent:a1:main");
   });
 
-  it("returns explicit error for invalid tree session keys", async () => {
+  it("skips invalid tree session keys and exposes warning headers", async () => {
     const now = Date.now();
     helpers.safeReaddir.mockReturnValue(["a1"]);
     helpers.safeJSON.mockReturnValue({
+      main: { sessionId: "ok", updatedAt: now },
       "bad key": { sessionId: "x", updatedAt: now },
     });
     const res = await request(createApp()).get("/api/session-tree");
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe("Invalid session keys in sessions.json");
-    expect(res.body.invalid[0].key).toBe("bad key");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].key).toBe("main");
+    expect(res.headers["x-openclaw-warning-code"]).toBe("INVALID_SESSION_KEYS");
+    expect(res.headers["x-openclaw-warning-count"]).toBe("1");
+    expect(res.headers["x-openclaw-warning-route"]).toBe("/api/session-tree");
   });
 
   it("enriches tree entries with display metadata fields", async () => {

@@ -27,7 +27,10 @@ module.exports = async function globalSetup() {
 
   const sessDir = path.join(__dirname, "openclaw-home/agents/test-agent/sessions");
   fs.mkdirSync(sessDir, { recursive: true });
-  fs.writeFileSync(path.join(sessDir, "sessions.json"), JSON.stringify(sessionsJson, null, 2));
+  fs.writeFileSync(
+    path.join(sessDir, "sessions.json"),
+    `${JSON.stringify(sessionsJson, null, 2)}\n`,
+  );
 
   const ts = (offset) => new Date(now - offset).toISOString();
 

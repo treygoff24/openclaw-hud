@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { OPENCLAW_HOME } = require("../lib/helpers");
+const { OPENCLAW_HOME, canonicalizeSessionKey } = require("../lib/helpers");
 
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
 const VALID_THINKING_VALUES = ["on", "off", "extended"];
@@ -20,6 +20,20 @@ function parseSessionKey(sessionKey) {
 
 function getSessionsFilePath(agentId) {
   return path.join(OPENCLAW_HOME, "agents", agentId, "sessions", "sessions.json");
+}
+
+function resolveSessionStorageKey(sessions, agentId, sessionKey, storedKey) {
+  const canonicalStoredKey = `agent:${agentId}:${storedKey}`;
+  const directCandidates = [storedKey, canonicalStoredKey];
+  for (const candidate of directCandidates) {
+    if (Object.prototype.hasOwnProperty.call(sessions, candidate)) return candidate;
+  }
+  for (const candidate of Object.keys(sessions)) {
+    try {
+      if (canonicalizeSessionKey(agentId, candidate) === sessionKey) return candidate;
+    } catch {}
+  }
+  return null;
 }
 
 function validateUpdates(updates) {
@@ -129,8 +143,8 @@ async function handleSessionsPatch(ws, msg) {
       return;
     }
 
-    // Check if session exists
-    if (!sessions[storedKey]) {
+    const resolvedStorageKey = resolveSessionStorageKey(sessions, agentId, sessionKey, storedKey);
+    if (!resolvedStorageKey) {
       ws.send(
         JSON.stringify({
           type: "error",
@@ -141,7 +155,7 @@ async function handleSessionsPatch(ws, msg) {
     }
 
     // Apply updates
-    const session = sessions[storedKey];
+    const session = sessions[resolvedStorageKey];
     const updatedSettings = {};
 
     if (model !== undefined) {

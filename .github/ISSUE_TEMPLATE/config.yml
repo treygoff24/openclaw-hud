@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability (Private)
+    url: https://github.com/treygoff24/openclaw-hud/security/advisories/new
+    about: Report security issues privately via GitHub Security Advisories.
+  - name: Code of Conduct Reporting Guidance
+    url: https://github.com/treygoff24/openclaw-hud/blob/master/CODE_OF_CONDUCT.md#enforcement
+    about: Follow private Code of Conduct reporting guidance.
+  - name: Support and Troubleshooting
+    url: https://github.com/treygoff24/openclaw-hud/blob/master/SUPPORT.md
+    about: Get help and include the right diagnostics for faster triage.

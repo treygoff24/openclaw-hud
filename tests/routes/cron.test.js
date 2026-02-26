@@ -86,6 +86,16 @@ describe("PUT /api/cron/:jobId", () => {
     expect(res.status).toBe(404);
   });
 
+  it("rejects cross-site origin on cron update", async () => {
+    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "job1", name: "old", payload: {} }] });
+    const res = await request(createApp())
+      .put("/api/cron/job1")
+      .set("Origin", "https://attacker.example")
+      .send({ name: "new" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Forbidden origin");
+  });
+
   it("creates backup before writing", async () => {
     helpers.safeJSON.mockReturnValue({ jobs: [{ id: "job1", name: "old", payload: {} }] });
     await request(createApp()).put("/api/cron/job1").send({ name: "new" });
@@ -123,6 +133,29 @@ describe("PUT /api/cron/:jobId", () => {
       jobs: [{ id: "j1", sessionTarget: "isolated", payload: { kind: "systemEvent" } }],
     });
     await request(createApp()).put("/api/cron/j1").send({ sessionTarget: "isolated" });
+    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
+    expect(written.jobs[0].payload.kind).toBe("agentTurn");
+  });
+
+  it("normalizes null payload before applying sessionTarget kind guardrails", async () => {
+    helpers.safeJSON.mockReturnValue({
+      jobs: [{ id: "j1", sessionTarget: "main", payload: null }],
+    });
+    const res = await request(createApp()).put("/api/cron/j1").send({});
+    expect(res.status).toBe(200);
+    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
+    expect(written.jobs[0].payload.kind).toBe("systemEvent");
+  });
+
+  it("normalizes null payload updates safely", async () => {
+    helpers.safeJSON.mockReturnValue({
+      jobs: [{ id: "j1", sessionTarget: "main", payload: { kind: "systemEvent" } }],
+    });
+    const res = await request(createApp()).put("/api/cron/j1").send({
+      payload: null,
+      sessionTarget: "isolated",
+    });
+    expect(res.status).toBe(200);
     const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
     expect(written.jobs[0].payload.kind).toBe("agentTurn");
   });
@@ -180,6 +213,15 @@ describe("POST /api/cron/:jobId/toggle", () => {
     helpers.safeJSON.mockReturnValue({ jobs: [] });
     const res = await request(createApp()).post("/api/cron/missing/toggle");
     expect(res.status).toBe(404);
+  });
+
+  it("rejects cross-site origin on cron toggle", async () => {
+    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", enabled: true }] });
+    const res = await request(createApp())
+      .post("/api/cron/j1/toggle")
+      .set("Origin", "https://attacker.example");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Forbidden origin");
   });
 
   it("creates backup before toggling", async () => {

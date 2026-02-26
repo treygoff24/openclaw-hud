@@ -2,10 +2,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Mock clipboard API
+const clipboardWriteTextMock = vi.fn().mockResolvedValue(undefined);
+const clipboardReadTextMock = vi.fn().mockResolvedValue("");
 Object.assign(navigator, {
   clipboard: {
-    writeText: vi.fn().mockResolvedValue(undefined),
-    readText: vi.fn().mockResolvedValue(""),
+    writeText: clipboardWriteTextMock,
+    readText: clipboardReadTextMock,
   },
 });
 
@@ -85,13 +87,13 @@ describe("CopyUtils", () => {
       it("copies the string to clipboard on click", async () => {
         const btn = window.CopyUtils.createCopyButton("hello world", "Copy");
         await btn.click();
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("hello world");
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith("hello world");
       });
 
       it("copies empty string", async () => {
         const btn = window.CopyUtils.createCopyButton("", "Copy");
         await btn.click();
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("");
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith("");
       });
     });
 
@@ -101,7 +103,7 @@ describe("CopyUtils", () => {
         const btn = window.CopyUtils.createCopyButton(getText, "Copy");
         await btn.click();
         expect(getText).toHaveBeenCalled();
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dynamic content");
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith("dynamic content");
       });
 
       it("calls getText lazily (only on click, not on creation)", () => {
@@ -217,10 +219,10 @@ describe("CopyUtils", () => {
         // Note: btn.click() does not trigger the onclick set via btn.onclick in jsdom
         // We need to dispatch a proper event to test stopPropagation
         const event = new MouseEvent("click", { bubbles: true });
-        vi.spyOn(event, "stopPropagation");
+        const stopPropagationSpy = vi.spyOn(event, "stopPropagation");
         btn.dispatchEvent(event);
 
-        expect(event.stopPropagation).toHaveBeenCalled();
+        expect(stopPropagationSpy).toHaveBeenCalled();
       });
     });
 
@@ -229,7 +231,7 @@ describe("CopyUtils", () => {
         // Use real timers for this test to avoid microtask hang with fake timers
         vi.useRealTimers();
         const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-        navigator.clipboard.writeText.mockRejectedValueOnce(new Error("Permission denied"));
+        clipboardWriteTextMock.mockRejectedValueOnce(new Error("Permission denied"));
 
         const btn = window.CopyUtils.createCopyButton("text", "Copy");
         // Trigger onclick directly and flush the rejected promise

@@ -1,19 +1,41 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 let mod;
 const MAIN_KEY = "agent:agent1:main";
 const OTHER_KEY = "agent:agent1:thread-2";
+let tmpOpenclawHome;
 
 beforeEach(() => {
+  tmpOpenclawHome = fs.mkdtempSync(path.join(os.tmpdir(), "session-handlers-"));
+  process.env.OPENCLAW_HOME = tmpOpenclawHome;
   // Clear cache to get fresh module each time
-  const keys = Object.keys(require.cache).filter((k) => k.includes("session-handlers"));
+  const keys = Object.keys(require.cache).filter(
+    (k) => k.includes("session-handlers") || k.includes(`${path.sep}lib${path.sep}helpers`),
+  );
   for (const k of keys) delete require.cache[k];
   mod = require("../../ws/session-handlers");
   vi.clearAllMocks();
 });
 
+afterEach(() => {
+  delete process.env.OPENCLAW_HOME;
+  if (tmpOpenclawHome) {
+    fs.rmSync(tmpOpenclawHome, { recursive: true, force: true });
+    tmpOpenclawHome = null;
+  }
+});
+
 function mockWs(readyState = 1) {
   return { readyState, send: vi.fn() };
+}
+
+function writeSessions(agentId, sessions) {
+  const sessionsDir = path.join(tmpOpenclawHome, "agents", agentId, "sessions");
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify(sessions, null, 2));
 }
 
 describe("session-handlers", () => {
@@ -75,6 +97,54 @@ describe("session-handlers", () => {
         const sent = JSON.parse(ws.send.mock.calls[0][0]);
         expect(sent.type).toBe("error");
         expect(sent.error.code).toBe("INVALID_VERBOSE");
+      });
+
+      it("patches a session stored under legacy key layout", async () => {
+        writeSessions("agent1", {
+          main: { sessionId: "sess-legacy", model: "old-model", updatedAt: 1 },
+        });
+        const ws = mockWs();
+
+        await mod.handleSessionMessage(ws, {
+          type: "sessions.patch",
+          sessionKey: MAIN_KEY,
+          model: "new-model",
+        });
+
+        const sent = JSON.parse(ws.send.mock.calls[0][0]);
+        expect(sent.type).toBe("sessions.patched");
+        expect(sent.model).toBe("new-model");
+        const written = JSON.parse(
+          fs.readFileSync(
+            path.join(tmpOpenclawHome, "agents", "agent1", "sessions", "sessions.json"),
+            "utf8",
+          ),
+        );
+        expect(written.main.model).toBe("new-model");
+      });
+
+      it("patches a session stored under canonical key layout", async () => {
+        writeSessions("agent1", {
+          "agent:agent1:main": { sessionId: "sess-canonical", thinking: "off", updatedAt: 1 },
+        });
+        const ws = mockWs();
+
+        await mod.handleSessionMessage(ws, {
+          type: "sessions.patch",
+          sessionKey: MAIN_KEY,
+          thinking: "extended",
+        });
+
+        const sent = JSON.parse(ws.send.mock.calls[0][0]);
+        expect(sent.type).toBe("sessions.patched");
+        expect(sent.thinking).toBe("extended");
+        const written = JSON.parse(
+          fs.readFileSync(
+            path.join(tmpOpenclawHome, "agents", "agent1", "sessions", "sessions.json"),
+            "utf8",
+          ),
+        );
+        expect(written["agent:agent1:main"].thinking).toBe("extended");
       });
     });
   });

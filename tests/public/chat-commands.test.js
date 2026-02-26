@@ -20,7 +20,10 @@ const mockRect = {
   x: 10,
   y: 100,
 };
-const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+const originalGetBoundingClientRectDescriptor = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "getBoundingClientRect",
+);
 Element.prototype.getBoundingClientRect = function () {
   return mockRect;
 };

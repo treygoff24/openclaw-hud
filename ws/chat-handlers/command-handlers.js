@@ -1,4 +1,5 @@
 const { getGatewayConfig } = require("../../lib/helpers");
+const { resolveGatewayInvokeBaseUrl } = require("../../lib/gateway-http");
 const { chatSubscriptions, clientChatSubs } = require("./state");
 const { isCanonicalSessionKey } = require("./session-key");
 const {
@@ -20,13 +21,6 @@ function sendJson(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
-function formatGatewayHost(host) {
-  const normalized = String(host || "").trim();
-  if (!normalized || normalized.toLowerCase() === "loopback") return "127.0.0.1";
-  if (normalized.includes(":") && !normalized.startsWith("[")) return `[${normalized}]`;
-  return normalized;
-}
-
 let historyCorrelationSeq = 0;
 function nextHistoryCorrelationId() {
   historyCorrelationSeq += 1;
@@ -36,8 +30,8 @@ function nextHistoryCorrelationId() {
 async function invokeGatewayTool(tool, args) {
   const gwConfig = getGatewayConfig();
   if (!gwConfig.token) throw new Error("Gateway token not configured");
-  const host = formatGatewayHost(gwConfig.host || gwConfig.bind || "127.0.0.1");
-  const res = await fetch(`http://${host}:${gwConfig.port || 18789}/tools/invoke`, {
+  const gatewayInvokeBaseUrl = resolveGatewayInvokeBaseUrl(gwConfig);
+  const res = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -328,7 +322,8 @@ const commandHandlers = {
     }
 
     try {
-      const gwRes = await fetch(`http://127.0.0.1:${gwConfig.port}/tools/invoke`, {
+      const gatewayInvokeBaseUrl = resolveGatewayInvokeBaseUrl(gwConfig);
+      const gwRes = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

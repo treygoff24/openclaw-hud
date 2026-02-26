@@ -58,9 +58,11 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported by opening an issue titled `Code of Conduct Contact Request` without
-including sensitive details. A maintainer will provide a private reporting
-channel for follow-up.
+reported privately through this repository's **Security Advisories** flow
+(`Security` -> `Report a vulnerability`), which opens a maintainer-only thread.
+If that flow is unavailable, open an issue titled `Code of Conduct Contact
+Request` without sensitive details, and a maintainer will move follow-up to a
+private channel.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

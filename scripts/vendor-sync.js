@@ -9,6 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 
 const VENDOR_DIR = path.join(__dirname, "..", "public", "vendor");
 
@@ -35,6 +36,7 @@ function downloadFile(url, dest) {
     https
       .get(url, { timeout: 30000 }, (response) => {
         if (response.statusCode !== 200) {
+          file.close(() => fs.unlink(dest, () => {}));
           reject(new Error(`HTTP ${response.statusCode} for ${url}`));
           return;
         }
@@ -45,16 +47,35 @@ function downloadFile(url, dest) {
         });
       })
       .on("error", (err) => {
+        file.close(() => {});
         fs.unlink(dest, () => {});
         reject(err);
       });
   });
 }
 
-async function verifyFile(filepath, expectedIntegrity) {
-  // Simple size-based verification (can't easily compute SRI hash without crypto)
-  const stats = fs.statSync(filepath);
-  return stats.size > 1000; // Basic sanity check - files should be > 1KB
+function parseIntegrity(expectedIntegrity) {
+  const normalized = String(expectedIntegrity || "").trim();
+  const parts = normalized.split("-", 2);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new Error(`Invalid integrity format: ${expectedIntegrity}`);
+  }
+  return { algorithm: parts[0], digest: parts[1] };
+}
+
+function computeSriIntegrity(filepath, algorithm = "sha384") {
+  const fileBuffer = fs.readFileSync(filepath);
+  const digest = crypto.createHash(algorithm).update(fileBuffer).digest("base64");
+  return `${algorithm}-${digest}`;
+}
+
+function verifyFile(filepath, expectedIntegrity) {
+  const { algorithm } = parseIntegrity(expectedIntegrity);
+  const actualIntegrity = computeSriIntegrity(filepath, algorithm);
+  const expectedBuffer = Buffer.from(String(expectedIntegrity), "utf8");
+  const actualBuffer = Buffer.from(actualIntegrity, "utf8");
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 async function main() {
@@ -77,9 +98,10 @@ async function main() {
 
       await downloadFile(vendor.url, destPath);
 
-      const verified = await verifyFile(destPath, vendor.integrity);
+      const verified = verifyFile(destPath, vendor.integrity);
       if (!verified) {
-        throw new Error("File verification failed");
+        fs.unlinkSync(destPath);
+        throw new Error(`Integrity verification failed for ${vendor.name}@${vendor.version}`);
       }
 
       const size = fs.statSync(destPath).size;
@@ -100,7 +122,17 @@ async function main() {
   console.log("\n✅ Vendor sync complete. Files ready for CDN fallback.");
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+} else {
+  module.exports = {
+    VENDORS,
+    downloadFile,
+    parseIntegrity,
+    computeSriIntegrity,
+    verifyFile,
+  };
+}

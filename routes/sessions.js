@@ -16,6 +16,23 @@ const router = Router();
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
+const WARNING_CODE_INVALID_SESSION_KEYS = "INVALID_SESSION_KEYS";
+
+function attachSessionWarningHeaders(res, routeName, invalid) {
+  if (!Array.isArray(invalid) || invalid.length === 0) return;
+  const sample = invalid.slice(0, 5).map((entry) => ({
+    agentId: entry.agentId,
+    key: entry.key,
+    error: entry.error,
+  }));
+  res.set("x-openclaw-warning-code", WARNING_CODE_INVALID_SESSION_KEYS);
+  res.set("x-openclaw-warning-count", String(invalid.length));
+  res.set("x-openclaw-warning-route", routeName);
+  res.set(
+    "x-openclaw-warning-sample",
+    Buffer.from(JSON.stringify(sample), "utf8").toString("base64url"),
+  );
+}
 
 function mergeCanonicalSessionEntry(allSessions, candidate) {
   const existing = allSessions[candidate.sessionKey];
@@ -56,9 +73,7 @@ router.get("/api/sessions", (req, res) => {
       }
     }
   }
-  if (invalid.length > 0) {
-    return res.status(500).json({ error: "Invalid session keys in sessions.json", invalid });
-  }
+  attachSessionWarningHeaders(res, "/api/sessions", invalid);
   const recent = all.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(recent.slice(0, 100));
@@ -108,9 +123,7 @@ router.get("/api/session-tree", (req, res) => {
       }
     }
   }
-  if (invalid.length > 0) {
-    return res.status(500).json({ error: "Invalid session keys in sessions.json", invalid });
-  }
+  attachSessionWarningHeaders(res, "/api/session-tree", invalid);
 
   const childCounts = {};
   for (const s of Object.values(allSessions)) {

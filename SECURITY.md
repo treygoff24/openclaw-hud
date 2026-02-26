@@ -2,7 +2,13 @@
 
 ## Supported Versions
 
-We support security updates on the latest commit in `master`.
+Security fixes are provided for the current major release line and the latest `master` branch state.
+
+| Version  | Supported          |
+| -------- | ------------------ |
+| `master` | :white_check_mark: |
+| 1.x      | :white_check_mark: |
+| < 1.0.0  | :x:                |
 
 ## Reporting a Vulnerability
 

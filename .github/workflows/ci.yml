@@ -6,18 +6,24 @@ on:
     branches:
       - master
       - main
+  schedule:
+    - cron: "15 6 * * 1"
+
+permissions:
+  contents: read
 
 jobs:
   quality-gates:
     name: Quality Gates
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -37,16 +43,38 @@ jobs:
       - name: Bundle Analyze
         run: npm run bundle:analyze
 
-  compatibility-node-20:
-    name: Compatibility (Node 20)
+  build-validation:
+    name: Build Validation
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Validate Package Build/Payload
+        run: npm pack --dry-run
+
+  compatibility-node-20:
+    name: Compatibility (Node 20)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 20
           cache: npm
@@ -59,14 +87,15 @@ jobs:
 
   e2e-smoke:
     name: E2E Smoke
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -77,19 +106,44 @@ jobs:
       - name: Install Playwright (Chromium)
         run: npx playwright install --with-deps chromium
 
-      - name: Smoke Test
-        run: npm run test:e2e -- e2e/smoke.spec.js
+      - name: E2E PR Gate
+        run: npm run test:e2e -- e2e/smoke.spec.js e2e/dashboard.spec.js e2e/chat-rich-content.spec.js e2e/resilience.spec.js e2e/models-live-weekly.spec.js
 
-  security-audit:
-    name: Security Audit
+  e2e-full-scheduled:
+    name: E2E Full (Scheduled)
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Full E2E Suite
+        run: npm run test:e2e
+
+  security-audit-prod:
+    name: Security Audit (Prod Deps)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -100,17 +154,38 @@ jobs:
       - name: Audit Production Dependencies
         run: npm audit --omit=dev --audit-level=high
 
-  type-aware-alpha:
-    name: Type-Aware Lint (Alpha, Non-Blocking)
+  security-audit-full-scheduled:
+    name: Security Audit (All Deps, Scheduled)
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Audit All Dependencies
+        run: npm audit --audit-level=high
+
+  type-aware-lint:
+    name: Type-Aware Lint
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm

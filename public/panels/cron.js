@@ -2,6 +2,7 @@ window.HUD = window.HUD || {};
 HUD.cron = (function () {
   "use strict";
   const $ = (s) => document.querySelector(s);
+  const escapeAttr = (value) => escapeHtml(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   let _cronData = null;
   let _editingJobId = null;
@@ -25,6 +26,8 @@ HUD.cron = (function () {
         if (statusText === "completed") statusColor = "var(--green)";
         else if (statusText === "error") statusColor = "var(--red)";
         else if (statusText === "skipped") statusColor = "var(--amber)";
+        const escapedStatusText = escapeHtml(statusText);
+        const escapedStatusAttr = escapeAttr(statusText);
 
         const lastRun = j.state?.lastRunAtMs ? HUD.utils.timeAgo(j.state.lastRunAtMs) : "never";
         const nextRun = j.state?.nextRunAtMs ? new Date(j.state.nextRunAtMs).toLocaleString() : "—";
@@ -43,7 +46,7 @@ HUD.cron = (function () {
 
         const enabledLabel = j.enabled ? "enabled" : "disabled";
 
-        return `<div class="cron-row-v2" data-cron-id="${escapeHtml(j.id)}" role="listitem" tabindex="0" aria-label="Cron job ${escapeHtml(j.name)}, ${enabledLabel}, last status ${statusText}, agent ${escapeHtml(j.agentId || "none")}" data-index="${index}">
+        return `<div class="cron-row-v2" data-cron-id="${escapeAttr(j.id)}" role="listitem" tabindex="0" aria-label="Cron job ${escapeAttr(j.name)}, ${enabledLabel}, last status ${escapedStatusAttr}, agent ${escapeAttr(j.agentId || "none")}" data-index="${index}">
         <div class="${dotClass}" aria-hidden="true"></div>
         <div class="cron-main">
           <div class="cron-name">${escapeHtml(j.name)}
@@ -54,7 +57,7 @@ HUD.cron = (function () {
             <span class="cron-model-info">${modelInfo}</span>
           </div>
           <div class="cron-status-row">
-            <span style="color:${statusColor}">${escapeHtml(statusText).toUpperCase()}</span>
+            <span style="color:${statusColor}">${escapedStatusText.toUpperCase()}</span>
             <span style="color:var(--text-dim)">last: ${lastRun}</span>
             <span style="color:var(--text-dim)">next: ${nextRun}</span>
             ${errors}

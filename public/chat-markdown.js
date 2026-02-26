@@ -203,18 +203,20 @@
     var codeId = btn.getAttribute("data-code-id");
     if (!codeId) return;
 
-    copyCodeToClipboard(codeId).then(function (success) {
-      if (success) {
-        var originalHTML = btn.innerHTML;
-        btn.innerHTML =
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-        btn.classList.add("copied");
-        setTimeout(function () {
-          btn.innerHTML = originalHTML;
-          btn.classList.remove("copied");
-        }, 2000);
-      }
-    });
+    void copyCodeToClipboard(codeId)
+      .then(function (success) {
+        if (success) {
+          var originalHTML = btn.innerHTML;
+          btn.innerHTML =
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+          btn.classList.add("copied");
+          setTimeout(function () {
+            btn.innerHTML = originalHTML;
+            btn.classList.remove("copied");
+          }, 2000);
+        }
+      })
+      .catch(function () {});
   });
 
   // Initialize on load and also check if libraries become available later

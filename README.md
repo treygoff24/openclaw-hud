@@ -17,14 +17,39 @@ Local dashboard for OpenClaw runtime visibility. It reads your local OpenClaw da
 - Local OpenClaw install with gateway running
 - Read access to `~/.openclaw` (or `OPENCLAW_HOME` override)
 
-## Quick Start
+## First-run setup
 
 ```bash
+git clone https://github.com/treygoff24/openclaw-hud.git
+cd openclaw-hud
+git checkout master
 npm ci
+cp .env.example .env
+
+# 1) Export settings (required in your shell, or load .env in your preferred way)
+# Example minimum: export OPENCLAW_HOME="$HOME/.openclaw" PORT=3777
+
+# 2) Verify gateway prerequisites
+openclaw gateway status
+
+# 3) Start HUD
 npm start
 ```
 
 Open: `http://localhost:3777`
+
+### Quick first-run checks
+
+- `openclaw gateway status` returns healthy before `npm start`.
+- UI opens at `http://localhost:3777` within a few seconds.
+- `npm run test:e2e` is optional; smoke state is that the dashboard loads without startup crash.
+- If no model rows render initially, this can be normal for a new local setup (especially without recent gateway activity).
+
+### Common first-run issues
+
+- `openclaw: command not found` → install OpenClaw CLI and retry.
+- `EADDRINUSE: 127.0.0.1:3777` → another process is using port 3777; stop it or set `PORT`.
+- `Gateway not connected` → confirm OpenClaw gateway is running and `OPENCLAW_HOME` points to your real OpenClaw data dir.
 
 ## Configuration
 
@@ -34,8 +59,11 @@ Copy `.env.example` values as needed in your environment:
 - `OPENCLAW_HOME` (default `~/.openclaw`)
 - `HUD_USAGE_TZ` (default `America/Chicago`)
 - `HUD_USAGE_CACHE_TTL_MS` (default `60000`)
+- `HUD_USAGE_SESSIONS_LIMIT` (default `500`)
+- `HUD_USAGE_MONTH_MEMO_TTL_MS` (default `15000`)
 - `HUD_USAGE_MONTH_MAX_WINDOWS` (default `30`)
 - `HUD_USAGE_MONTH_MAX_DURATION_MS` (default `7000`)
+- `HUD_WS_AUTH_TOKEN` (optional): enables header-based auth for WebSocket clients from non-loopback origins. Set this to a shared secret and pass it in the `x-hud-ws-auth` header.
 
 See [CONFIGURATION.md](./CONFIGURATION.md) for troubleshooting and runtime details.
 
@@ -66,6 +94,7 @@ Contributions are welcome. Please read:
 - [SUPPORT.md](./SUPPORT.md)
 - [SECURITY.md](./SECURITY.md)
 - [CHANGELOG.md](./CHANGELOG.md)
+- [docs/release-process.md](./docs/release-process.md)
 
 ## License
 

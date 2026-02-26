@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Setup global window/document mocks before loading modules
-global.document = global.document || {
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
+const documentAddEventListenerMock = vi.fn();
+const documentRemoveEventListenerMock = vi.fn();
+global.document = {
+  addEventListener: documentAddEventListenerMock,
+  removeEventListener: documentRemoveEventListenerMock,
   activeElement: null,
   querySelectorAll: vi.fn(() => []),
 };
@@ -94,16 +96,16 @@ describe("FocusTrap", () => {
   it("should add event listeners on activate", () => {
     const trap = new FocusTrap(container);
     trap.activate();
-    expect(document.addEventListener).toHaveBeenCalledWith("keydown", expect.any(Function));
-    expect(document.addEventListener).toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(documentAddEventListenerMock).toHaveBeenCalledWith("keydown", expect.any(Function));
+    expect(documentAddEventListenerMock).toHaveBeenCalledWith("focusin", expect.any(Function));
   });
 
   it("should remove event listeners on deactivate", () => {
     const trap = new FocusTrap(container);
     trap.activate();
     trap.deactivate();
-    expect(document.removeEventListener).toHaveBeenCalledWith("keydown", expect.any(Function));
-    expect(document.removeEventListener).toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(documentRemoveEventListenerMock).toHaveBeenCalledWith("keydown", expect.any(Function));
+    expect(documentRemoveEventListenerMock).toHaveBeenCalledWith("focusin", expect.any(Function));
   });
 
   it("should cycle focus to first element on Tab from last", () => {

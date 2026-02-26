@@ -1,0 +1,80 @@
+name: Release (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to release from (branch, tag, or SHA)"
+        required: true
+        default: master
+      full_e2e:
+        description: "Run full E2E suite"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-package:
+    name: Verify and Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Format Check
+        run: npm run fmt:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-Aware Lint
+        run: npm run lint:type-aware
+
+      - name: Coverage
+        run: npm run test:coverage
+
+      - name: Bundle Analyze
+        run: npm run bundle:analyze
+
+      - name: Install Playwright (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E Release Gate
+        run: npm run test:e2e -- e2e/smoke.spec.js e2e/dashboard.spec.js e2e/chat-rich-content.spec.js e2e/resilience.spec.js e2e/models-live-weekly.spec.js
+
+      - name: E2E Full
+        if: ${{ inputs.full_e2e == 'true' }}
+        run: npm run test:e2e
+
+      - name: Audit Production Dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Validate Package Contents
+        run: npm pack --dry-run
+
+      - name: Create Release Tarball
+        run: npm pack
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-tarball
+          path: "*.tgz"

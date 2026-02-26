@@ -114,6 +114,25 @@ describe("cron.render", () => {
     HUD.cron.render({ jobs: [] });
     expect(document.getElementById("cron-count").textContent).toBe("0");
   });
+
+  it("does not allow attribute injection through status text in aria-label", () => {
+    HUD.cron.render({
+      jobs: [
+        {
+          id: "j1",
+          name: "Inject Test",
+          enabled: true,
+          agentId: "bot1",
+          schedule: { expr: "* * * * *", tz: "UTC" },
+          state: { lastStatus: 'ok" data-pwned="1" x="' },
+        },
+      ],
+    });
+
+    const row = document.querySelector(".cron-row-v2");
+    expect(row).not.toBeNull();
+    expect(row.hasAttribute("data-pwned")).toBe(false);
+  });
 });
 
 describe("cron.openEditor", () => {

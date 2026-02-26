@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
 const fs = require("fs");
+const realpathSyncOriginal = fs.realpathSync;
 
 helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: "test-token" }));
 fs.realpathSync = vi.fn((p) => p);
@@ -25,16 +26,31 @@ describe("POST /api/spawn", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     helpers.getGatewayConfig.mockReturnValue({ port: 18789, token: "test-token" });
+    fs.realpathSync.mockImplementation((p) => p);
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ result: { details: { childSessionKey: "key-123", runId: "run-456" } } }),
     });
   });
 
+  afterEach(() => {
+    fs.realpathSync.mockReset();
+  });
+
+  afterAll(() => {
+    fs.realpathSync = realpathSyncOriginal;
+  });
+
   it("returns 400 when prompt is missing", async () => {
     const res = await request(createApp()).post("/api/spawn").send({ agentId: "bot" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("Prompt is required");
+  });
+
+  it("returns 400 when prompt is not a string", async () => {
+    const res = await request(createApp()).post("/api/spawn").send({ agentId: "bot", prompt: 123 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Prompt must be a string");
   });
 
   it("returns 400 when prompt is empty string", async () => {
@@ -56,6 +72,33 @@ describe("POST /api/spawn", () => {
     const res = await request(createApp()).post("/api/spawn").send({ prompt: "hello" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("Agent is required");
+  });
+
+  it("returns 400 when contextFiles is not a string", async () => {
+    const res = await request(createApp())
+      .post("/api/spawn")
+      .send({ ...validBody, contextFiles: ["/tmp/file1"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("ContextFiles must be a string");
+  });
+
+  it("rejects cross-site origin", async () => {
+    const res = await request(createApp())
+      .post("/api/spawn")
+      .set("Origin", "https://attacker.example")
+      .send(validBody);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Forbidden origin");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows loopback origin", async () => {
+    const res = await request(createApp())
+      .post("/api/spawn")
+      .set("Origin", "http://localhost:3777")
+      .send(validBody);
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalled();
   });
 
   it("ignores mode from request body and always uses run", async () => {
@@ -95,6 +138,19 @@ describe("POST /api/spawn", () => {
     const res = await request(createApp()).post("/api/spawn").send(validBody);
     expect(res.status).toBe(500);
     expect(res.body.error).toContain("token not configured");
+  });
+
+  it("fails closed when gateway host is not local loopback", async () => {
+    helpers.getGatewayConfig.mockReturnValue({
+      host: "198.51.100.44",
+      port: 18789,
+      token: "test-token",
+    });
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe("GATEWAY_HOST_UNSUPPORTED");
+    expect(res.body.error).toContain("loopback");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("successfully spawns and returns session key and run ID", async () => {
@@ -151,6 +207,21 @@ describe("POST /api/spawn", () => {
       });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("not in allowed directory");
+  });
+
+  it("rejects context file that resolves outside allowed roots via symlink", async () => {
+    fs.realpathSync.mockImplementationOnce(() => "/etc/passwd");
+
+    const res = await request(createApp())
+      .post("/api/spawn")
+      .send({
+        ...validBody,
+        contextFiles: "~/Development/symlinked-file.txt",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("escapes allowed directory via symlink");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("rejects more than 20 context files", async () => {
@@ -220,22 +291,24 @@ describe("resolveAliasFromModel", () => {
   });
 
   it("resolves alias by model id from cached models", async () => {
-    // Mock the cachedModels by requiring the module directly
-    const spawnModule = require("../../routes/spawn");
-
     // Create a test model list
     const testModels = [
       { id: "gpt-4", alias: "GPT-4 Turbo", model: "openai/gpt-4-turbo" },
       { id: "claude-opus", alias: "Claude 3 Opus", model: "anthropic/claude-3-opus" },
     ];
 
-    // The resolveAliasFromModel function should be tested indirectly through the endpoint
-    const res = await request(createApp()).post("/api/spawn").send({
+    const app = createApp();
+    const spawnModule = require("../../routes/spawn");
+    spawnModule.setCachedModels(testModels);
+
+    const res = await request(app).post("/api/spawn").send({
       agentId: "bot",
       prompt: "test",
       model: "gpt-4",
     });
 
     expect(res.status).toBe(200);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.args.label).toBe("GPT-4_Turbo");
   });
 });

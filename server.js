@@ -5,15 +5,36 @@ const { WebSocketServer } = require("ws");
 const { setupWebSocket } = require("./ws/log-streaming");
 const { GatewayWS } = require("./lib/gateway-ws");
 const { getGatewayConfig } = require("./lib/helpers");
+const { applySecurityHeaders } = require("./lib/security-headers");
+const { validateWsUpgradeRequest } = require("./lib/ws-origin-guard");
+const healthRouter = require("./routes/health");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wsAuthToken = process.env.HUD_WS_AUTH_TOKEN || "";
+const wss = new WebSocketServer({
+  server,
+  verifyClient: (info, done) => {
+    const result = validateWsUpgradeRequest(info.req, { authToken: wsAuthToken });
+    if (!result.ok) {
+      console.warn("[ws] rejected inbound connection", {
+        origin: info.req?.headers?.origin || null,
+        remoteAddress: info.req?.socket?.remoteAddress || null,
+      });
+      done(false, result.statusCode || 403, result.message || "Forbidden");
+      return;
+    }
+    done(true);
+  },
+});
 
 const PORT = process.env.PORT || 3777;
 
 process.env.HUD_USAGE_TZ = process.env.HUD_USAGE_TZ || "America/Chicago";
 process.env.HUD_USAGE_CACHE_TTL_MS = process.env.HUD_USAGE_CACHE_TTL_MS || "60000";
+
+app.disable("x-powered-by");
+app.use(applySecurityHeaders());
 
 function formatHostForUrl(host) {
   const normalized = String(host || "").trim();
@@ -68,7 +89,17 @@ function createGatewayStatusPayload(status) {
 app.use(express.static(path.join(__dirname, "public")));
 
 // Routes
-app.use(require("./routes/health"));
+healthRouter.setHealthStateProvider(() => {
+  let websocketClients = 0;
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) websocketClients += 1;
+  });
+  return {
+    websocketClients,
+    gatewayConnected: gatewayWS.connected,
+  };
+});
+app.use(healthRouter);
 app.use(require("./routes/config"));
 app.use(require("./routes/agents"));
 app.use(require("./routes/sessions"));

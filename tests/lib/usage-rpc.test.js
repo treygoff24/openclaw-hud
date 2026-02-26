@@ -138,4 +138,26 @@ describe("usage-rpc", () => {
 
     await new Promise((resolve) => gateway.wss.close(resolve));
   });
+
+  it("treats 0.0.0.0 host as loopback and connects safely", async () => {
+    const gateway = createGatewayServer({
+      onRequest: (ws, msg) => {
+        ws.send(
+          JSON.stringify({
+            id: msg.id,
+            ok: true,
+            payload: { sessions: [{ key: "agent:codex:main" }] },
+          }),
+        );
+      },
+    });
+    const port = gateway.wss.address().port;
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "0.0.0.0", port, token: "test-token" }));
+
+    const { requestSessionsUsage } = loadModule();
+    const result = await requestSessionsUsage({ from: 1, to: 2 });
+    expect(result.ok).toBe(true);
+
+    await new Promise((resolve) => gateway.wss.close(resolve));
+  });
 });

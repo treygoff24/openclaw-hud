@@ -118,6 +118,31 @@ describe("chat-handlers", () => {
       expect(sent.error.code).toBe("UNAVAILABLE");
     });
 
+    it("chat-send fails closed when gateway host is not local loopback", async () => {
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      fs.writeFileSync(
+        path.join(tmpOpenclawHome, "openclaw.json"),
+        JSON.stringify({
+          gateway: {
+            host: "198.51.100.7",
+            auth: { token: "test-token" },
+          },
+        }),
+      );
+
+      await mod.handleChatMessage(
+        ws,
+        { type: "chat-send", sessionKey: MAIN_KEY, message: "hi", idempotencyKey: "ik1" },
+        gw,
+      );
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("UNAVAILABLE");
+      expect(sent.error.message).toContain("loopback");
+    });
+
     it("chat-send with null gateway sends error", async () => {
       const ws = mockWs();
       await mod.handleChatMessage(
@@ -570,6 +595,26 @@ describe("chat-handlers", () => {
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent).toEqual({ type: "chat-new-result", ok: false, error: "spawn denied" });
+      vi.unstubAllGlobals();
+    });
+
+    it("chat-new fails closed when gateway host is not local loopback", async () => {
+      const ws = mockWs();
+      fs.writeFileSync(
+        path.join(tmpOpenclawHome, "openclaw.json"),
+        JSON.stringify({
+          gateway: { host: "198.51.100.88", auth: { token: "test-token" } },
+        }),
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mod.handleChatMessage(ws, { type: "chat-new" }, null);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error).toContain("loopback");
+      expect(fetchMock).not.toHaveBeenCalled();
       vi.unstubAllGlobals();
     });
 

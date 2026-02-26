@@ -428,46 +428,72 @@
     <script src="panels/session-tree.js"></script>
     <script src="panels/spawn.js"></script>
 
-    <!-- Markdown + Sanitization with local fallback -->
+    <!-- Markdown + Sanitization (local vendored assets first, SRI-checked CDN fallback) -->
     <script>
       (function () {
-        // Check if a library loaded successfully
-        function libLoaded(name) {
+        function hasGlobal(name) {
           return typeof window[name] !== "undefined";
         }
 
-        // Load script with fallback
-        function loadWithFallback(primaryUrl, fallbackUrl, libName, onComplete) {
-          var script = document.createElement("script");
-          script.src = primaryUrl;
-          script.crossOrigin = "anonymous";
+        function loadScript(url, options, globalName) {
+          return new Promise(function (resolve, reject) {
+            var script = document.createElement("script");
+            script.src = url;
+            script.async = true;
 
-          script.onerror = function () {
-            console.warn("CDN failed for " + libName + ", loading local fallback...");
-            var fallback = document.createElement("script");
-            fallback.src = fallbackUrl;
-            fallback.onerror = function () {
-              console.error("Both CDN and local fallback failed for " + libName);
+            if (options && options.crossOrigin) script.crossOrigin = options.crossOrigin;
+            if (options && options.integrity) script.integrity = options.integrity;
+            if (options && options.referrerPolicy) script.referrerPolicy = options.referrerPolicy;
+
+            script.onload = function () {
+              if (globalName && !hasGlobal(globalName)) {
+                reject(new Error(globalName + " missing after loading " + url));
+                return;
+              }
+              resolve();
             };
-            document.head.appendChild(fallback);
-          };
+            script.onerror = function () {
+              reject(new Error("Failed to load " + url));
+            };
 
-          document.head.appendChild(script);
+            document.head.appendChild(script);
+          });
         }
 
-        // Load marked with fallback
-        loadWithFallback(
-          "https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js",
-          "/vendor/marked.min.js",
-          "marked",
-        );
+        function loadLocalFirst(localUrl, cdnUrl, integrity, globalName) {
+          return loadScript(localUrl, null, globalName).catch(function (localErr) {
+            console.warn(
+              "Local vendor failed for " + globalName + ", falling back to CDN.",
+              localErr,
+            );
+            return loadScript(
+              cdnUrl,
+              {
+                crossOrigin: "anonymous",
+                integrity: integrity,
+                referrerPolicy: "no-referrer",
+              },
+              globalName,
+            );
+          });
+        }
 
-        // Load DOMPurify with fallback
-        loadWithFallback(
-          "https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js",
-          "/vendor/purify.min.js",
-          "DOMPurify",
-        );
+        Promise.all([
+          loadLocalFirst(
+            "/vendor/marked.min.js",
+            "https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js",
+            "sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR",
+            "marked",
+          ),
+          loadLocalFirst(
+            "/vendor/purify.min.js",
+            "https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js",
+            "sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu",
+            "DOMPurify",
+          ),
+        ]).catch(function (err) {
+          console.error("Markdown vendor loading failed:", err);
+        });
       })();
     </script>
     <noscript>

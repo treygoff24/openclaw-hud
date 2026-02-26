@@ -32,14 +32,17 @@ window.escapeHtml = function (s) {
     .replace(/"/g, "&quot;");
 };
 const store = {};
+const localStorageGetItemMock = vi.fn((k) => store[k] || null);
+const localStorageSetItemMock = vi.fn((k, v) => {
+  store[k] = v;
+});
+const localStorageRemoveItemMock = vi.fn((k) => {
+  delete store[k];
+});
 vi.stubGlobal("localStorage", {
-  getItem: vi.fn((k) => store[k] || null),
-  setItem: vi.fn((k, v) => {
-    store[k] = v;
-  }),
-  removeItem: vi.fn((k) => {
-    delete store[k];
-  }),
+  getItem: localStorageGetItemMock,
+  setItem: localStorageSetItemMock,
+  removeItem: localStorageRemoveItemMock,
 });
 window.WebSocket = { OPEN: 1 };
 let uuidCounter = 0;
@@ -308,7 +311,7 @@ describe("openChatPane", () => {
   it("saves to localStorage", () => {
     mockWs();
     window.openChatPane("agent1", "sess1", "lbl", "agent:agent1:sess1");
-    expect(localStorage.setItem).toHaveBeenCalled();
+    expect(localStorageSetItemMock).toHaveBeenCalled();
   });
 
   it("no-ops when reopening the same canonical session key", () => {
@@ -341,7 +344,7 @@ describe("restoreSavedChatSession", () => {
 
     expect(restored).toBe(false);
     expect(openSpy).not.toHaveBeenCalled();
-    expect(localStorage.removeItem).toHaveBeenCalledWith("hud-chat-session");
+    expect(localStorageRemoveItemMock).toHaveBeenCalledWith("hud-chat-session");
     openSpy.mockRestore();
   });
 
@@ -360,7 +363,7 @@ describe("restoreSavedChatSession", () => {
 
     expect(restored).toBe(true);
     expect(openSpy).toHaveBeenCalledWith("a", "live", "live-label", "agent:a:live");
-    expect(localStorage.removeItem).not.toHaveBeenCalledWith("hud-chat-session");
+    expect(localStorageRemoveItemMock).not.toHaveBeenCalledWith("hud-chat-session");
     openSpy.mockRestore();
   });
 });
@@ -373,7 +376,7 @@ describe("closeChatPane", () => {
     window.openChatPane("a", "s", "", "agent:a:s");
     window.closeChatPane();
     expect(document.querySelector(".hud-layout").classList.contains("chat-open")).toBe(false);
-    expect(localStorage.removeItem).toHaveBeenCalledWith("hud-chat-session");
+    expect(localStorageRemoveItemMock).toHaveBeenCalledWith("hud-chat-session");
   });
 
   it("runs destroy cleanup for optional chat modules", () => {

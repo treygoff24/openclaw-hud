@@ -21,16 +21,20 @@ function createMockEl() {
 
 describe("A11yAnnouncer", () => {
   let appendedElements;
+  let createElementMock;
+  let appendChildMock;
 
   beforeEach(() => {
     appendedElements = [];
+    createElementMock = vi.fn(() => createMockEl());
+    appendChildMock = vi.fn((el) => {
+      appendedElements.push(el);
+    });
 
     global.document = {
-      createElement: vi.fn(() => createMockEl()),
+      createElement: createElementMock,
       body: {
-        appendChild: vi.fn((el) => {
-          appendedElements.push(el);
-        }),
+        appendChild: appendChildMock,
       },
       addEventListener: vi.fn(),
     };
@@ -53,8 +57,8 @@ describe("A11yAnnouncer", () => {
   it("should create polite and assertive live regions on init", async () => {
     await import("../../public/a11y/announcer.js");
 
-    expect(document.createElement).toHaveBeenCalledWith("div");
-    expect(document.body.appendChild).toHaveBeenCalledTimes(2);
+    expect(createElementMock).toHaveBeenCalledWith("div");
+    expect(appendChildMock).toHaveBeenCalledTimes(2);
     expect(getRegion("polite")).toBeTruthy();
     expect(getRegion("assertive")).toBeTruthy();
   });

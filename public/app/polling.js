@@ -11,7 +11,9 @@
 
     function start() {
       if (pollInterval || typeof task !== "function") return;
-      pollInterval = setInterval(task, intervalMs);
+      pollInterval = setInterval(function () {
+        task();
+      }, intervalMs);
     }
 
     function stop() {
