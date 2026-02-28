@@ -11,7 +11,8 @@ HUD.agents = (function () {
     $("#agent-count").textContent = filtered.length;
     const now = Date.now();
     let activeCount = 0;
-    $("#agents-list").innerHTML = filtered
+
+    const html = filtered
       .map((a, index) => {
         const recent = a.sessions[0]?.updatedAt;
         const isActive = recent && now - recent < 600000;
@@ -30,10 +31,10 @@ HUD.agents = (function () {
       })
       .join("");
 
-    // Add keyboard support to agent cards
-    document.querySelectorAll(".agent-card").forEach((card) => {
-      window.makeFocusable(card, () => showAgentSessions(card.dataset.agentId));
-    });
+    // Use morphdom instead of innerHTML for efficient DOM updates
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    morphdom($("#agents-list"), temp, { childrenOnly: true });
 
     const statAgents = document.getElementById("stat-agents");
     const statActive = document.getElementById("stat-active");
@@ -42,6 +43,16 @@ HUD.agents = (function () {
   }
 
   function init() {
+    // Event delegation for agent card clicks
+    const agentsList = $("#agents-list");
+    agentsList.addEventListener("click", (e) => {
+      const card = e.target.closest(".agent-card");
+      if (card) {
+        const agentId = card.dataset.agentId;
+        showAgentSessions(agentId);
+      }
+    });
+
     $("#agent-search").addEventListener("input", (e) => {
       agentFilter = e.target.value.toLowerCase();
       render(window._agents || []);

@@ -13,7 +13,8 @@ HUD.cron = (function () {
     _cronData = data;
     const jobs = data.jobs || [];
     $("#cron-count").textContent = jobs.length;
-    $("#cron-list").innerHTML = jobs
+
+    const html = jobs
       .map((j, index) => {
         let dotClass = "status-dot-gray";
         if (j.enabled && j.state?.lastStatus === "completed") dotClass = "status-dot-green";
@@ -68,10 +69,10 @@ HUD.cron = (function () {
       })
       .join("");
 
-    // Add keyboard support to cron rows
-    document.querySelectorAll(".cron-row-v2").forEach((row) => {
-      window.makeFocusable(row, () => openEditor(row.dataset.cronId));
-    });
+    // Use morphdom instead of innerHTML for efficient DOM updates
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    morphdom($("#cron-list"), temp, { childrenOnly: true });
   }
 
   function openEditor(jobId) {
@@ -207,6 +208,15 @@ HUD.cron = (function () {
   }
 
   function init() {
+    // Add event delegation for cron rows
+    const cronList = $("#cron-list");
+    cronList.addEventListener("click", (e) => {
+      const row = e.target.closest(".cron-row-v2");
+      if (row) {
+        openEditor(row.dataset.cronId);
+      }
+    });
+
     $("#cron-session-target").addEventListener("change", updateSessionTargetFields);
     $("#cron-schedule-kind").addEventListener("change", updateScheduleFields);
     $("#cron-modal-close").onclick = closeModal;

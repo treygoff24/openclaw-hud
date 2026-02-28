@@ -3,13 +3,31 @@ HUD.sessions = (function () {
   "use strict";
   const $ = (s) => document.querySelector(s);
 
+  // Event delegation for clicks on session rows
+  const sessionsList = $("#sessions-list");
+  if (sessionsList) {
+    sessionsList.addEventListener("click", (e) => {
+      const row = e.target.closest(".session-row");
+      if (row) {
+        if (row.dataset.agent && row.dataset.sessionKey) {
+          openChatPane(
+            row.dataset.agent,
+            row.dataset.session || "",
+            row.dataset.label || "",
+            row.dataset.sessionKey,
+          );
+        }
+      }
+    });
+  }
+
   function render(sessions) {
     for (const s of sessions) {
       if (!s.sessionKey)
         throw new Error("sessions.render requires canonical sessionKey for each session");
     }
     $("#session-count").textContent = sessions.length;
-    $("#sessions-list").innerHTML = sessions
+    const html = sessions
       .slice(0, 40)
       .map((s, index) => {
         const sessionKey = s.sessionKey;
@@ -35,19 +53,10 @@ HUD.sessions = (function () {
       })
       .join("");
 
-    // Add keyboard support to session rows
-    document.querySelectorAll(".session-row").forEach((row) => {
-      window.makeFocusable(row, () => {
-        if (row.dataset.agent && row.dataset.sessionKey) {
-          openChatPane(
-            row.dataset.agent,
-            row.dataset.session || "",
-            row.dataset.label || "",
-            row.dataset.sessionKey,
-          );
-        }
-      });
-    });
+    // Use morphdom instead of innerHTML for efficient DOM updates
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    morphdom($("#sessions-list"), temp, { childrenOnly: true });
   }
 
   return { render };

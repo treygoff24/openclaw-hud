@@ -4,18 +4,54 @@ HUD.sessionTree = (function () {
   const $ = (s) => document.querySelector(s);
   const collapseState = {};
 
-  function render(sessions) {
-    for (const s of sessions) {
-      if (!s.sessionKey)
-        throw new Error("sessionTree.render requires canonical sessionKey for each node");
-    }
-    window._treeData = sessions;
-    $("#tree-count").textContent = sessions.length;
+  // One-time event delegation for click handling
+  function initEventDelegation() {
+    const treeBody = $("#tree-body");
+    if (!treeBody) return;
+    treeBody.addEventListener("click", (e) => {
+      const toggle = e.target.closest(".tree-toggle");
+      if (toggle) {
+        const key = toggle.dataset.toggleKey || toggle.dataset.key;
+        collapseState[key] = !collapseState[key];
+        if (window._treeData) render(window._treeData);
+        return;
+      }
+      const node = e.target.closest(".tree-node-content");
+      if (node) {
+        const agent = node.dataset.agent;
+        const session = node.dataset.session;
+        if (agent && node.dataset.sessionKey) {
+          openChatPane(agent, session || "", node.dataset.label || "", node.dataset.sessionKey);
+        }
+      }
+    });
+  }
 
+  // Initialize event delegation once
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initEventDelegation);
+  } else {
+    initEventDelegation();
+  }
+
+  // Helper to escape HTML
+  function escapeHtml(str) {
+    if (str == null) return "";
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Build tree HTML string from sessions data
+  function buildTreeHTML(sessions) {
     const byKey = {};
     sessions.forEach((s) => {
       byKey[s.key] = s;
     });
+
     const children = {};
     const roots = [];
     sessions.forEach((s) => {
@@ -26,7 +62,10 @@ HUD.sessionTree = (function () {
         roots.push(s);
       }
     });
-    for (const k in children) children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    for (const k in children) {
+      children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    }
     roots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
     function renderNode(node, prefix, isLast, level = 0) {
@@ -86,9 +125,24 @@ HUD.sessionTree = (function () {
     });
     html += "</div>";
 
-    $("#tree-body").innerHTML = html;
+    return html;
+  }
 
-    // Add keyboard support after rendering
+  function render(sessions) {
+    for (const s of sessions) {
+      if (!s.sessionKey)
+        throw new Error("sessionTree.render requires canonical sessionKey for each node");
+    }
+    window._treeData = sessions;
+    $("#tree-count").textContent = sessions.length;
+
+    const treeBody = $("#tree-body");
+    const nextHTML = buildTreeHTML(sessions);
+    const temp = document.createElement("div");
+    temp.innerHTML = nextHTML;
+    morphdom(treeBody, temp, { childrenOnly: true });
+
+    // Add keyboard support after rendering (click handling is done via event delegation)
     addTreeKeyboardSupport();
   }
 
@@ -98,18 +152,10 @@ HUD.sessionTree = (function () {
   }
 
   function addTreeKeyboardSupport() {
-    // Make tree nodes focusable and clickable via keyboard
-    document.querySelectorAll(".tree-node-content").forEach((node) => {
-      window.makeFocusable(node, () => {
-        const agent = node.dataset.agent;
-        const session = node.dataset.session;
-        if (agent && node.dataset.sessionKey) {
-          openChatPane(agent, session || "", node.dataset.label || "", node.dataset.sessionKey);
-        }
-      });
-    });
+    // Note: Click handlers are now handled via event delegation on #tree-body
+    // This function only handles keyboard navigation
 
-    // Make toggles keyboard accessible
+    // Make toggles keyboard accessible (Enter/Space)
     document.querySelectorAll(".tree-toggle").forEach((toggle) => {
       if (toggle.textContent.trim() === "") return; // Skip empty toggles
 
