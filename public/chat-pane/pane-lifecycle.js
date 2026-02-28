@@ -14,6 +14,8 @@
     var state = runtime.ChatState;
     if (state.subscribedKey === sessionKey) return;
 
+    if (window.ChatScroll) window.ChatScroll.init();
+
     var layout = document.querySelector(".hud-layout");
     if (layout) layout.classList.add("chat-open");
 
@@ -80,6 +82,7 @@
   }
 
   function closeChatPane() {
+    if (window.ChatScroll) window.ChatScroll.reset();
     runtime.clearHistoryLoadTimer();
 
     var state = runtime.ChatState;

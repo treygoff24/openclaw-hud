@@ -52,6 +52,7 @@
 
     const container = document.getElementById("chat-messages");
     if (container) container.appendChild(div);
+    if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
 
     state.pendingAcks.set(idempotencyKey, { el: div, message: text });
     input.value = "";
@@ -100,7 +101,7 @@
     div.appendChild(contentDiv);
 
     container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
+    if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
   }
 
   window.ChatInputSendFlow = {
