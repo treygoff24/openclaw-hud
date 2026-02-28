@@ -20,11 +20,17 @@ const {
 } = require("../lib/pricing");
 const { readWeeklyHistory, readWeeklySnapshot } = require("../lib/usage-archive");
 const { normalizeModelRow, collectUsageRows } = require("../lib/usage-normalize");
+const {
+  generateMonthCacheKey,
+  readFreshMonthCache,
+  writeMonthCache,
+  getMonthCacheTtlMs,
+} = require("../lib/month-usage-cache");
 
 const router = Router();
 
 let liveWeeklyCache = null;
-const liveWeeklyMonthCache = new Map();
+
 const DEFAULT_USAGE_SESSIONS_LIMIT = 500;
 const MIN_USAGE_SESSIONS_LIMIT = 1;
 const MAX_USAGE_SESSIONS_LIMIT = 2000;
@@ -34,9 +40,7 @@ const MAX_MONTH_USAGE_MAX_WINDOWS = 120;
 const DEFAULT_MONTH_USAGE_MAX_DURATION_MS = 7000;
 const MIN_MONTH_USAGE_MAX_DURATION_MS = 100;
 const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
-const DEFAULT_MONTH_USAGE_MEMO_TTL_MS = 15000;
-const MIN_MONTH_USAGE_MEMO_TTL_MS = 0;
-const MAX_MONTH_USAGE_MEMO_TTL_MS = 300000;
+
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
@@ -50,14 +54,6 @@ function getUsageSessionsLimit() {
   if (parsedLimit < MIN_USAGE_SESSIONS_LIMIT) return MIN_USAGE_SESSIONS_LIMIT;
   if (parsedLimit > MAX_USAGE_SESSIONS_LIMIT) return MAX_USAGE_SESSIONS_LIMIT;
   return parsedLimit;
-}
-
-function getMonthUsageMemoTtlMs() {
-  const rawTtl = Number.parseInt(process.env.HUD_USAGE_MONTH_MEMO_TTL_MS, 10);
-  const parsedTtl = Number.isFinite(rawTtl) ? rawTtl : DEFAULT_MONTH_USAGE_MEMO_TTL_MS;
-  if (parsedTtl <= MIN_MONTH_USAGE_MEMO_TTL_MS) return 0;
-  if (parsedTtl > MAX_MONTH_USAGE_MEMO_TTL_MS) return MAX_MONTH_USAGE_MEMO_TTL_MS;
-  return parsedTtl;
 }
 
 function getMonthUsageMaxWindows() {
@@ -78,7 +74,7 @@ function getMonthUsageMaxDurationMs() {
   return parsedDuration;
 }
 
-function shouldRefreshLiveWeekly(req) {
+function shouldForceRefresh(req) {
   const refresh = req?.query?.refresh;
   return refresh === "1" || refresh === 1 || refresh === true;
 }
@@ -87,33 +83,8 @@ function getLiveWeeklyCacheKey({
   tz,
   pricingFingerprint,
   sessionsLimit,
-  monthMaxWindows,
-  monthMaxDurationMs,
 }) {
-  return `${tz}|${pricingFingerprint}|${sessionsLimit}|${monthMaxWindows}|${monthMaxDurationMs}`;
-}
-
-function getLiveWeeklyMonthCacheKey({
-  tz,
-  monthWindow,
-  pricingFingerprint,
-  sessionsLimit,
-  monthMaxWindows,
-  monthMaxDurationMs,
-}) {
-  const monthStartMs = Number.isFinite(monthWindow?.fromMs) ? monthWindow.fromMs : "unknown";
-  const windowUtcDayStartMs = Number.isFinite(monthWindow?.toMs)
-    ? Math.floor(monthWindow.toMs / 86400000) * 86400000
-    : "unknown";
-  return [
-    tz,
-    monthStartMs,
-    windowUtcDayStartMs,
-    pricingFingerprint,
-    sessionsLimit,
-    monthMaxWindows,
-    monthMaxDurationMs,
-  ].join("|");
+  return `${tz}|${pricingFingerprint}|${sessionsLimit}`;
 }
 
 function createRequestContext(req, nowMs) {
@@ -482,28 +453,6 @@ function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
   }
 }
 
-function readMemoizedLiveWeeklyMonthCache({ cacheKey, nowMs, ttlMs, refresh }) {
-  if (refresh || ttlMs <= 0) return null;
-  const cached = liveWeeklyMonthCache.get(cacheKey);
-  if (!cached) return null;
-  if (nowMs >= cached.expiresAtMs) {
-    liveWeeklyMonthCache.delete(cacheKey);
-    return null;
-  }
-  return cached.payload;
-}
-
-function maybeStoreLiveWeeklyMonthCache({ ttlMs, nowMs, cacheKey, payload }) {
-  if (ttlMs <= 0) {
-    liveWeeklyMonthCache.delete(cacheKey);
-    return;
-  }
-  liveWeeklyMonthCache.set(cacheKey, {
-    expiresAtMs: nowMs + ttlMs,
-    payload,
-  });
-}
-
 function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason, requestContext }) {
   return {
     meta: {
@@ -529,6 +478,71 @@ function buildUnavailableLiveWeeklyPayload({ tz, liveWindow, nowMs, reason, requ
     },
     summary: {
       weekSpend: 0,
+      monthSpend: 0,
+      topMonthModel: null,
+    },
+  };
+}
+
+function buildMonthlySummary({ monthTotals, monthModels, aliasMap }) {
+  return {
+    monthSpend: Number(monthTotals?.totalCost) || 0,
+    topMonthModel: getTopMonthModel(monthModels, aliasMap),
+  };
+}
+
+function buildMonthlyResponsePayload({
+  monthBreakdown,
+  summary,
+  tz,
+  monthWindow,
+  nowMs,
+  source,
+  diagnostics,
+}) {
+  const meta = {
+    period: "monthly",
+    tz,
+    monthStart: new Date(monthWindow.fromMs).toISOString(),
+    now: new Date(monthWindow.toMs).toISOString(),
+    generatedAt: new Date(nowMs).toISOString(),
+    source,
+    missingPricingModels: monthBreakdown.missingPricingModels,
+    sessionsUsage: Object.assign({}, diagnostics),
+  };
+
+  return {
+    meta,
+    models: monthBreakdown.models,
+    totals: monthBreakdown.totals,
+    summary,
+  };
+}
+
+function buildUnavailableMonthlyPayload({ tz, monthWindow, nowMs, reason, requestContext }) {
+  return {
+    meta: {
+      period: "monthly",
+      tz,
+      monthStart: new Date(monthWindow.fromMs).toISOString(),
+      now: new Date(monthWindow.toMs).toISOString(),
+      generatedAt: new Date(nowMs).toISOString(),
+      requestId: requestContext.requestId,
+      requestTimestamp: requestContext.requestTimestamp,
+      source: "sessions.usage+config-reprice",
+      missingPricingModels: [],
+      unavailable: reason,
+    },
+    models: [],
+    totals: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    },
+    summary: {
       monthSpend: 0,
       topMonthModel: null,
     },
@@ -651,18 +665,13 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
   const nowMs = Date.now();
   const requestContext = createRequestContext(req, nowMs);
   const ttlMs = getUsageCacheTtlMs();
-  const monthMemoTtlMs = getMonthUsageMemoTtlMs();
   const sessionsLimit = getUsageSessionsLimit();
-  const monthMaxWindows = getMonthUsageMaxWindows();
-  const monthMaxDurationMs = getMonthUsageMaxDurationMs();
-  const refresh = shouldRefreshLiveWeekly(req);
+  const refresh = shouldForceRefresh(req);
   const pricingFingerprint = getPricingConfigFingerprint();
   const cacheKey = getLiveWeeklyCacheKey({
     tz,
     pricingFingerprint,
     sessionsLimit,
-    monthMaxWindows,
-    monthMaxDurationMs,
   });
 
   if (
@@ -675,15 +684,6 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
-  const monthWindow = getLiveMonthWindow(tz, nowMs);
-  const monthCacheKey = getLiveWeeklyMonthCacheKey({
-    tz,
-    monthWindow,
-    pricingFingerprint,
-    sessionsLimit,
-    monthMaxWindows,
-    monthMaxDurationMs,
-  });
 
   try {
     const weeklyWindowUsage = await requestUsageWindow({
@@ -706,37 +706,11 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
       pricingCatalog,
     );
 
-    let monthCollection = readMemoizedLiveWeeklyMonthCache({
-      cacheKey: monthCacheKey,
-      nowMs,
-      ttlMs: monthMemoTtlMs,
-      refresh,
-    });
-    if (!monthCollection) {
-      monthCollection = await collectMonthToDateUsageRows({
-        monthWindow,
-        tz,
-        sessionsLimit,
-        requestId: requestContext.requestId,
-        maxWindows: monthMaxWindows,
-        maxDurationMs: monthMaxDurationMs,
-      });
-      maybeStoreLiveWeeklyMonthCache({
-        ttlMs: monthMemoTtlMs,
-        nowMs,
-        cacheKey: monthCacheKey,
-        payload: monthCollection,
-      });
-    }
-    const monthBreakdown = buildUsageBreakdown(
-      aggregateUsageRowsByModel(normalizeUsageRows(monthCollection.usageRows)),
-      pricingCatalog,
-    );
     const modelAliases = getModelAliasMap();
     const summary = buildLiveWeeklySummary({
       weeklyTotals: weeklyBreakdown.totals,
-      monthTotals: monthBreakdown.totals,
-      monthModels: monthBreakdown.models,
+      monthTotals: { totalCost: 0 },
+      monthModels: [],
       aliasMap: modelAliases,
     });
 
@@ -751,7 +725,6 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
         sessionsLimit,
         sessionsReturned: weeklyWindowUsage.sessionsReturned,
         sessionsMayBeTruncated: maybeTruncated,
-        monthToDate: monthCollection.diagnostics,
       },
     });
 
@@ -818,6 +791,143 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
 
     res.status(status).json({
       error: "Failed to load live weekly usage",
+      message,
+      code,
+      status,
+      requestId: requestContext.requestId,
+      timestamp,
+    });
+  }
+});
+
+router.get("/api/model-usage/monthly", async (req, res) => {
+  const tz = process.env.HUD_USAGE_TZ || "America/Chicago";
+  const nowMs = Date.now();
+  const requestContext = createRequestContext(req, nowMs);
+  const sessionsLimit = getUsageSessionsLimit();
+  const monthMaxWindows = getMonthUsageMaxWindows();
+  const monthMaxDurationMs = getMonthUsageMaxDurationMs();
+  const refresh = shouldForceRefresh(req);
+  const pricingFingerprint = getPricingConfigFingerprint();
+  const monthWindow = getLiveMonthWindow(tz, nowMs);
+  const diskTtlMs = getMonthCacheTtlMs();
+
+  const cacheKey = generateMonthCacheKey({
+    tz,
+    monthStartMs: monthWindow.fromMs,
+    pricingFingerprint,
+    sessionsLimit,
+    monthMaxWindows,
+    monthMaxDurationMs,
+  });
+
+  // Check disk cache first (if not refreshing)
+  if (!refresh) {
+    const cachedPayload = readFreshMonthCache(cacheKey, nowMs, diskTtlMs);
+    if (cachedPayload) {
+      const responsePayload = Object.assign({}, cachedPayload, {
+        meta: Object.assign({}, cachedPayload.meta, {
+          source: "disk-cache",
+          servedAt: new Date(nowMs).toISOString(),
+        }),
+      });
+      return res.json(addRequestContextToMeta(responsePayload, requestContext));
+    }
+  }
+
+  try {
+    const monthCollection = await collectMonthToDateUsageRows({
+      monthWindow,
+      tz,
+      sessionsLimit,
+      requestId: requestContext.requestId,
+      maxWindows: monthMaxWindows,
+      maxDurationMs: monthMaxDurationMs,
+    });
+
+    const pricingCatalog = loadPricingCatalog();
+    const monthBreakdown = buildUsageBreakdown(
+      aggregateUsageRowsByModel(normalizeUsageRows(monthCollection.usageRows)),
+      pricingCatalog,
+    );
+
+    const modelAliases = getModelAliasMap();
+    const summary = buildMonthlySummary({
+      monthTotals: monthBreakdown.totals,
+      monthModels: monthBreakdown.models,
+      aliasMap: modelAliases,
+    });
+
+    const responsePayload = buildMonthlyResponsePayload({
+      monthBreakdown,
+      summary,
+      tz,
+      monthWindow,
+      nowMs,
+      source: "sessions.usage+config-reprice",
+      diagnostics: Object.assign({ sessionsLimit }, monthCollection.diagnostics),
+    });
+
+    // Write to disk cache
+    writeMonthCache(cacheKey, responsePayload);
+
+    res.json(addRequestContextToMeta(responsePayload, requestContext));
+  } catch (err) {
+    const unavailableReasonByCode = {
+      GATEWAY_TOKEN_MISSING: "gateway-token-missing",
+      GATEWAY_HOST_UNSUPPORTED: "gateway-host-unsupported",
+      GATEWAY_UNREACHABLE: "gateway-unreachable",
+    };
+    const unavailableReason = unavailableReasonByCode[err?.code];
+    if (unavailableReason) {
+      console.warn("[model-usage/monthly] gateway unavailable", {
+        reason: unavailableReason,
+        code: err?.code || null,
+        gatewayCode: err?.gatewayCode || null,
+        gatewayMethod: err?.gatewayMethod || null,
+        message: err?.message || "Unknown error",
+        requestId: requestContext.requestId,
+      });
+      return res.status(503).json({
+        error: "Gateway unavailable",
+        message: err?.message || "Unknown error",
+        code: err?.code || "GATEWAY_UNAVAILABLE",
+        requestId: requestContext.requestId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (err?.message === "Gateway token not configured") {
+      console.warn("[model-usage/monthly] gateway unavailable", {
+        reason: "gateway-token-missing",
+        code: err?.code || null,
+        gatewayCode: err?.gatewayCode || null,
+        gatewayMethod: err?.gatewayMethod || null,
+        message: err?.message || "Unknown error",
+        requestId: requestContext.requestId,
+      });
+      return res.status(503).json({
+        error: "Gateway unavailable",
+        message: err?.message || "Unknown error",
+        code: "GATEWAY_TOKEN_MISSING",
+        requestId: requestContext.requestId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const status = Number(err?.status || err?.statusCode) || 502;
+    const code = err?.code || "MODEL_USAGE_MONTHLY_ERROR";
+    const message = err?.message || "Unknown error";
+    const timestamp = new Date().toISOString();
+    console.error("[model-usage/monthly] failed", {
+      status,
+      code,
+      message,
+      requestId: requestContext.requestId,
+    });
+
+    res.status(status).json({
+      error: "Failed to load monthly usage",
       message,
       code,
       status,

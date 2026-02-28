@@ -23,6 +23,10 @@
 
     let hasAttemptedChatSessionRestore = false;
     let latestFetchRunId = 0;
+    // Cached monthly data survives across tick-based fetchAll() calls so the
+    // models panel never flashes back to $0 between the weekly render and the
+    // async monthly callback.
+    let cachedMonthlyPayload = null;
 
     const endpoints = [
       { name: "agents", url: "/api/agents" },
@@ -34,6 +38,9 @@
       { name: "session-tree", url: "/api/session-tree" },
       { name: "models", url: "/api/models" },
     ];
+
+    // Monthly usage endpoint - fetched asynchronously (not blocking initial render)
+    const monthlyEndpoint = { name: "model-usage-monthly", url: "/api/model-usage/monthly" };
 
     const endpointPanels = {
       agents: {
@@ -208,7 +215,16 @@
         window._allSessions = state.data.sessions || [];
       }
 
-      renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
+      // When rendering model-usage, merge in any previously-cached monthly
+      // payload so the panel never flashes back to $0 between ticks.
+      if (endpointName === "model-usage" && cachedMonthlyPayload) {
+        const merged = Object.assign({}, state.data[endpointName] || {}, {
+          _monthlyData: cachedMonthlyPayload,
+        });
+        renderEndpointPanel(endpointName, merged, state.responseMeta[endpointName]);
+      } else {
+        renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
+      }
 
       if (
         endpointName === "sessions" &&
@@ -267,6 +283,28 @@
         window._modelAliases = data.models || [];
         window._allSessions = data.sessions || [];
         setConnectionStatus(hasAnyData);
+
+        // Fetch monthly usage asynchronously (non-blocking).
+        // This data is cached on disk with longer TTL, so it won't slow down the UI.
+        fetchEndpoint(runFetch, monthlyEndpoint).then(function (result) {
+          if (runId !== latestFetchRunId) return;
+
+          if (result.payload) {
+            cachedMonthlyPayload = result.payload;
+          }
+
+          // Re-render models panel with monthly data merged in
+          if (cachedMonthlyPayload && endpointPanels["model-usage"]) {
+            const mergedPayload = Object.assign({}, data["model-usage"] || {}, {
+              _monthlyData: cachedMonthlyPayload,
+            });
+            // Use the weekly response meta (not the monthly meta) so the
+            // models panel sees the correct period / request context.
+            renderEndpointPanel("model-usage", mergedPayload, responseMeta["model-usage"]);
+          }
+        }).catch(function (err) {
+          console.warn("Monthly usage fetch failed (non-critical):", err);
+        });
       } catch (err) {
         console.error("Fetch error:", err);
         setConnectionStatus(false);

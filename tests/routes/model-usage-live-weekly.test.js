@@ -184,12 +184,8 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(res.body.summary).toMatchObject({
       weekSpend: 0.000727,
-      monthSpend: 0.000727,
-      topMonthModel: {
-        model: "gpt-5",
-        alias: "gpt-5",
-        totalCost: 0.000727,
-      },
+      monthSpend: 0,
+      topMonthModel: null,
     });
   });
 
@@ -320,21 +316,14 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     const expected = getLiveWeekWindow(TEST_TZ, now);
     const weekArgs = usageRpc.requestSessionsUsage.mock.calls[0]?.[0];
-    const monthArgs = usageRpc.requestSessionsUsage.mock.calls[1]?.[0];
 
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
     expect(weekArgs).toEqual({
       from: expected.fromMs,
       to: expected.toMs,
       timezone: TEST_TZ,
       limit: 500,
     });
-    expect(monthArgs).toMatchObject({
-      to: expected.toMs,
-      timezone: TEST_TZ,
-      limit: 500,
-    });
-    expect(monthArgs.from).toBeLessThanOrEqual(weekArgs.from);
   });
 
   it("uses configured sessions limit and marks potential truncation diagnostics", async () => {
@@ -384,198 +373,39 @@ describe("GET /api/model-usage/live-weekly", () => {
       sessionsLimit: 3,
       sessionsReturned: 3,
       sessionsMayBeTruncated: true,
-      monthToDate: {
-        isPartial: false,
-        partialReason: null,
-      },
     });
   });
 
-  it("adds summary with weekSpend/monthSpend/topMonthModel using month-to-date usage", async () => {
-    usageRpc.requestSessionsUsage
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 30,
-                output: 20,
-                cacheRead: 5,
-                cacheWrite: 2,
-                totalTokens: 57,
-              },
+  it("adds summary with weekSpend/monthSpend/topMonthModel (monthly data from separate endpoint)", async () => {
+    // Note: monthly data is now fetched from /api/model-usage/monthly
+    // live-weekly only returns weekly data with placeholders for month fields
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 30,
+              output: 20,
+              cacheRead: 5,
+              cacheWrite: 2,
+              totalTokens: 57,
             },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 3_000,
-                output: 1_000,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 4_000,
-              },
-            },
-          ],
-        },
-      });
+          },
+        ],
+      },
+    });
 
     const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
     expect(res.body.summary.weekSpend).toBeCloseTo(res.body.totals.totalCost, 12);
-    expect(res.body.summary.monthSpend).toBeCloseTo(0.05, 12);
-    expect(res.body.summary.topMonthModel).toEqual({
-      model: "gpt-5",
-      alias: "gpt-5",
-      totalCost: 0.05,
-    });
-  });
-
-  it("re-queries month usage in smaller windows when month-to-date call is truncated", async () => {
-    process.env.HUD_USAGE_SESSIONS_LIMIT = "2";
-    const now = Date.parse("2026-01-02T18:00:00-06:00");
-    vi.spyOn(Date, "now").mockReturnValue(now);
-
-    usageRpc.requestSessionsUsage
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 1_000, output: 0, totalTokens: 1_000 },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          sessions: [{ id: "s1" }, { id: "s2" }],
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 100, output: 0, totalTokens: 100 },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          sessions: [{ id: "s3" }],
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 2_000, output: 0, totalTokens: 2_000 },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          sessions: [{ id: "s4" }],
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 3_000, output: 0, totalTokens: 3_000 },
-            },
-          ],
-        },
-      })
-      .mockResolvedValue({
-        ok: true,
-        result: { sessions: [], rows: [] },
-      });
-
-    const res = await request(createApp()).get("/api/model-usage/live-weekly");
-
-    expect(res.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThanOrEqual(4);
-    expect(res.body.summary.monthSpend).toBeCloseTo(0.05, 12);
-    expect(res.body.summary.topMonthModel).toEqual({
-      model: "gpt-5",
-      alias: "gpt-5",
-      totalCost: 0.05,
-    });
-    expect(res.body.meta.sessionsUsage.monthToDate).toMatchObject({
-      isPartial: false,
-      partialReason: null,
-      truncatedWindows: 1,
-      truncatedSingleDayWindows: 0,
-    });
-  });
-
-  it("caps month splitting fan-out and marks summary diagnostics as partial", async () => {
-    process.env.HUD_USAGE_SESSIONS_LIMIT = "1";
-    process.env.HUD_USAGE_MONTH_MAX_WINDOWS = "5";
-    const now = Date.parse("2026-01-31T12:00:00-06:00");
-    vi.spyOn(Date, "now").mockReturnValue(now);
-
-    usageRpc.requestSessionsUsage
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 2_000, output: 0, totalTokens: 2_000 },
-            },
-          ],
-        },
-      })
-      .mockResolvedValue({
-        ok: true,
-        result: {
-          sessions: [{ id: "truncated" }],
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: { input: 100, output: 0, totalTokens: 100 },
-            },
-          ],
-        },
-      });
-
-    const res = await request(createApp()).get("/api/model-usage/live-weekly");
-
-    expect(res.status).toBe(200);
-    expect(res.body.totals.totalCost).toBeCloseTo(0.02, 12);
-    expect(res.body.summary.weekSpend).toBeCloseTo(0.02, 12);
-    expect(res.body.summary.monthSpend).toBeCloseTo(0.004, 12);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(6);
-    expect(res.body.meta.sessionsUsage.monthToDate).toMatchObject({
-      isPartial: true,
-      windowsRequested: 5,
-      windowsRemaining: expect.any(Number),
-      truncatedWindows: 5,
-      truncatedSingleDayWindows: 4,
-      guardrails: {
-        maxWindows: 5,
-      },
-    });
-    expect(res.body.meta.sessionsUsage.monthToDate.windowsRemaining).toBeGreaterThan(0);
-    expect(res.body.meta.sessionsUsage.monthToDate.partialReasons).toEqual(
-      expect.arrayContaining(["window-budget-exhausted", "single-day-window-truncated"]),
-    );
+    // Month data is no longer collected by live-weekly endpoint
+    // Clients should fetch /api/model-usage/monthly for month data
+    expect(res.body.summary.monthSpend).toBe(0);
+    expect(res.body.summary.topMonthModel).toBeNull();
   });
 
   it("clamps configured sessions limit to the safe max", async () => {
@@ -635,7 +465,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
     expect(second.body.meta.generatedAt).toBe(first.body.meta.generatedAt);
   });
 
@@ -670,140 +500,8 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(3);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
-  });
-
-  it("reuses memoized month-to-date aggregation for immediate requests when top-level cache is disabled", async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = "0";
-    process.env.HUD_USAGE_MONTH_MEMO_TTL_MS = "60000";
-    const nowSpy = vi.spyOn(Date, "now");
-    nowSpy.mockReturnValueOnce(10_000).mockReturnValueOnce(10_100);
-
-    usageRpc.requestSessionsUsage
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 10,
-                output: 10,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 20,
-              },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 400,
-                output: 100,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 500,
-              },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 10,
-                output: 10,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 20,
-              },
-            },
-          ],
-        },
-      })
-      .mockResolvedValue({
-        ok: true,
-        result: {
-          rows: [
-            {
-              provider: "openai",
-              model: "gpt-5",
-              totals: {
-                input: 1_000,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 1_000,
-              },
-            },
-          ],
-        },
-      });
-
-    const app = createApp();
-    const first = await request(app).get("/api/model-usage/live-weekly");
-    const second = await request(app).get("/api/model-usage/live-weekly");
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(3);
-    expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
-    expect(second.body.totals.totalCost).toBeCloseTo(first.body.totals.totalCost, 12);
-    expect(second.body.summary.monthSpend).toBeCloseTo(first.body.summary.monthSpend, 12);
-    expect(second.body.meta.sessionsUsage.monthToDate).toMatchObject(
-      first.body.meta.sessionsUsage.monthToDate,
-    );
-  });
-
-  it("invalidates month memoization when sessions limit changes between requests", async () => {
-    process.env.HUD_USAGE_CACHE_TTL_MS = "0";
-    process.env.HUD_USAGE_MONTH_MEMO_TTL_MS = "60000";
-    const nowSpy = vi.spyOn(Date, "now");
-    nowSpy.mockReturnValueOnce(20_000).mockReturnValueOnce(20_100);
-
-    usageRpc.requestSessionsUsage.mockResolvedValue({
-      ok: true,
-      result: {
-        rows: [
-          {
-            provider: "openai",
-            model: "gpt-5",
-            totals: {
-              input: 10,
-              output: 5,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 15,
-            },
-          },
-        ],
-      },
-    });
-
-    const app = createApp();
-    const first = await request(app).get("/api/model-usage/live-weekly");
-    process.env.HUD_USAGE_SESSIONS_LIMIT = "3";
-    const second = await request(app).get("/api/model-usage/live-weekly");
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
-    expect(first.body.meta.sessionsUsage.sessionsLimit).toBe(500);
-    expect(second.body.meta.sessionsUsage.sessionsLimit).toBe(3);
   });
 
   it("refreshes cached live-weekly response when pricing fingerprint changes within TTL", async () => {
@@ -838,7 +536,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 
@@ -873,7 +571,7 @@ describe("GET /api/model-usage/live-weekly", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(4);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
   });
 

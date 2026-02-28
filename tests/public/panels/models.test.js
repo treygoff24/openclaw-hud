@@ -43,7 +43,6 @@ describe("render", () => {
     HUD.models.render({
       meta: {
         tz: "America/Chicago",
-        sessionsUsage: { monthToDate: { isPartial: true } },
       },
       models: [
         {
@@ -58,14 +57,31 @@ describe("render", () => {
         },
       ],
       totals: { totalTokens: 5000, totalCost: 0.15 },
-      // Summary should be the primary source for week/month/top model cards.
+      // Weekly summary is primary source for week spend
       summary: {
         weekSpend: 0.22,
-        monthSpend: 1.23,
-        topMonthModel: {
-          model: "anthropic/claude-sonnet-4",
-          alias: "claude-sonnet-4",
-          totalCost: 0.87,
+      },
+      // Monthly data comes from separate endpoint via _monthlyData
+      _monthlyData: {
+        meta: {
+          tz: "America/Chicago",
+          sessionsUsage: { isPartial: true },
+        },
+        models: [
+          {
+            provider: "anthropic",
+            model: "claude-sonnet-4",
+            totalTokens: 10000,
+            totalCost: 0.87,
+          },
+        ],
+        summary: {
+          monthSpend: 1.23,
+          topMonthModel: {
+            model: "anthropic/claude-sonnet-4",
+            alias: "claude-sonnet-4",
+            totalCost: 0.87,
+          },
         },
       },
     });
@@ -90,14 +106,16 @@ describe("render", () => {
     expect(document.getElementById("stat-monthly-spend").textContent).toBe("$1.23");
   });
 
-  it("toggles month partial indicator on rerender with latest payload meta", () => {
+  it("toggles month partial indicator on rerender with monthly data", () => {
+    // Monthly data now comes from separate endpoint via _monthlyData
     HUD.models.render({
-      meta: { tz: "UTC", sessionsUsage: { monthToDate: { isPartial: true } } },
+      meta: { tz: "UTC" },
       models: [{ provider: "x", model: "m1", totalTokens: 1, totalCost: 0.1 }],
-      summary: {
-        weekSpend: 0.1,
-        monthSpend: 1.11,
-        topMonthModel: { model: "m1", totalCost: 1.11 },
+      summary: { weekSpend: 0.1 },
+      _monthlyData: {
+        meta: { tz: "UTC", sessionsUsage: { isPartial: true } },
+        models: [{ provider: "x", model: "m1", totalTokens: 10, totalCost: 1.11 }],
+        summary: { monthSpend: 1.11, topMonthModel: { model: "m1", totalCost: 1.11 } },
       },
     });
 
@@ -106,12 +124,13 @@ describe("render", () => {
     expect(cards[1].textContent).toContain("PARTIAL");
 
     HUD.models.render({
-      meta: { tz: "UTC", sessionsUsage: { monthToDate: { isPartial: false } } },
+      meta: { tz: "UTC" },
       models: [{ provider: "x", model: "m1", totalTokens: 1, totalCost: 0.1 }],
-      summary: {
-        weekSpend: 0.1,
-        monthSpend: 2.22,
-        topMonthModel: { model: "m1", totalCost: 2.22 },
+      summary: { weekSpend: 0.1 },
+      _monthlyData: {
+        meta: { tz: "UTC", sessionsUsage: { isPartial: false } },
+        models: [{ provider: "x", model: "m1", totalTokens: 20, totalCost: 2.22 }],
+        summary: { monthSpend: 2.22, topMonthModel: { model: "m1", totalCost: 2.22 } },
       },
     });
 
@@ -129,7 +148,8 @@ describe("render", () => {
     expect(document.getElementById("model-usage").textContent).toContain("No model data yet");
   });
 
-  it("falls back monthly spend/top model when monthly payload is unavailable", () => {
+  it("shows $0 monthly spend when monthly data unavailable and derives top from weekly", () => {
+    // When monthly data is unavailable, monthSpend is $0 and top model is derived from weekly data
     HUD.models.render({
       meta: { tz: "UTC" },
       models: [
@@ -147,9 +167,11 @@ describe("render", () => {
     });
 
     const cards = document.querySelectorAll(".model-summary-card");
-    expect(cards[1].textContent).toContain("$0.99");
+    // Monthly spend is $0 when no monthly data available
+    expect(cards[1].textContent).toContain("$0.00");
+    // Top model is derived from weekly rows when monthly unavailable
     expect(cards[2].textContent).toContain("big · $0.99");
-    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$0.99");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$0.00");
   });
 
   it("sorts by totalTokens descending", () => {

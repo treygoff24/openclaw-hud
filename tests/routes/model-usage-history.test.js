@@ -83,8 +83,8 @@ describe("model usage archive routes", () => {
     const res = await request(createApp()).get("/api/model-usage/live-weekly");
 
     expect(res.status).toBe(200);
-    // Live weekly now computes both week and month-to-date summaries from gateway usage.
-    expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Live weekly now computes weekly summary only from gateway (monthly is separate endpoint)
+    expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(usageArchive.readWeeklyHistory).not.toHaveBeenCalled();
     expect(usageArchive.readWeeklySnapshot).not.toHaveBeenCalled();
   });

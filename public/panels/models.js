@@ -86,6 +86,15 @@ HUD.models = (function () {
     const payload = usagePayload && typeof usagePayload === "object" ? usagePayload : {};
     const payloadSummary =
       payload.summary && typeof payload.summary === "object" ? payload.summary : {};
+    
+    // Get monthly data from separate endpoint (fetched async)
+    const monthlyPayload = payload._monthlyData && typeof payload._monthlyData === "object" 
+      ? payload._monthlyData 
+      : null;
+    const monthlySummary = monthlyPayload?.summary && typeof monthlyPayload.summary === "object"
+      ? monthlyPayload.summary
+      : {};
+    
     const weeklySpend = pickFirstFinite(
       [
         payloadSummary.weekSpend,
@@ -97,41 +106,33 @@ HUD.models = (function () {
       0,
     );
 
+    // Monthly spend comes from the separate monthly endpoint
     const monthlySpend = pickFirstFinite(
       [
-        payloadSummary.monthSpend,
-        payload?.month?.totalCost,
-        payload?.monthToDate?.totalCost,
-        payload?.totals?.monthTotalCost,
-        payload?.totals?.monthSpend,
-        payload?.meta?.month?.totalCost,
-        payload?.meta?.monthToDate?.totalCost,
-        payload?.meta?.monthToDateCost,
-        payload?.meta?.monthSpend,
+        monthlySummary.monthSpend,
+        monthlyPayload?.totals?.totalCost,
+        monthlyPayload?.summary?.monthSpend,
       ],
-      weeklySpend,
+      0,
     );
 
+    // Top model comes from monthly endpoint
     const explicitTop = normalizeTopModel(
-      payloadSummary.topMonthModel ||
-        payload?.month?.topModel ||
-        payload?.monthToDate?.topModel ||
-        payload?.meta?.topMonthModel ||
-        payload?.meta?.monthTopModel,
+      monthlySummary.topMonthModel ||
+        monthlyPayload?.summary?.topMonthModel
     );
-    const monthModels = Array.isArray(payload?.month?.models)
-      ? payload.month.models
-      : Array.isArray(payload?.monthToDate?.models)
-        ? payload.monthToDate.models
-        : [];
+    const monthModels = Array.isArray(monthlyPayload?.models)
+      ? monthlyPayload.models
+      : [];
     const derivedTopFromMonthRows = getTopModelFromRows(monthModels);
     const derivedTopFromWeeklyRows = getTopModelFromRows(rows);
     const topModel = explicitTop || derivedTopFromMonthRows || derivedTopFromWeeklyRows;
     const topModelName = topModel?.modelName || "";
     const topModelSpend = pickFirstFinite([topModel?.spend], 0);
+    
+    // Check if month data is partial (from diagnostics)
     const isMonthToDatePartial = Boolean(
-      payload?.meta?.sessionsUsage?.monthToDate &&
-      payload.meta.sessionsUsage.monthToDate.isPartial === true,
+      monthlyPayload?.meta?.sessionsUsage?.isPartial === true
     );
 
     return {
