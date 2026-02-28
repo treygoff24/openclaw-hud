@@ -151,6 +151,10 @@
     this.spacerBottom.style.height = Math.max(0, bottomHeight) + "px";
   };
 
+  // NOTE: innerHTML = "" destroys any direct event listeners on child nodes.
+  // This is safe because interactive elements (copy buttons, etc.) use
+  // document-level event delegation. If future components attach direct
+  // listeners, they must be moved to delegation or re-attached after recycle.
   VirtualScroller.prototype.createOrRecycleElement = function (index) {
     const item = this.items[index];
     let el;
