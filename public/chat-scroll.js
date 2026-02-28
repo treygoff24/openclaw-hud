@@ -13,10 +13,11 @@
     return _container.scrollHeight - _container.scrollTop - _container.clientHeight < THRESHOLD;
   }
 
-  function scheduleAutoScroll(container) {
-    if (scrollQueued || !isAtBottom()) return;
+  function scheduleAutoScroll(container, force) {
+    if (scrollQueued) return;
+    if (!force && !isAtBottom()) return;
     scrollQueued = true;
-    requestAnimationFrame(() => {
+    requestAnimationFrame(function() {
       container.scrollTop = container.scrollHeight;
       scrollQueued = false;
       if (_pill) _pill.classList.remove("visible");
@@ -49,7 +50,7 @@
     if (!_container) return;
 
     if (force || !_userScrolledUp) {
-      scheduleAutoScroll(_container);
+      scheduleAutoScroll(_container, force);
       _userScrolledUp = false;
       if (_pill) _pill.classList.remove("visible");
     } else {
