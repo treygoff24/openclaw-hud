@@ -52,6 +52,10 @@
     ALLOW_DATA_ATTR: true,
   };
 
+  // LRU cache for markdown rendering
+  var MD_CACHE_MAX = 500;
+  var mdCache = new Map();
+
   // Dangerous URL schemes that should be stripped
   var DANGEROUS_SCHEMES = /^(javascript:|data:|vbscript:|file:|about:)/i;
 
@@ -147,20 +151,36 @@
     });
   }
 
-  function renderMarkdown(text) {
+  function renderMarkdownCached(text) {
     if (!text) return "";
-    // Check dynamically if marked is available now (may have loaded after init)
+    // Check cache first
+    if (mdCache.has(text)) {
+      var cached = mdCache.get(text);
+      mdCache.delete(text); // move to end (LRU)
+      mdCache.set(text, cached);
+      return cached;
+    }
+    // Compute fresh
     if (typeof marked === "undefined") return escapeHtml(text);
     var raw = marked.parse(text);
     if (typeof DOMPurify === "undefined") {
       console.warn("DOMPurify not loaded — falling back to plain text for safety");
       return escapeHtml(text);
     }
-    // Use more permissive config for code blocks with copy buttons
     var config = Object.assign({}, PURIFY_CONFIG);
     var sanitized = DOMPurify.sanitize(raw, config);
-    // Post-process to remove dangerous or empty anchors
-    return postProcessAnchors(sanitized);
+    var result = postProcessAnchors(sanitized);
+    
+    // Cache if under limit
+    if (mdCache.size >= MD_CACHE_MAX) {
+      mdCache.delete(mdCache.keys().next().value); // evict oldest
+    }
+    mdCache.set(text, result);
+    return result;
+  }
+
+  function renderMarkdown(text) {
+    return renderMarkdownCached(text);  // delegates to cached version
   }
 
   function renderPlainText(text) {

@@ -169,7 +169,7 @@
       const messageEl = window.ChatMessage.renderHistoryMessage(item);
       // Copy attributes and children
       el.className = messageEl.className;
-      el.innerHTML = messageEl.innerHTML;
+      el.replaceChildren(...messageEl.childNodes);
       // Preserve dataset
       if (messageEl.dataset) {
         Object.assign(el.dataset, messageEl.dataset);

@@ -49,9 +49,11 @@
       return;
     }
 
+    var frag = document.createDocumentFragment();
     (data.messages || []).forEach(function (msg) {
-      container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
+      frag.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     });
+    container.appendChild(frag);
     if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
     container.dataset.ready = "true";
 
