@@ -143,19 +143,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Install Specgate
-        env:
-          GH_TOKEN: ${{ secrets.SPECGATE_TOKEN }}
         run: |
-          REPO="treygoff24/specgate"
           TAG="v0.1.0-rc5"
           ASSET="specgate-${TAG}-x86_64-unknown-linux-gnu.tar.gz"
-          curl -sL -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/octet-stream" \
-            "$(curl -sL -H "Authorization: token ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" \
-              | jq -r ".assets[] | select(.name == \"${ASSET}\") | .url")" \
-            -o specgate.tar.gz
+          curl -sL -o specgate.tar.gz \
+            "https://github.com/treygoff24/specgate/releases/download/${TAG}/${ASSET}"
           tar xzf specgate.tar.gz
           chmod +x specgate
           ./specgate --version
