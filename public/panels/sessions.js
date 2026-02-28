@@ -3,31 +3,8 @@ HUD.sessions = (function () {
   "use strict";
   const $ = (s) => document.querySelector(s);
 
-  // Event delegation for clicks on session rows
-  const sessionsList = $("#sessions-list");
-  if (sessionsList) {
-    sessionsList.addEventListener("click", (e) => {
-      const row = e.target.closest(".session-row");
-      if (row) {
-        if (row.dataset.agent && row.dataset.sessionKey) {
-          openChatPane(
-            row.dataset.agent,
-            row.dataset.session || "",
-            row.dataset.label || "",
-            row.dataset.sessionKey,
-          );
-        }
-      }
-    });
-  }
-
-  function render(sessions) {
-    for (const s of sessions) {
-      if (!s.sessionKey)
-        throw new Error("sessions.render requires canonical sessionKey for each session");
-    }
-    $("#session-count").textContent = sessions.length;
-    const html = sessions
+  function buildSessionsHTML(sessions) {
+    return sessions
       .slice(0, 40)
       .map((s, index) => {
         const sessionKey = s.sessionKey;
@@ -52,12 +29,72 @@ HUD.sessions = (function () {
       </div>`;
       })
       .join("");
-
-    // Use morphdom instead of innerHTML for efficient DOM updates
-    const temp = document.createElement("div");
-    temp.innerHTML = html;
-    morphdom($("#sessions-list"), temp, { childrenOnly: true });
   }
 
-  return { render };
+  function render(sessions) {
+    for (const s of sessions) {
+      if (!s.sessionKey)
+        throw new Error("sessions.render requires canonical sessionKey for each session");
+    }
+    $("#session-count").textContent = sessions.length;
+    
+    const sessionsList = $("#sessions-list");
+    const html = buildSessionsHTML(sessions);
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(sessionsList, temp, { childrenOnly: true });
+    } else {
+      sessionsList.innerHTML = html;
+    }
+  }
+
+  // Event delegation handler
+  function handleSessionsClick(e) {
+    const row = e.target.closest(".session-row");
+    if (row) {
+      const agent = row.dataset.agent;
+      const session = row.dataset.session;
+      const sessionKey = row.dataset.sessionKey;
+      const label = row.dataset.label;
+      if (agent && sessionKey) {
+        openChatPane(agent, session || "", label || "", sessionKey);
+      }
+    }
+  }
+
+  // Keyboard handler
+  function handleSessionsKeydown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      const row = e.target.closest(".session-row");
+      if (row) {
+        e.preventDefault();
+        const agent = row.dataset.agent;
+        const session = row.dataset.session;
+        const sessionKey = row.dataset.sessionKey;
+        const label = row.dataset.label;
+        if (agent && sessionKey) {
+          openChatPane(agent, session || "", label || "", sessionKey);
+        }
+      }
+    }
+  }
+
+  function init() {
+    const sessionsList = $("#sessions-list");
+    if (sessionsList) {
+      sessionsList.addEventListener("click", handleSessionsClick);
+      sessionsList.addEventListener("keydown", handleSessionsKeydown);
+    }
+  }
+
+  // Auto-init when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+
+  return { render, init };
 })();

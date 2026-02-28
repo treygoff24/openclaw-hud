@@ -4,54 +4,11 @@ HUD.sessionTree = (function () {
   const $ = (s) => document.querySelector(s);
   const collapseState = {};
 
-  // One-time event delegation for click handling
-  function initEventDelegation() {
-    const treeBody = $("#tree-body");
-    if (!treeBody) return;
-    treeBody.addEventListener("click", (e) => {
-      const toggle = e.target.closest(".tree-toggle");
-      if (toggle) {
-        const key = toggle.dataset.toggleKey || toggle.dataset.key;
-        collapseState[key] = !collapseState[key];
-        if (window._treeData) render(window._treeData);
-        return;
-      }
-      const node = e.target.closest(".tree-node-content");
-      if (node) {
-        const agent = node.dataset.agent;
-        const session = node.dataset.session;
-        if (agent && node.dataset.sessionKey) {
-          openChatPane(agent, session || "", node.dataset.label || "", node.dataset.sessionKey);
-        }
-      }
-    });
-  }
-
-  // Initialize event delegation once
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initEventDelegation);
-  } else {
-    initEventDelegation();
-  }
-
-  // Helper to escape HTML
-  function escapeHtml(str) {
-    if (str == null) return "";
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  // Build tree HTML string from sessions data
   function buildTreeHTML(sessions) {
     const byKey = {};
     sessions.forEach((s) => {
       byKey[s.key] = s;
     });
-
     const children = {};
     const roots = [];
     sessions.forEach((s) => {
@@ -62,10 +19,7 @@ HUD.sessionTree = (function () {
         roots.push(s);
       }
     });
-
-    for (const k in children) {
-      children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    }
+    for (const k in children) children[k].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     roots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
     function renderNode(node, prefix, isLast, level = 0) {
@@ -124,8 +78,23 @@ HUD.sessionTree = (function () {
       html += renderNode(r, connector, i === roots.length - 1, 0);
     });
     html += "</div>";
-
     return html;
+  }
+
+  function updateTree() {
+    const treeBody = $("#tree-body");
+    if (!treeBody || !window._treeData) return;
+    
+    const nextHTML = buildTreeHTML(window._treeData);
+    const temp = document.createElement("div");
+    temp.innerHTML = nextHTML;
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(treeBody, temp, { childrenOnly: true });
+    } else {
+      // Fallback to innerHTML if morphdom not available
+      treeBody.innerHTML = nextHTML;
+    }
   }
 
   function render(sessions) {
@@ -135,120 +104,152 @@ HUD.sessionTree = (function () {
     }
     window._treeData = sessions;
     $("#tree-count").textContent = sessions.length;
-
-    const treeBody = $("#tree-body");
-    const nextHTML = buildTreeHTML(sessions);
-    const temp = document.createElement("div");
-    temp.innerHTML = nextHTML;
-    morphdom(treeBody, temp, { childrenOnly: true });
-
-    // Add keyboard support after rendering (click handling is done via event delegation)
-    addTreeKeyboardSupport();
+    updateTree();
   }
 
   function toggleNode(key) {
     collapseState[key] = !collapseState[key];
-    if (window._treeData) render(window._treeData);
+    if (window._treeData) updateTree();
   }
 
-  function addTreeKeyboardSupport() {
-    // Note: Click handlers are now handled via event delegation on #tree-body
-    // This function only handles keyboard navigation
+  // Event delegation handler for the tree container
+  function handleTreeClick(e) {
+    const toggle = e.target.closest(".tree-toggle");
+    if (toggle) {
+      const key = toggle.dataset.toggleKey;
+      if (key) {
+        e.stopPropagation();
+        toggleNode(key);
+      }
+      return;
+    }
 
-    // Make toggles keyboard accessible (Enter/Space)
-    document.querySelectorAll(".tree-toggle").forEach((toggle) => {
-      if (toggle.textContent.trim() === "") return; // Skip empty toggles
+    const nodeContent = e.target.closest(".tree-node-content");
+    if (nodeContent) {
+      const agent = nodeContent.dataset.agent;
+      const session = nodeContent.dataset.session;
+      const sessionKey = nodeContent.dataset.sessionKey;
+      const label = nodeContent.dataset.label;
+      if (agent && sessionKey) {
+        openChatPane(agent, session || "", label || "", sessionKey);
+      }
+    }
+  }
 
-      toggle.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
+  // Keyboard navigation handler for the tree container
+  function handleTreeKeydown(e) {
+    const nodeContent = e.target.closest(".tree-node-content");
+    if (!nodeContent) return;
+
+    const treeNode = nodeContent.closest(".tree-node");
+    if (!treeNode) return;
+
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        // Check if we're on a toggle
+        if (e.target.classList.contains("tree-toggle")) {
           e.preventDefault();
           e.stopPropagation();
-          const key = this.dataset.toggleKey;
+          const key = e.target.dataset.toggleKey;
           if (key) toggleNode(key);
+          return;
         }
-      });
-
-      toggle.addEventListener("focus", function () {
-        this.classList.add("focus-visible");
-      });
-
-      toggle.addEventListener("blur", function () {
-        this.classList.remove("focus-visible");
-      });
-    });
-
-    // Add arrow key navigation for tree
-    document.querySelectorAll(".tree-node-content").forEach((node) => {
-      node.addEventListener("keydown", function (e) {
-        const treeNode = this.closest(".tree-node");
-        if (!treeNode) return;
-
-        switch (e.key) {
-          case "ArrowRight":
-            e.preventDefault();
-            // Expand if collapsed and has children
-            const toggle = treeNode.querySelector(".tree-toggle");
-            if (toggle && toggle.textContent.includes("▸")) {
-              const key = toggle.dataset.toggleKey;
-              if (key) toggleNode(key);
-            } else {
-              // Move to first child
-              const firstChild = treeNode.querySelector(
-                ".tree-children > .tree-node > .tree-node-content",
-              );
-              if (firstChild) firstChild.focus();
-            }
-            break;
-          case "ArrowLeft":
-            e.preventDefault();
-            // Collapse if expanded
-            const toggleLeft = treeNode.querySelector(".tree-toggle");
-            if (toggleLeft && toggleLeft.textContent.includes("▾")) {
-              const key = toggleLeft.dataset.toggleKey;
-              if (key) toggleNode(key);
-            } else {
-              // Move to parent
-              const parent = treeNode.closest(".tree-children")?.closest(".tree-node");
-              if (parent) {
-                const parentContent = parent.querySelector(".tree-node-content");
-                if (parentContent) parentContent.focus();
-              }
-            }
-            break;
-          case "ArrowDown":
-            e.preventDefault();
-            // Move to next visible node
-            const allNodes = Array.from(document.querySelectorAll(".tree-node-content"));
-            const currentIndex = allNodes.indexOf(this);
-            if (currentIndex < allNodes.length - 1) {
-              allNodes[currentIndex + 1].focus();
-            }
-            break;
-          case "ArrowUp":
-            e.preventDefault();
-            // Move to previous visible node
-            const allNodesUp = Array.from(document.querySelectorAll(".tree-node-content"));
-            const currentIndexUp = allNodesUp.indexOf(this);
-            if (currentIndexUp > 0) {
-              allNodesUp[currentIndexUp - 1].focus();
-            }
-            break;
-          case "Home":
-            e.preventDefault();
-            const first = document.querySelector(".tree-root > .tree-node > .tree-node-content");
-            if (first) first.focus();
-            break;
-          case "End":
-            e.preventDefault();
-            const allNodesEnd = document.querySelectorAll(".tree-node-content");
-            if (allNodesEnd.length > 0) {
-              allNodesEnd[allNodesEnd.length - 1].focus();
-            }
-            break;
+        // Otherwise trigger click on node content
+        e.preventDefault();
+        const agent = nodeContent.dataset.agent;
+        const session = nodeContent.dataset.session;
+        const sessionKey = nodeContent.dataset.sessionKey;
+        const label = nodeContent.dataset.label;
+        if (agent && sessionKey) {
+          openChatPane(agent, session || "", label || "", sessionKey);
         }
-      });
-    });
+        break;
+
+      case "ArrowRight":
+        e.preventDefault();
+        // Expand if collapsed and has children
+        const toggle = treeNode.querySelector(".tree-toggle");
+        if (toggle && toggle.textContent.includes("▸")) {
+          const key = toggle.dataset.toggleKey;
+          if (key) toggleNode(key);
+        } else {
+          // Move to first child
+          const firstChild = treeNode.querySelector(
+            ".tree-children > .tree-node > .tree-node-content",
+          );
+          if (firstChild) firstChild.focus();
+        }
+        break;
+
+      case "ArrowLeft":
+        e.preventDefault();
+        // Collapse if expanded
+        const toggleLeft = treeNode.querySelector(".tree-toggle");
+        if (toggleLeft && toggleLeft.textContent.includes("▾")) {
+          const key = toggleLeft.dataset.toggleKey;
+          if (key) toggleNode(key);
+        } else {
+          // Move to parent
+          const parent = treeNode.closest(".tree-children")?.closest(".tree-node");
+          if (parent) {
+            const parentContent = parent.querySelector(".tree-node-content");
+            if (parentContent) parentContent.focus();
+          }
+        }
+        break;
+
+      case "ArrowDown":
+        e.preventDefault();
+        // Move to next visible node
+        const allNodes = Array.from(document.querySelectorAll(".tree-node-content"));
+        const currentIndex = allNodes.indexOf(nodeContent);
+        if (currentIndex < allNodes.length - 1) {
+          allNodes[currentIndex + 1].focus();
+        }
+        break;
+
+      case "ArrowUp":
+        e.preventDefault();
+        // Move to previous visible node
+        const allNodesUp = Array.from(document.querySelectorAll(".tree-node-content"));
+        const currentIndexUp = allNodesUp.indexOf(nodeContent);
+        if (currentIndexUp > 0) {
+          allNodesUp[currentIndexUp - 1].focus();
+        }
+        break;
+
+      case "Home":
+        e.preventDefault();
+        const first = document.querySelector(".tree-root > .tree-node > .tree-node-content");
+        if (first) first.focus();
+        break;
+
+      case "End":
+        e.preventDefault();
+        const allNodesEnd = document.querySelectorAll(".tree-node-content");
+        if (allNodesEnd.length > 0) {
+          allNodesEnd[allNodesEnd.length - 1].focus();
+        }
+        break;
+    }
   }
 
-  return { render, toggleNode };
+  // Initialize event delegation once
+  function init() {
+    const treeBody = $("#tree-body");
+    if (treeBody) {
+      treeBody.addEventListener("click", handleTreeClick);
+      treeBody.addEventListener("keydown", handleTreeKeydown);
+    }
+  }
+
+  // Auto-init when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+
+  return { render, toggleNode, init };
 })();

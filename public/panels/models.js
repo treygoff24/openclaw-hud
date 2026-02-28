@@ -260,41 +260,14 @@ HUD.models = (function () {
       })
       .join("");
 
-    mount.innerHTML = `<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel-bg-alt, rgba(255,255,255,0.02));">
+    return `<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel-bg-alt, rgba(255,255,255,0.02));">
       <div style="color:var(--text);font-family:var(--font-mono);font-size:13px;margin-bottom:8px;">Model usage diagnostics</div>
       ${body}
     </div>`;
   }
 
-  function render(usage, responseMeta) {
-    const mount = $("#model-usage");
-    if (!mount) return;
-
-    const normalized = normalizeRows(usage);
-    const sortedRows = normalized.rows
-      .filter(function (row) {
-        return row && typeof row === "object";
-      })
-      .sort(function (a, b) {
-        return asNumber(b.totalTokens) - asNumber(a.totalTokens);
-      });
-    const summary = buildUsageSummary(usage, sortedRows);
-    updateMonthlySpendStat(summary);
-
-    const debug = getErrorDebugInfo(usage, responseMeta);
-    if (debug) {
-      renderErrorPanel(mount, debug);
-      return;
-    }
-
-    const meta = normalized.meta;
-    const rows = sortedRows;
-
-    const max = asNumber(rows[0]?.totalTokens) || 1;
-    const periodLabel = `<div class="models-period-label">This week (Sun → now, ${escape(meta.tz || "local")})</div>`;
-    const summaryCards = renderSummaryCards(summary);
-
-    const body = rows
+  function buildModelRowsHTML(rows, max) {
+    return rows
       .map(function (data, i) {
         const totalTokens = asNumber(data.totalTokens);
         const pct = Math.round((totalTokens / max) * 100);
@@ -328,12 +301,54 @@ HUD.models = (function () {
       </div>`;
       })
       .join("");
+  }
 
-    mount.innerHTML =
+  function buildModelsHTML(usage, responseMeta) {
+    const normalized = normalizeRows(usage);
+    const sortedRows = normalized.rows
+      .filter(function (row) {
+        return row && typeof row === "object";
+      })
+      .sort(function (a, b) {
+        return asNumber(b.totalTokens) - asNumber(a.totalTokens);
+      });
+    const summary = buildUsageSummary(usage, sortedRows);
+    updateMonthlySpendStat(summary);
+
+    const debug = getErrorDebugInfo(usage, responseMeta);
+    if (debug) {
+      return renderErrorPanel(null, debug);
+    }
+
+    const meta = normalized.meta;
+    const rows = sortedRows;
+
+    const max = asNumber(rows[0]?.totalTokens) || 1;
+    const periodLabel = `<div class="models-period-label">This week (Sun → now, ${escape(meta.tz || "local")})</div>`;
+    const summaryCards = renderSummaryCards(summary);
+    const modelRows = buildModelRowsHTML(rows, max);
+
+    return (
       periodLabel +
       summaryCards +
-      (body ||
-        '<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:13px;">No model data yet</div>');
+      (modelRows ||
+        '<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:13px;">No model data yet</div>')
+    );
+  }
+
+  function render(usage, responseMeta) {
+    const mount = $("#model-usage");
+    if (!mount) return;
+
+    const html = buildModelsHTML(usage, responseMeta);
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(mount, temp, { childrenOnly: true });
+    } else {
+      mount.innerHTML = html;
+    }
   }
 
   return { render, formatTokens };

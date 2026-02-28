@@ -6,15 +6,11 @@ HUD.cron = (function () {
 
   let _cronData = null;
   let _editingJobId = null;
-
   let _focusTrap = null;
 
-  function render(data) {
-    _cronData = data;
+  function buildCronHTML(data) {
     const jobs = data.jobs || [];
-    $("#cron-count").textContent = jobs.length;
-
-    const html = jobs
+    return jobs
       .map((j, index) => {
         let dotClass = "status-dot-gray";
         if (j.enabled && j.state?.lastStatus === "completed") dotClass = "status-dot-green";
@@ -68,11 +64,63 @@ HUD.cron = (function () {
       </div>`;
       })
       .join("");
+  }
 
-    // Use morphdom instead of innerHTML for efficient DOM updates
+  function render(data) {
+    _cronData = data;
+    const jobs = data.jobs || [];
+    $("#cron-count").textContent = jobs.length;
+    
+    const cronList = $("#cron-list");
+    const html = buildCronHTML(data);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    morphdom($("#cron-list"), temp, { childrenOnly: true });
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(cronList, temp, { childrenOnly: true });
+    } else {
+      cronList.innerHTML = html;
+    }
+  }
+
+  // Event delegation handler
+  function handleCronClick(e) {
+    const row = e.target.closest(".cron-row-v2");
+    if (row) {
+      const jobId = row.dataset.cronId;
+      if (jobId) {
+        openEditor(jobId);
+      }
+    }
+  }
+
+  // Keyboard handler
+  function handleCronKeydown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      const row = e.target.closest(".cron-row-v2");
+      if (row) {
+        e.preventDefault();
+        const jobId = row.dataset.cronId;
+        if (jobId) {
+          openEditor(jobId);
+        }
+      }
+    }
+  }
+
+  function init() {
+    const cronList = $("#cron-list");
+    if (cronList) {
+      cronList.addEventListener("click", handleCronClick);
+      cronList.addEventListener("keydown", handleCronKeydown);
+    }
+
+    $("#cron-session-target").addEventListener("change", updateSessionTargetFields);
+    $("#cron-schedule-kind").addEventListener("change", updateScheduleFields);
+    $("#cron-modal-close").onclick = closeModal;
+    $("#cron-modal").addEventListener("click", (e) => {
+      if (e.target === $("#cron-modal")) closeModal();
+    });
   }
 
   function openEditor(jobId) {
@@ -207,22 +255,11 @@ HUD.cron = (function () {
     }
   }
 
-  function init() {
-    // Add event delegation for cron rows
-    const cronList = $("#cron-list");
-    cronList.addEventListener("click", (e) => {
-      const row = e.target.closest(".cron-row-v2");
-      if (row) {
-        openEditor(row.dataset.cronId);
-      }
-    });
-
-    $("#cron-session-target").addEventListener("change", updateSessionTargetFields);
-    $("#cron-schedule-kind").addEventListener("change", updateScheduleFields);
-    $("#cron-modal-close").onclick = closeModal;
-    $("#cron-modal").addEventListener("click", (e) => {
-      if (e.target === $("#cron-modal")) closeModal();
-    });
+  // Auto-init when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 
   return { render, openEditor, closeModal, save, init };

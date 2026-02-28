@@ -5,13 +5,8 @@ HUD.activity = (function () {
 
   let _previousCount = 0;
 
-  function render(events) {
-    const newCount = events.length;
-    const hasNewActivity = newCount > _previousCount;
-    _previousCount = newCount;
-
-    $("#activity-count").textContent = newCount;
-    $("#activity-feed").innerHTML = events
+  function buildActivityHTML(events) {
+    return events
       .map((e) => {
         const t = new Date(e.timestamp);
         const time = t.toLocaleTimeString("en-US", {
@@ -29,6 +24,25 @@ HUD.activity = (function () {
       </div>`;
       })
       .join("");
+  }
+
+  function render(events) {
+    const newCount = events.length;
+    const hasNewActivity = newCount > _previousCount;
+    _previousCount = newCount;
+
+    $("#activity-count").textContent = newCount;
+    
+    const activityFeed = $("#activity-feed");
+    const html = buildActivityHTML(events);
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(activityFeed, temp, { childrenOnly: true });
+    } else {
+      activityFeed.innerHTML = html;
+    }
 
     // Announce new activity to screen readers
     if (hasNewActivity && window.A11yAnnouncer && events.length > 0) {

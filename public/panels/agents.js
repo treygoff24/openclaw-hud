@@ -5,13 +5,11 @@ HUD.agents = (function () {
 
   let agentFilter = "";
 
-  function render(agents) {
-    window._agents = agents;
+  function buildAgentsHTML(agents) {
     const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
-    $("#agent-count").textContent = filtered.length;
     const now = Date.now();
     let activeCount = 0;
-
+    
     const html = filtered
       .map((a, index) => {
         const recent = a.sessions[0]?.updatedAt;
@@ -30,32 +28,84 @@ HUD.agents = (function () {
       </div>`;
       })
       .join("");
+    
+    return { html, filteredCount: filtered.length, activeCount, totalCount: agents.length };
+  }
 
-    // Use morphdom instead of innerHTML for efficient DOM updates
+  function updateAgentsList() {
+    const agentsList = $("#agents-list");
+    if (!agentsList || !window._agents) return;
+    
+    const { html, filteredCount } = buildAgentsHTML(window._agents);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    morphdom($("#agents-list"), temp, { childrenOnly: true });
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(agentsList, temp, { childrenOnly: true });
+    } else {
+      agentsList.innerHTML = html;
+    }
+    
+    $("#agent-count").textContent = filteredCount;
+  }
+
+  function render(agents) {
+    window._agents = agents;
+    const { filteredCount, activeCount, totalCount } = buildAgentsHTML(agents);
+    
+    const agentsList = $("#agents-list");
+    const temp = document.createElement("div");
+    temp.innerHTML = buildAgentsHTML(agents).html;
+    
+    if (typeof morphdom !== "undefined") {
+      morphdom(agentsList, temp, { childrenOnly: true });
+    } else {
+      agentsList.innerHTML = buildAgentsHTML(agents).html;
+    }
+    
+    $("#agent-count").textContent = filteredCount;
 
     const statAgents = document.getElementById("stat-agents");
     const statActive = document.getElementById("stat-active");
-    if (statAgents) statAgents.textContent = agents.length;
+    if (statAgents) statAgents.textContent = totalCount;
     if (statActive) statActive.textContent = activeCount;
   }
 
-  function init() {
-    // Event delegation for agent card clicks
-    const agentsList = $("#agents-list");
-    agentsList.addEventListener("click", (e) => {
-      const card = e.target.closest(".agent-card");
-      if (card) {
-        const agentId = card.dataset.agentId;
+  // Event delegation handler
+  function handleAgentsClick(e) {
+    const card = e.target.closest(".agent-card");
+    if (card) {
+      const agentId = card.dataset.agentId;
+      if (agentId) {
         showAgentSessions(agentId);
       }
-    });
+    }
+  }
+
+  // Keyboard handler for Enter/Space on agent cards
+  function handleAgentsKeydown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      const card = e.target.closest(".agent-card");
+      if (card) {
+        e.preventDefault();
+        const agentId = card.dataset.agentId;
+        if (agentId) {
+          showAgentSessions(agentId);
+        }
+      }
+    }
+  }
+
+  function init() {
+    const agentsList = $("#agents-list");
+    if (agentsList) {
+      agentsList.addEventListener("click", handleAgentsClick);
+      agentsList.addEventListener("keydown", handleAgentsKeydown);
+    }
 
     $("#agent-search").addEventListener("input", (e) => {
       agentFilter = e.target.value.toLowerCase();
-      render(window._agents || []);
+      updateAgentsList();
     });
 
     // Add keyboard navigation for search
@@ -63,7 +113,7 @@ HUD.agents = (function () {
       if (e.key === "Escape") {
         e.target.value = "";
         agentFilter = "";
-        render(window._agents || []);
+        updateAgentsList();
       }
     });
   }
@@ -77,6 +127,13 @@ HUD.agents = (function () {
       return;
     }
     HUD.sessions.render(sessions);
+  }
+
+  // Auto-init when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 
   return { render, init, showAgentSessions };
