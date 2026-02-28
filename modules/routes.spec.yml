@@ -2,7 +2,6 @@ version: "2.2"
 module: "routes"
 boundaries:
   path: "routes/**/*"
-  allow_imports_from:
-    - lib
-    - routes
-constraints: []
+  constraints:
+    - allow_imports_from: "lib/**/*"
+    - deny_imports_from: "ws/**/*"
