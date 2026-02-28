@@ -3,13 +3,16 @@ const path = require("path");
 const express = require("express");
 const { Router } = require("express");
 const { OPENCLAW_HOME, safeJSON, safeJSON5, stripSecrets } = require("../lib/helpers");
-const { isLoopbackOrigin } = require("../lib/ws-origin-guard");
+const { isLoopbackOrigin, isTailscaleOrigin, isLoopbackRemoteAddress } = require("../lib/ws-origin-guard");
 
 const router = Router();
 
 function requireLocalOrigin(req, res, next) {
   const origin = req.headers?.origin;
   if (origin && !isLoopbackOrigin(origin)) {
+    if (isTailscaleOrigin(origin) && isLoopbackRemoteAddress(req.socket?.remoteAddress)) {
+      return next();
+    }
     return res.status(403).json({ error: "Forbidden origin" });
   }
   return next();

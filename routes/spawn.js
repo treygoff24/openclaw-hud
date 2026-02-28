@@ -5,7 +5,7 @@ const express = require("express");
 const { Router } = require("express");
 const { getGatewayConfig } = require("../lib/helpers");
 const { resolveGatewayInvokeBaseUrl } = require("../lib/gateway-http");
-const { isLoopbackOrigin } = require("../lib/ws-origin-guard");
+const { isLoopbackOrigin, isTailscaleOrigin, isLoopbackRemoteAddress } = require("../lib/ws-origin-guard");
 
 const router = Router();
 
@@ -22,6 +22,9 @@ const ALLOWED_ROOTS = [
 function requireLocalOrigin(req, res, next) {
   const origin = req.headers?.origin;
   if (origin && !isLoopbackOrigin(origin)) {
+    if (isTailscaleOrigin(origin) && isLoopbackRemoteAddress(req.socket?.remoteAddress)) {
+      return next();
+    }
     return res.status(403).json({ error: "Forbidden origin" });
   }
   return next();
