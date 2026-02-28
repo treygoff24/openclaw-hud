@@ -12,14 +12,15 @@
   margin-bottom: 4px;
   max-height: 280px;
   overflow-y: auto;
-  background: rgba(10, 15, 30, 0.98);
-  border: 1px solid var(--neon-cyan, #00f0ff);
+  background: rgba(10, 12, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   box-shadow:
     0 -4px 20px rgba(0, 240, 255, 0.2),
     0 0 0 1px rgba(0, 240, 255, 0.1);
   z-index: 1000;
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   font-family: "Share Tech Mono", monospace;
   font-size: 0.9rem;
 }
@@ -46,7 +47,7 @@
   padding: 10px 14px;
   cursor: pointer;
   border-bottom: 1px solid rgba(0, 240, 255, 0.1);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .slash-item:last-child {
@@ -108,14 +109,15 @@
   right: 0;
   margin-bottom: 4px;
   padding: 10px 14px;
-  background: rgba(10, 15, 30, 0.98);
-  border: 1px solid var(--neon-magenta, #ff00ff);
+  background: rgba(10, 12, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   box-shadow:
     0 -4px 20px rgba(255, 0, 255, 0.15),
     0 0 0 1px rgba(255, 0, 255, 0.1);
   z-index: 999;
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   font-family: "Share Tech Mono", monospace;
   font-size: 0.85rem;
   display: flex;
@@ -148,7 +150,7 @@
   line-height: 1;
   padding: 2px 6px;
   border-radius: 3px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .hint-close:hover {
