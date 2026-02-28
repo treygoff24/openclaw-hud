@@ -64,6 +64,7 @@ await import("../../public/chat-commands/help.js");
 await import("../../public/chat-commands/local-exec.js");
 await import("../../public/chat-commands.js");
 await import("../../public/chat-input.js");
+await import("../../public/chat-scroll.js");
 await import("../../public/chat-ws/runtime.js");
 await import("../../public/chat-ws/history-log.js");
 await import("../../public/chat-ws/stream-events.js");

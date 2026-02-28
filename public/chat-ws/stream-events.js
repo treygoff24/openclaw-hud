@@ -39,7 +39,7 @@
         s.activeRuns.delete(p.runId);
       }
       runtime.updateButtons();
-      container.scrollTop = container.scrollHeight;
+      if (window.ChatScroll) window.ChatScroll.scrollToBottom(false);
       return;
     }
 
@@ -134,7 +134,7 @@
 
     if (needsScroll) {
       runtime.updateButtons();
-      container.scrollTop = container.scrollHeight;
+      if (window.ChatScroll) window.ChatScroll.scrollToBottom(false);
     }
   }
 

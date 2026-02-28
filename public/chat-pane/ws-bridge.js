@@ -41,9 +41,7 @@
 
     document.addEventListener("click", function (e) {
       if (e.target.id === "chat-new-pill") {
-        var container = document.getElementById("chat-messages");
-        if (container) container.scrollTop = container.scrollHeight;
-        e.target.classList.remove("visible");
+        if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
       }
     });
 

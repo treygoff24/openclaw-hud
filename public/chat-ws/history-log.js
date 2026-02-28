@@ -52,7 +52,7 @@
     (data.messages || []).forEach(function (msg) {
       container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
     });
-    container.scrollTop = container.scrollHeight;
+    if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
     container.dataset.ready = "true";
 
     if (window.A11yAnnouncer) {
@@ -89,7 +89,7 @@
     if (s.addMessage) s.addMessage(msg);
 
     container.appendChild(window.ChatMessage.renderHistoryMessage(msg));
-    container.scrollTop = container.scrollHeight;
+    if (window.ChatScroll) window.ChatScroll.scrollToBottom(true);
   }
 
   window.ChatWsHistoryLog = {
