@@ -101,13 +101,13 @@ describe("POST /api/spawn", () => {
     expect(mockFetch).toHaveBeenCalled();
   });
 
-  it("ignores mode from request body and always uses run", async () => {
+  it("passes session mode to gateway when requested", async () => {
     const res = await request(createApp())
       .post("/api/spawn")
       .send({ ...validBody, mode: "session" });
     expect(res.status).not.toBe(400);
     const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.args.mode).toBe("run");
+    expect(fetchBody.args.mode).toBe("session");
   });
 
   it("returns 400 for invalid label format", async () => {
@@ -233,10 +233,19 @@ describe("POST /api/spawn", () => {
     expect(res.body.error).toContain("Max 20");
   });
 
-  it("always uses run mode regardless of request body", async () => {
+  it("defaults to run mode when no mode specified", async () => {
     const res = await request(createApp())
       .post("/api/spawn")
       .send({ ...validBody });
+    expect(res.status).not.toBe(400);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.args.mode).toBe("run");
+  });
+
+  it("rejects invalid mode values and defaults to run", async () => {
+    const res = await request(createApp())
+      .post("/api/spawn")
+      .send({ ...validBody, mode: "invalid" });
     expect(res.status).not.toBe(400);
     const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(fetchBody.args.mode).toBe("run");

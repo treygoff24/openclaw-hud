@@ -68,6 +68,7 @@ function resolveAliasFromModel(modelId, modelList) {
 router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) => {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { agentId, model, prompt, contextFiles, timeout } = body;
+  const mode = body.mode === "session" ? "session" : "run";
 
   // Resolve label from model alias if no label provided (sanitized for valid label format)
   const resolvedAlias = resolveAliasFromModel(model, cachedModels);
@@ -131,7 +132,7 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
         tool: "sessions_spawn",
         args: {
           task,
-          mode: "run",
+          mode,
           ...(model && { model }),
           ...(label && { label }),
           ...(timeout != null && timeout > 0 && { runTimeoutSeconds: timeout }),

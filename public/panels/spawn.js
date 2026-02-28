@@ -69,7 +69,7 @@ HUD.spawn = (function () {
       agentId: $("#spawn-agent").value,
       model: $("#spawn-model").value || undefined,
       label: $("#spawn-label").value.trim() || undefined,
-      mode: "run",
+      mode: $("#spawn-mode").value || "session",
       timeout: parseInt($("#spawn-timeout").value) || undefined,
       contextFiles: $("#spawn-files").value || undefined,
       prompt: $("#spawn-prompt").value,
