@@ -1,0 +1,7 @@
+version: "2.2"
+module: "lib"
+boundaries:
+  path: "lib/**/*"
+  allow_imports_from:
+    - lib
+constraints: []

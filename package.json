@@ -31,14 +31,16 @@
     "fmt:check": "oxfmt . --ignore-path .oxfmtignore --check",
     "lint": "oxlint . --ignore-path .oxlintignore --deny-warnings -A no-unused-vars -A no-control-regex -A no-useless-escape -A unicorn/no-useless-fallback-in-spread",
     "lint:type-aware": "oxlint . --ignore-path .oxlintignore --type-aware --tsconfig tsconfig.oxlint.json -A no-unused-vars -A no-control-regex -A no-useless-escape -A unicorn/no-useless-fallback-in-spread",
-    "quality": "npm run fmt:check && npm run lint && npm run test:coverage && npm run bundle:analyze",
+    "quality": "npm run fmt:check && npm run lint && npm run test:coverage && npm run bundle:analyze && npm run specgate:check",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
     "vendor:sync": "node scripts/vendor-sync.js",
-    "bundle:analyze": "node scripts/bundle-analyze.js"
+    "bundle:analyze": "node scripts/bundle-analyze.js",
+    "specgate:check": "specgate check",
+    "specgate:validate": "specgate validate"
   },
   "dependencies": {
     "express": "4.22.1",

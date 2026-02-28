@@ -1,0 +1,8 @@
+version: "2.2"
+module: "ws"
+boundaries:
+  path: "ws/**/*"
+  allow_imports_from:
+    - lib
+    - ws
+constraints: []
