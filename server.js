@@ -85,8 +85,19 @@ function createGatewayStatusPayload(status) {
   return payload;
 }
 
-// Static files
-app.use(express.static(path.join(__dirname, "public")));
+// Static files — vendor assets get long immutable cache, app files get short cache with ETag
+// Vendor files: immutable, long cache (1 year)
+app.use("/vendor", express.static(path.join(__dirname, "public", "vendor"), {
+  maxAge: "1y",
+  immutable: true,
+  etag: true,
+}));
+
+// App files: short cache (5 minutes) with ETag for revalidation
+app.use(express.static(path.join(__dirname, "public"), {
+  maxAge: "5m",
+  etag: true,
+}));
 
 // Routes
 healthRouter.setHealthStateProvider(() => {

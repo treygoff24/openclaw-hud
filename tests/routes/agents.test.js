@@ -3,12 +3,15 @@ import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
+const sessionCache = require("../../lib/session-cache");
 const fs = require("fs");
 
 helpers.OPENCLAW_HOME = "/mock/home";
-helpers.safeJSON = vi.fn();
-helpers.safeReaddir = vi.fn(() => []);
-fs.statSync = vi.fn(() => ({ isDirectory: () => true }));
+helpers.safeReaddirAsync = vi.fn(async () => []);
+sessionCache.getCachedSessions = vi.fn(async () => null);
+
+// Mock fs.promises.stat via vi.spyOn
+vi.spyOn(fs.promises, "stat").mockResolvedValue({ isDirectory: () => true });
 
 function createApp() {
   delete require.cache[require.resolve("../../routes/agents")];
@@ -21,25 +24,27 @@ function createApp() {
 describe("GET /api/agents", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fs.statSync.mockReturnValue({ isDirectory: () => true });
+    fs.promises.stat.mockResolvedValue({ isDirectory: () => true });
+    helpers.safeReaddirAsync = vi.fn(async () => []);
+    sessionCache.getCachedSessions = vi.fn(async () => null);
   });
 
   it("returns empty array when no agents exist", async () => {
-    helpers.safeReaddir.mockReturnValue([]);
+    helpers.safeReaddirAsync.mockResolvedValue([]);
     const res = await request(createApp()).get("/api/agents");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   it("returns agents with session metadata sorted by most recent", async () => {
-    helpers.safeReaddir.mockReturnValue(["bot-a", "bot-b"]);
+    helpers.safeReaddirAsync.mockResolvedValue(["bot-a", "bot-b"]);
     const now = Date.now();
-    helpers.safeJSON.mockImplementation((fp) => {
-      if (fp.includes("bot-a"))
+    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
+      if (agentId === "bot-a")
         return {
           "sess-1": { sessionId: "s1", updatedAt: now - 1000, label: "test", spawnDepth: 0 },
         };
-      if (fp.includes("bot-b"))
+      if (agentId === "bot-b")
         return { "sess-2": { sessionId: "s2", updatedAt: now - 500, label: "newer" } };
       return null;
     });
@@ -51,9 +56,9 @@ describe("GET /api/agents", () => {
   });
 
   it("counts active sessions correctly (within 1 hour)", async () => {
-    helpers.safeReaddir.mockReturnValue(["agent1"]);
+    helpers.safeReaddirAsync.mockResolvedValue(["agent1"]);
     const now = Date.now();
-    helpers.safeJSON.mockReturnValue({
+    sessionCache.getCachedSessions.mockResolvedValue({
       s1: { sessionId: "s1", updatedAt: now - 1000 },
       s2: { sessionId: "s2", updatedAt: now - 7200000 },
     });
@@ -63,17 +68,19 @@ describe("GET /api/agents", () => {
   });
 
   it("filters out non-directory entries", async () => {
-    helpers.safeReaddir.mockReturnValue(["agent1", "file.txt"]);
-    fs.statSync.mockImplementation((fp) => ({ isDirectory: () => !fp.includes("file.txt") }));
-    helpers.safeJSON.mockReturnValue(null);
+    helpers.safeReaddirAsync.mockResolvedValue(["agent1", "file.txt"]);
+    fs.promises.stat.mockImplementation(async (fp) => ({
+      isDirectory: () => !fp.includes("file.txt"),
+    }));
+    sessionCache.getCachedSessions.mockResolvedValue(null);
     const res = await request(createApp()).get("/api/agents");
     expect(res.body).toHaveLength(1);
     expect(res.body[0].id).toBe("agent1");
   });
 
   it("handles missing sessions.json gracefully", async () => {
-    helpers.safeReaddir.mockReturnValue(["agent1"]);
-    helpers.safeJSON.mockReturnValue(null);
+    helpers.safeReaddirAsync.mockResolvedValue(["agent1"]);
+    sessionCache.getCachedSessions.mockResolvedValue(null);
     const res = await request(createApp()).get("/api/agents");
     expect(res.body[0].sessions).toEqual([]);
     expect(res.body[0].sessionCount).toBe(0);
@@ -84,10 +91,10 @@ describe("GET /api/agents", () => {
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddir.mockReturnValue(["agent-a"]);
+    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
     const now = Date.now();
-    helpers.safeJSON.mockImplementation((fp) => {
-      if (!fp.includes("agent-a")) return null;
+    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
+      if (agentId !== "agent-a") return null;
       return {
         main: {
           sessionId: "main-session",

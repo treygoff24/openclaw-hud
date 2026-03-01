@@ -411,3 +411,75 @@ describe("OPENCLAW_HOME", () => {
     expect(OPENCLAW_HOME).toMatch(/\.openclaw$/);
   });
 });
+
+// --------------- Async helpers ---------------
+const {
+  safeReadAsync,
+  safeJSONAsync,
+  safeJSON5Async,
+  safeReaddirAsync,
+} = await import("../../lib/helpers.js");
+
+describe("safeReadAsync", () => {
+  it("returns file content as string when file exists", async () => {
+    const fp = path.join(TMPDIR, "async-read.txt");
+    fs.writeFileSync(fp, "async hello");
+    expect(await safeReadAsync(fp)).toBe("async hello");
+  });
+
+  it("returns null when file does not exist", async () => {
+    expect(await safeReadAsync(path.join(TMPDIR, "async-nonexistent"))).toBeNull();
+  });
+});
+
+describe("safeJSONAsync", () => {
+  it("parses valid JSON file", async () => {
+    const fp = path.join(TMPDIR, "async-data.json");
+    fs.writeFileSync(fp, '{"async":true}');
+    expect(await safeJSONAsync(fp)).toEqual({ async: true });
+  });
+
+  it("returns null for non-existent file", async () => {
+    expect(await safeJSONAsync(path.join(TMPDIR, "async-nope.json"))).toBeNull();
+  });
+
+  it("returns null for malformed JSON", async () => {
+    const fp = path.join(TMPDIR, "async-bad.json");
+    fs.writeFileSync(fp, "{bad json}");
+    expect(await safeJSONAsync(fp)).toBeNull();
+  });
+});
+
+describe("safeJSON5Async", () => {
+  it("parses valid JSON5 with comments and trailing commas", async () => {
+    const fp = path.join(TMPDIR, "async-config.json5");
+    fs.writeFileSync(fp, `{
+      // comment
+      name: "test",
+      value: 42,
+    }`);
+    const result = await safeJSON5Async(fp);
+    expect(result.name).toBe("test");
+    expect(result.value).toBe(42);
+  });
+
+  it("returns null for non-existent file", async () => {
+    expect(await safeJSON5Async(path.join(TMPDIR, "async-nope.json5"))).toBeNull();
+  });
+});
+
+describe("safeReaddirAsync", () => {
+  it("returns directory entries", async () => {
+    const dp = path.join(TMPDIR, "async-dir");
+    fs.mkdirSync(dp, { recursive: true });
+    fs.writeFileSync(path.join(dp, "file1.txt"), "");
+    fs.writeFileSync(path.join(dp, "file2.txt"), "");
+    const result = await safeReaddirAsync(dp);
+    expect(result).toContain("file1.txt");
+    expect(result).toContain("file2.txt");
+  });
+
+  it("returns empty array for non-existent directory", async () => {
+    expect(await safeReaddirAsync(path.join(TMPDIR, "async-nonexistent-dir"))).toEqual([]);
+  });
+});

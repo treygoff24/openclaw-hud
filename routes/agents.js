@@ -3,29 +3,32 @@ const path = require("path");
 const { Router } = require("express");
 const {
   OPENCLAW_HOME,
-  safeJSON,
-  safeReaddir,
+  safeReaddirAsync,
   canonicalizeSessionKey,
   getModelAliasMap,
   enrichSessionMetadata,
 } = require("../lib/helpers");
+const { getCachedSessions } = require("../lib/session-cache");
 
 const router = Router();
 
-router.get("/api/agents", (req, res) => {
+router.get("/api/agents", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
   const modelAliases = getModelAliasMap();
-  const agents = safeReaddir(agentsDir).filter((f) => {
+  const allEntries = await safeReaddirAsync(agentsDir);
+  const agents = [];
+  for (const f of allEntries) {
     try {
-      return fs.statSync(path.join(agentsDir, f)).isDirectory();
+      const stat = await fs.promises.stat(path.join(agentsDir, f));
+      if (stat.isDirectory()) agents.push(f);
     } catch {
-      return false;
+      // skip entries that can't be stat'd
     }
-  });
+  }
 
-  const result = agents.map((id) => {
-    const sessFile = path.join(agentsDir, id, "sessions", "sessions.json");
-    const sessions = safeJSON(sessFile) || {};
+  const result = [];
+  for (const id of agents) {
+    const sessions = (await getCachedSessions(id)) || {};
     const sessionList = Object.entries(sessions).reduce((acc, [key, val]) => {
       let sessionKey;
       try {
@@ -51,8 +54,8 @@ router.get("/api/agents", (req, res) => {
     const activeSessions = sessionList.filter(
       (s) => s.updatedAt && Date.now() - s.updatedAt < 3600000,
     ).length;
-    return { id, sessions: sessionList, sessionCount: sessionList.length, activeSessions };
-  });
+    result.push({ id, sessions: sessionList, sessionCount: sessionList.length, activeSessions });
+  }
   result.sort((a, b) => {
     const aMax = a.sessions[0]?.updatedAt || 0;
     const bMax = b.sessions[0]?.updatedAt || 0;

@@ -2,15 +2,15 @@ const path = require("path");
 const { Router } = require("express");
 const {
   OPENCLAW_HOME,
-  safeJSON,
-  safeReaddir,
-  safeRead,
+  safeReaddirAsync,
+  safeReadAsync,
   getSessionStatus,
   canonicalizeSessionKey,
   canonicalizeRelationshipKey,
   getModelAliasMap,
   enrichSessionMetadata,
 } = require("../lib/helpers");
+const { getCachedSessions } = require("../lib/session-cache");
 
 const router = Router();
 
@@ -44,22 +44,19 @@ function mergeCanonicalSessionEntry(allSessions, candidate) {
   const existingIsCanonical = CANONICAL_SESSION_KEY_RE.test(existing.key);
   const candidateIsCanonical = CANONICAL_SESSION_KEY_RE.test(candidate.key);
 
-  // If both legacy and canonical aliases exist for the same logical session,
-  // always prefer the canonical stored key representation.
   if (!existingIsCanonical && candidateIsCanonical) {
     allSessions[candidate.sessionKey] = candidate;
   }
 }
 
-router.get("/api/sessions", (req, res) => {
+router.get("/api/sessions", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const agents = safeReaddir(agentsDir);
+  const agents = await safeReaddirAsync(agentsDir);
   const modelAliases = getModelAliasMap();
   const all = [];
   const invalid = [];
   for (const agentId of agents) {
-    const sessFile = path.join(agentsDir, agentId, "sessions", "sessions.json");
-    const sessions = safeJSON(sessFile) || {};
+    const sessions = (await getCachedSessions(agentId)) || {};
     for (const [key, val] of Object.entries(sessions)) {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);
@@ -79,14 +76,14 @@ router.get("/api/sessions", (req, res) => {
   res.json(recent.slice(0, 100));
 });
 
-router.get("/api/session-log/:agentId/:sessionId", (req, res) => {
+router.get("/api/session-log/:agentId/:sessionId", async (req, res) => {
   const { agentId, sessionId } = req.params;
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId) || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
   const limit = parseInt(req.query.limit) || 50;
   const logFile = path.join(OPENCLAW_HOME, "agents", agentId, "sessions", `${sessionId}.jsonl`);
-  const raw = safeRead(logFile);
+  const raw = await safeReadAsync(logFile);
   if (!raw) return res.json([]);
   const lines = raw.trim().split("\n").filter(Boolean);
   const entries = [];
@@ -98,16 +95,15 @@ router.get("/api/session-log/:agentId/:sessionId", (req, res) => {
   res.json(entries);
 });
 
-router.get("/api/session-tree", (req, res) => {
+router.get("/api/session-tree", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const agents = safeReaddir(agentsDir);
+  const agents = await safeReaddirAsync(agentsDir);
   const modelAliases = getModelAliasMap();
   const allSessions = {};
   const invalid = [];
 
   for (const agentId of agents) {
-    const sessFile = path.join(agentsDir, agentId, "sessions", "sessions.json");
-    const sessions = safeJSON(sessFile) || {};
+    const sessions = (await getCachedSessions(agentId)) || {};
     for (const [key, val] of Object.entries(sessions)) {
       try {
         const sessionKey = canonicalizeSessionKey(agentId, key);

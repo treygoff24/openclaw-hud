@@ -3,11 +3,12 @@ import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
+const sessionCache = require("../../lib/session-cache");
 
 helpers.OPENCLAW_HOME = "/mock/home";
-helpers.safeJSON = vi.fn();
-helpers.safeReaddir = vi.fn(() => []);
-helpers.safeRead = vi.fn();
+helpers.safeReaddirAsync = vi.fn(async () => []);
+helpers.safeReadAsync = vi.fn(async () => null);
+sessionCache.getCachedSessions = vi.fn(async () => null);
 helpers.getSessionStatus = vi.fn(() => "active");
 
 function createApp() {
@@ -22,10 +23,12 @@ describe("GET /api/sessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     helpers.getSessionStatus.mockReturnValue("active");
+    helpers.safeReaddirAsync = vi.fn(async () => []);
+    sessionCache.getCachedSessions = vi.fn(async () => null);
   });
 
   it("returns empty array when no agents exist", async () => {
-    helpers.safeReaddir.mockReturnValue([]);
+    helpers.safeReaddirAsync.mockResolvedValue([]);
     const res = await request(createApp()).get("/api/sessions");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
@@ -33,10 +36,10 @@ describe("GET /api/sessions", () => {
 
   it("returns sessions from multiple agents sorted by updatedAt", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1", "a2"]);
-    helpers.safeJSON.mockImplementation((fp) => {
-      if (fp.includes("a1")) return { k1: { sessionId: "s1", updatedAt: now - 2000 } };
-      if (fp.includes("a2")) return { k2: { sessionId: "s2", updatedAt: now - 1000 } };
+    helpers.safeReaddirAsync.mockResolvedValue(["a1", "a2"]);
+    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
+      if (agentId === "a1") return { k1: { sessionId: "s1", updatedAt: now - 2000 } };
+      if (agentId === "a2") return { k2: { sessionId: "s2", updatedAt: now - 1000 } };
       return null;
     });
     const res = await request(createApp()).get("/api/sessions");
@@ -48,8 +51,8 @@ describe("GET /api/sessions", () => {
 
   it("filters out sessions older than 24 hours", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       recent: { sessionId: "s1", updatedAt: now - 1000 },
       old: { sessionId: "s2", updatedAt: now - 90000000 },
     });
@@ -60,19 +63,21 @@ describe("GET /api/sessions", () => {
 
   it("limits results to 100 sessions", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
     const sessions = {};
     for (let i = 0; i < 150; i++)
       sessions[`k${i}`] = { sessionId: `s${i}`, updatedAt: now - i * 1000 };
-    helpers.safeJSON.mockReturnValue(sessions);
+    sessionCache.getCachedSessions.mockResolvedValue(sessions);
     const res = await request(createApp()).get("/api/sessions");
     expect(res.body).toHaveLength(100);
   });
 
   it("includes status from getSessionStatus", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({ k1: { sessionId: "s1", updatedAt: now } });
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
+      k1: { sessionId: "s1", updatedAt: now },
+    });
     helpers.getSessionStatus.mockReturnValue("warm");
     const res = await request(createApp()).get("/api/sessions");
     expect(res.body[0].status).toBe("warm");
@@ -80,8 +85,8 @@ describe("GET /api/sessions", () => {
 
   it("canonicalizes main session key as agent:<agentId>:main", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["agentA"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["agentA"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "internal-main-session", updatedAt: now },
     });
     const res = await request(createApp()).get("/api/sessions");
@@ -91,8 +96,8 @@ describe("GET /api/sessions", () => {
 
   it("skips invalid stored session keys and exposes warning headers", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       validKey: { sessionId: "s-ok", updatedAt: now },
       "bad key": { sessionId: "s1", updatedAt: now },
     });
@@ -111,8 +116,8 @@ describe("GET /api/sessions", () => {
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddir.mockReturnValue(["agent-a"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: {
         sessionId: "main-session",
         updatedAt: now,
@@ -150,11 +155,10 @@ describe("GET /api/sessions", () => {
 describe("GET /api/session-log/:agentId/:sessionId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    helpers.safeReadAsync = vi.fn(async () => null);
   });
 
   it("rejects invalid agentId with path traversal", async () => {
-    // Express normalizes `..` in paths so the route param won't contain `..`
-    // Instead test with characters that fail the regex
     const res = await request(createApp()).get("/api/session-log/agent%20bad/sess1");
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Invalid parameters");
@@ -166,7 +170,7 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
   });
 
   it("returns empty array when log file does not exist", async () => {
-    helpers.safeRead.mockReturnValue(null);
+    helpers.safeReadAsync.mockResolvedValue(null);
     const res = await request(createApp()).get("/api/session-log/agent1/sess1");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
@@ -174,7 +178,7 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
 
   it("returns parsed JSONL entries limited to last N lines", async () => {
     const lines = Array.from({ length: 100 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
-    helpers.safeRead.mockReturnValue(lines.join("\n"));
+    helpers.safeReadAsync.mockResolvedValue(lines.join("\n"));
     const res = await request(createApp()).get("/api/session-log/agent1/sess1?limit=10");
     expect(res.body).toHaveLength(10);
     expect(res.body[0].idx).toBe(90);
@@ -182,13 +186,13 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
 
   it("defaults to 50 entries when no limit specified", async () => {
     const lines = Array.from({ length: 80 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
-    helpers.safeRead.mockReturnValue(lines.join("\n"));
+    helpers.safeReadAsync.mockResolvedValue(lines.join("\n"));
     const res = await request(createApp()).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(50);
   });
 
   it("skips malformed JSON lines gracefully", async () => {
-    helpers.safeRead.mockReturnValue('{"valid":true}\nnot-json\n{"also":"valid"}');
+    helpers.safeReadAsync.mockResolvedValue('{"valid":true}\nnot-json\n{"also":"valid"}');
     const res = await request(createApp()).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(2);
   });
@@ -198,12 +202,14 @@ describe("GET /api/session-tree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     helpers.getSessionStatus.mockReturnValue("active");
+    helpers.safeReaddirAsync = vi.fn(async () => []);
+    sessionCache.getCachedSessions = vi.fn(async () => null);
   });
 
   it("returns sessions with child counts computed from spawnedBy links", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       parent: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       child1: { sessionId: "c1", updatedAt: now, spawnedBy: "parent", spawnDepth: 1 },
       child2: { sessionId: "c2", updatedAt: now, spawnedBy: "parent", spawnDepth: 1 },
@@ -218,8 +224,8 @@ describe("GET /api/session-tree", () => {
 
   it("resolves mixed legacy/canonical spawnedBy values to the parent key present in payload", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       "child-legacy-key": {
         sessionId: "c1",
@@ -249,8 +255,8 @@ describe("GET /api/session-tree", () => {
 
   it("deterministically prefers canonical entries when legacy and canonical keys collide", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "legacy-main", label: "legacy", updatedAt: now, spawnDepth: 0 },
       "agent:a1:main": {
         sessionId: "canonical-main",
@@ -283,8 +289,8 @@ describe("GET /api/session-tree", () => {
 
   it("keeps canonical parent deterministic when canonical key appears before legacy alias", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       "agent:a1:main": {
         sessionId: "canonical-main",
         label: "canonical-first",
@@ -327,8 +333,8 @@ describe("GET /api/session-tree", () => {
 
   it("ensures every non-null spawnedBy matches an existing parent key in the same payload", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       "agent:a1:canonical-parent": { sessionId: "cp", updatedAt: now, spawnDepth: 0 },
       "child-from-canonical-input": {
@@ -357,8 +363,8 @@ describe("GET /api/session-tree", () => {
 
   it("uses computed canonicalSpawnedBy even when payload contains a persisted canonicalSpawnedBy field", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       "legacy-parent": { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       child: {
         sessionId: "c1",
@@ -379,8 +385,8 @@ describe("GET /api/session-tree", () => {
 
   it("nullifies spawnedBy when parent session does not exist", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       orphan: { sessionId: "o", updatedAt: now, spawnedBy: "nonexistent", spawnDepth: 1 },
     });
     const res = await request(createApp()).get("/api/session-tree");
@@ -389,8 +395,8 @@ describe("GET /api/session-tree", () => {
 
   it("filters sessions older than 24 hours", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       recent: { sessionId: "r", updatedAt: now },
       old: { sessionId: "o", updatedAt: now - 90000000 },
     });
@@ -401,8 +407,8 @@ describe("GET /api/session-tree", () => {
 
   it("includes canonical sessionKey for tree nodes", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "internal-main-id", updatedAt: now },
     });
     const res = await request(createApp()).get("/api/session-tree");
@@ -412,8 +418,8 @@ describe("GET /api/session-tree", () => {
 
   it("skips invalid tree session keys and exposes warning headers", async () => {
     const now = Date.now();
-    helpers.safeReaddir.mockReturnValue(["a1"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: { sessionId: "ok", updatedAt: now },
       "bad key": { sessionId: "x", updatedAt: now },
     });
@@ -432,8 +438,8 @@ describe("GET /api/session-tree", () => {
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddir.mockReturnValue(["agent-a"]);
-    helpers.safeJSON.mockReturnValue({
+    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
+    sessionCache.getCachedSessions.mockResolvedValue({
       main: {
         sessionId: "main-session",
         updatedAt: now,
