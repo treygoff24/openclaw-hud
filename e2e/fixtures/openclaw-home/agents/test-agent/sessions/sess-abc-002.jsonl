@@ -1,2 +1,0 @@
-{"type":"message","role":"user","content":"Research quantum computing advances.","timestamp":"2026-02-26T04:19:12.566Z"}
-{"type":"message","role":"assistant","content":"I'll research the latest quantum computing advances for you.","timestamp":"2026-02-26T04:19:22.566Z","message":{"model":"anthropic/claude-sonnet-4","usage":{"input":50,"output":20,"cacheRead":0,"cacheWrite":0,"totalTokens":70,"cost":{"total":0.001}}}}

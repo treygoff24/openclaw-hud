@@ -24,3 +24,8 @@ yarn-error.log*
 tmp/
 .opencode/
 output/
+
+# Generated E2E fixture timestamps
+e2e/fixtures/openclaw-home/agents/test-agent/sessions/sess-abc-001.jsonl
+e2e/fixtures/openclaw-home/agents/test-agent/sessions/sess-abc-002.jsonl
+e2e/fixtures/openclaw-home/agents/test-agent/sessions/sessions.json
