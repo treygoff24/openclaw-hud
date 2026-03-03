@@ -60,6 +60,119 @@ describe("spawn preflight success detection", () => {
       }),
     ).toBe(false);
   });
+
+  it("extracts fallback error message from HTTP status when no gateway message exists", () => {
+    const message = server.extractGatewayProbeMessage(
+      {},
+      { status: 502, statusText: "Bad Gateway" },
+      "{\"error\":{\"code\":\"UNKNOWN\"}}",
+    );
+    expect(message).toContain("502");
+    expect(message).toContain("Bad Gateway");
+    expect(message).toContain("error\":{\"code\":\"UNKNOWN\"}");
+  });
+
+  it("extracts fallback error message from raw body snippet when status text is missing", () => {
+    const message = server.extractGatewayProbeMessage({}, { status: 500 }, "upstream gateway returned HTML error page");
+    expect(message).toContain("500");
+    expect(message).toContain("upstream gateway returned HTML error page");
+  });
+});
+
+describe("spawn preflight startup diagnostics", () => {
+  let warnSpy;
+  let spawnServer;
+  let originalAllowlistOverride;
+  let originalDenylistOverride;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalAllowlistOverride = process.env.OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE;
+    originalDenylistOverride = process.env.OPENCLAW_SPAWN_DENYLIST_OVERRIDE;
+    process.env.OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE = "true";
+    process.env.OPENCLAW_SPAWN_DENYLIST_OVERRIDE = "true";
+    helpers.getGatewayConfig = vi.fn(() => ({ port: 18789, token: "test-token" }));
+    delete require.cache[require.resolve("../../server")];
+    spawnServer = require("../../server");
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    if (originalAllowlistOverride === undefined) {
+      delete process.env.OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE;
+    } else {
+      process.env.OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE = originalAllowlistOverride;
+    }
+    if (originalDenylistOverride === undefined) {
+      delete process.env.OPENCLAW_SPAWN_DENYLIST_OVERRIDE;
+    } else {
+      process.env.OPENCLAW_SPAWN_DENYLIST_OVERRIDE = originalDenylistOverride;
+    }
+    delete require.cache[require.resolve("../../server")];
+    mockFetch.mockReset();
+  });
+
+  it("logs enriched diagnostics when preflight probe returns unknown-tool-unavailable response", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      headers: {
+        get: (key) => (key.toLowerCase() === "content-type" ? "application/json; charset=utf-8" : null),
+      },
+      text: async () =>
+        JSON.stringify({
+          error: { code: "METHOD_NOT_FOUND", message: "Tool sessions_spawn not found" },
+        }),
+    });
+
+    const state = await spawnServer.runStartupProbe();
+
+    expect(state.ok).toBe(false);
+    expect(state.code).toBe("SPAWN_TOOL_UNAVAILABLE");
+    expect(state.diagnostics).toHaveLength(1);
+
+    const diagnostic = state.diagnostics[0];
+    expect(diagnostic).toMatchObject({
+      code: "SPAWN_TOOL_UNAVAILABLE",
+      status: 404,
+      statusText: "Not Found",
+      contentType: "application/json; charset=utf-8",
+      parsedErrorCode: "METHOD_NOT_FOUND",
+    });
+    expect(diagnostic.message).toContain("Tool sessions_spawn not found");
+    expect(diagnostic.rawBodySnippet).toContain("METHOD_NOT_FOUND");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[spawn-preflight] blocked:",
+      expect.objectContaining({
+        code: "SPAWN_TOOL_UNAVAILABLE",
+        status: "blocked",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            status: 404,
+            statusText: "Not Found",
+            parsedErrorCode: "METHOD_NOT_FOUND",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("truncates raw probe body in diagnostics", () => {
+    const rawBody = "x".repeat(2048);
+    const diagnostic = server.createProbeFailureDiagnostic(
+      { status: 500, statusText: "Internal Server Error", headers: { get: () => "application/json" } },
+      rawBody,
+      "E_TIMEOUT",
+      "error",
+    );
+    expect(typeof diagnostic.rawBodySnippet).toBe("string");
+    expect(diagnostic.rawBodySnippet.length).toBeGreaterThan(0);
+    expect(diagnostic.rawBodySnippet.length).toBeLessThan(rawBody.length);
+    expect(diagnostic.rawBodySnippet.endsWith("...")).toBe(true);
+  });
 });
 
 describe("POST /api/spawn", () => {

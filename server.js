@@ -95,6 +95,7 @@ const SPAWN_PRECHECK_AGENT_ID = "__openclaw-hud-spawn-preflight-no-op__";
 const SPAWN_PRECHECK_TASK_ID = "__openclaw-hud-spawn-preflight__";
 const SPAWN_PRECHECK_TIMEOUT_MS = 8000;
 const SPAWN_PRECHECK_TIMEOUT_SECONDS = 1;
+const SPAWN_PRECHECK_BODY_SNIPPET_MAX_LENGTH = 512;
 
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
@@ -169,6 +170,61 @@ function extractGatewayErrorMessage(body) {
   return "Gateway returned an unknown error";
 }
 
+function extractGatewayErrorCode(body) {
+  if (body?.error?.code) return String(body.error.code);
+  if (body?.code) return String(body.code);
+  return null;
+}
+
+function truncateBodySnippet(rawBody, maxLength = SPAWN_PRECHECK_BODY_SNIPPET_MAX_LENGTH) {
+  if (typeof rawBody !== "string") return "";
+  if (rawBody.length <= maxLength) return rawBody;
+  return `${rawBody.slice(0, maxLength)}...`;
+}
+
+function parseJsonResponseBody(rawBody) {
+  if (typeof rawBody !== "string" || !rawBody.trim()) return {};
+  try {
+    const parsed = JSON.parse(rawBody);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function getResponseContentType(response) {
+  const headers = response?.headers;
+  if (!headers || typeof headers !== "object") return null;
+  if (typeof headers.get === "function") return headers.get("content-type");
+  return headers["content-type"] || headers["Content-Type"] || null;
+}
+
+function createProbeFailureDiagnostic(response, rawBody, parsedErrorCode, message) {
+  return {
+    status: response?.status,
+    statusText: response?.statusText || null,
+    contentType: getResponseContentType(response),
+    parsedErrorCode: parsedErrorCode || null,
+    rawBodySnippet: truncateBodySnippet(String(rawBody || "")),
+    message,
+  };
+}
+
+function extractGatewayProbeMessage(body, response, rawBody) {
+  const message = extractGatewayErrorMessage(body);
+  if (message !== "Gateway returned an unknown error") return message;
+
+  const status = Number.isFinite(Number(response?.status)) ? Number(response.status) : null;
+  const statusText = typeof response?.statusText === "string" ? response.statusText.trim() : "";
+  const snippet = truncateBodySnippet(String(rawBody || ""));
+
+  if (status && statusText) return `${status} ${statusText}: ${snippet || "no body"}`;
+  if (status) return `${status}: ${snippet || statusText || "unknown"}`;
+  if (statusText) return statusText;
+  if (snippet) return `Unknown gateway error body: ${snippet}`;
+  return "Gateway returned an unknown error";
+}
+
 function createSpawnPreflightProbePayload() {
   return {
     tool: SPAWN_PRECHECK_TOOL_NAME,
@@ -219,9 +275,10 @@ function hasSpawnProbeSideEffect(payload) {
   return false;
 }
 
-function classifyToolProbeMessage(message) {
+function classifyToolProbeMessage(message, errorCode = null) {
   const lower = String(message || "").toLowerCase();
   if (!lower) return "GATEWAY_TOOL_INVOCATION_ERROR";
+  if (typeof errorCode === "string" && /not.?found|unsupported|unknown/i.test(errorCode.toLowerCase())) return "SPAWN_TOOL_UNAVAILABLE";
   if (/not found|unknown|unsupported|method/i.test(lower)) return "SPAWN_TOOL_UNAVAILABLE";
   if (/allowlist|denylist|policy|blocked|forbidden/i.test(lower)) return "SPAWN_HARDENING_DENYLIST";
   return "GATEWAY_TOOL_INVOCATION_ERROR";
@@ -239,14 +296,18 @@ async function probeSpawnTool(gatewayConfig) {
     body: JSON.stringify(createSpawnPreflightProbePayload()),
   });
 
-  const body = await res.json().catch(() => ({}));
-  const message = extractGatewayErrorMessage(body);
+  const rawBody = await res.text().catch(() => "");
+  const body = parseJsonResponseBody(rawBody);
+  const parsedErrorCode = extractGatewayErrorCode(body);
+  const message = extractGatewayProbeMessage(body, res, rawBody);
+  const probeDiagnostic = createProbeFailureDiagnostic(res, rawBody, parsedErrorCode, message);
   if (res.ok) {
     if (hasSpawnProbeSideEffect(body)) {
       const sideEffectCode = "SPAWN_TOOL_INVOCATION_SIDE_EFFECT";
       return createSpawnPreflightFailure(sideEffectCode, "Probe payload returned session-like result data.", [
         {
           code: sideEffectCode,
+          ...probeDiagnostic,
           message: message || "Probe invocation returned session-like payload.",
           remediation:
             "Do not trust startup compatibility probe when tool execution appears to persist sessions; keep spawn blocked.",
@@ -257,10 +318,11 @@ async function probeSpawnTool(gatewayConfig) {
       return createSpawnPreflightSuccess();
     }
 
-    const code = classifyToolProbeMessage(message);
+    const code = classifyToolProbeMessage(message, parsedErrorCode);
     return createSpawnPreflightFailure(code, message, [
       {
         code,
+        ...probeDiagnostic,
         message,
         remediation:
           code === "SPAWN_HARDENING_DENYLIST"
@@ -269,10 +331,11 @@ async function probeSpawnTool(gatewayConfig) {
       },
     ]);
   }
-  const code = classifyToolProbeMessage(message);
+  const code = classifyToolProbeMessage(message, parsedErrorCode);
   return createSpawnPreflightFailure(code, message, [
     {
       code,
+      ...probeDiagnostic,
       message,
       remediation: code === "SPAWN_TOOL_UNAVAILABLE"
         ? "Upgrade OpenClaw gateway to support sessions_spawn invoke compatibility."
@@ -326,6 +389,17 @@ function setSpawnPreflightState(state) {
   }
 }
 
+function createSpawnPreflightLogPayload(state) {
+  return {
+    code: state.code,
+    reason: state.reason,
+    checkedAt: state.checkedAt,
+    source: state.source,
+    status: state.status,
+    diagnostics: state.diagnostics,
+  };
+}
+
 // Static files — vendor assets get long immutable cache, app files get short cache with ETag
 // Vendor files: immutable, long cache (1 year)
 app.use("/vendor", express.static(path.join(__dirname, "public", "vendor"), {
@@ -365,7 +439,7 @@ function runStartupProbe() {
     .then((state) => {
       setSpawnPreflightState(state);
       if (!state.ok) {
-        console.warn("[spawn-preflight] blocked:", state.code, state.reason);
+        console.warn("[spawn-preflight] blocked:", createSpawnPreflightLogPayload(state));
       } else {
         console.log("[spawn-preflight] passed:", state.code);
       }
@@ -430,5 +504,13 @@ module.exports = {
   createSpawnPreflightFailure,
   createSpawnPreflightSuccess,
   createSpawnPreflightProbePayload,
+  extractGatewayErrorMessage,
+  extractGatewayProbeMessage,
+  extractGatewayErrorCode,
+  truncateBodySnippet,
+  createProbeFailureDiagnostic,
+  getResponseContentType,
+  parseJsonResponseBody,
   runStartupProbe,
+  createSpawnPreflightLogPayload,
 };
