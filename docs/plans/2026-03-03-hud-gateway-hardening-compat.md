@@ -226,6 +226,20 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - `npm test`
 - `npm run test:e2e`
 
+**Execution notes (2026-03-03):**
+- E2E focus for Phase 5 was run with these commands:
+  - `npx playwright test e2e/cron-crud.spec.js`
+  - `npx playwright test e2e/modals.spec.js`
+  - `npx playwright test e2e/chat.spec.js`
+- `e2e/cron-crud.spec.js` now asserts fixture IDs/names plus deterministic PUT payload shape and explicit cron degraded banner behavior.
+- `e2e/modals.spec.js` now includes spawn preflight fail-fast gating + diagnostic surfacing when gate returns degraded state.
+- `e2e/chat.spec.js` now covers chat gateway disconnected banner transitions and explicit send failure/failed-message retry path.
+- Phase 5 run summary (2026-03-03):
+  - `npx playwright test e2e/cron-crud.spec.js` → 3 passed.
+  - `npx playwright test e2e/modals.spec.js` → 10 passed.
+  - `npx playwright test e2e/chat.spec.js` → 2 passed.
+  - Initial flake observed in modal tests from spawn preflight defaulting to blocked state was converted to deterministic pass-fail behavior by explicit preflight stubbing.
+
 ### Phase 6 (Optional): Upstream First-Class Spawn RPC Collaboration
 
 **Parallel:** yes  

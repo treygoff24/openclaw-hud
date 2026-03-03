@@ -6,6 +6,15 @@ const { test, expect } = require("@playwright/test");
  * Run with: npm run test:e2e -- e2e/a11y.spec.js
  */
 
+const spawnPreflightOkResponse = {
+  ok: true,
+  enabled: true,
+  code: "READY",
+  status: "ready",
+  reason: null,
+  diagnostics: [],
+};
+
 test.describe("E2E Accessibility", () => {
   test.describe("Page Structure", () => {
     test("should have skip link as first focusable element", async ({ page }) => {
@@ -18,10 +27,22 @@ test.describe("E2E Accessibility", () => {
   });
 
   test.describe("Focus Management", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.route("**/api/spawn-preflight", async (route) => {
+        if (route.request().method() !== "GET") return route.continue();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(spawnPreflightOkResponse),
+        });
+      });
+    });
+
     test("should trap focus in spawn modal", async ({ page }) => {
       await page.goto("/");
-      await page.waitForSelector("#open-spawn-btn");
-      await page.click("#open-spawn-btn");
+      const spawnButton = page.locator("#open-spawn-btn");
+      await expect(spawnButton).toBeEnabled();
+      await spawnButton.click();
       await page.waitForSelector("#spawn-modal.active");
 
       const focusableCount = await page.evaluate(() => {
@@ -37,8 +58,9 @@ test.describe("E2E Accessibility", () => {
 
     test("should close modal on Escape key", async ({ page }) => {
       await page.goto("/");
-      await page.waitForSelector("#open-spawn-btn");
-      await page.click("#open-spawn-btn");
+      const spawnButton = page.locator("#open-spawn-btn");
+      await expect(spawnButton).toBeEnabled();
+      await spawnButton.click();
       await page.waitForSelector("#spawn-modal.active");
 
       await page.keyboard.press("Escape");
