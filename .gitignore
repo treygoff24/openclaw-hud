@@ -22,3 +22,5 @@ yarn-error.log*
 
 # Local scratch files
 tmp/
+.opencode/
+output/
