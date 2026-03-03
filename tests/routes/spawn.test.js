@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
+const server = require("../../server");
 const fs = require("fs");
 const realpathSyncOriginal = fs.realpathSync;
 
@@ -12,15 +13,54 @@ fs.realpathSync = vi.fn((p) => p);
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-function createApp() {
+const readySpawnPreflightState = {
+  ok: true,
+  enabled: true,
+  code: "READY",
+  status: "ready",
+  reason: "spawn preflight passed",
+  diagnostics: [],
+  checkedAt: Date.now(),
+  source: "route-test",
+};
+
+function createApp({ readyPreflight = true } = {}) {
   delete require.cache[require.resolve("../../routes/spawn")];
   const router = require("../../routes/spawn");
+  if (readyPreflight && typeof router.setSpawnPreflightState === "function") {
+    router.setSpawnPreflightState(readySpawnPreflightState);
+  }
   const app = express();
   app.use(router);
   return app;
 }
 
 const validBody = { agentId: "bot", prompt: "Do something" };
+
+function setPreflightState(state) {
+  const spawnModule = require("../../routes/spawn");
+  spawnModule.setSpawnPreflightState(state);
+  return spawnModule;
+}
+
+describe("spawn preflight success detection", () => {
+  it("rejects ok:false payloads even when details exist", () => {
+    expect(
+      server.isSpawnProbePayloadSuccess({
+        ok: false,
+        result: { details: { childSessionKey: "session-1" } },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects payloads without explicit success flag", () => {
+    expect(
+      server.isSpawnProbePayloadSuccess({
+        result: { details: { childSessionKey: "session-1" } },
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("POST /api/spawn", () => {
   beforeEach(() => {
@@ -29,12 +69,15 @@ describe("POST /api/spawn", () => {
     fs.realpathSync.mockImplementation((p) => p);
     mockFetch.mockResolvedValue({
       ok: true,
+      text: async () =>
+        JSON.stringify({ result: { details: { childSessionKey: "key-123", runId: "run-456" } } }),
       json: async () => ({ result: { details: { childSessionKey: "key-123", runId: "run-456" } } }),
     });
   });
 
   afterEach(() => {
     fs.realpathSync.mockReset();
+    vi.restoreAllMocks();
   });
 
   afterAll(() => {
@@ -45,6 +88,21 @@ describe("POST /api/spawn", () => {
     const res = await request(createApp()).post("/api/spawn").send({ agentId: "bot" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("Prompt is required");
+  });
+
+  it("defaults to blocked state until startup preflight succeeds", async () => {
+    const app = createApp({ readyPreflight: false });
+    const preflightRes = await request(app).get("/api/spawn-preflight");
+    expect(preflightRes.status).toBe(200);
+    expect(preflightRes.body.ok).toBe(false);
+    expect(preflightRes.body.enabled).toBe(false);
+    expect(preflightRes.body.code).toBe("SPAWN_PRECHECK_PENDING");
+
+    const spawnRes = await request(app).post("/api/spawn").send(validBody);
+    expect(spawnRes.status).toBe(503);
+    expect(spawnRes.body.enabled).toBe(false);
+    expect(spawnRes.body.code).toBe("SPAWN_PRECHECK_PENDING");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("returns 400 when prompt is not a string", async () => {
@@ -72,6 +130,56 @@ describe("POST /api/spawn", () => {
     const res = await request(createApp()).post("/api/spawn").send({ prompt: "hello" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("Agent is required");
+  });
+
+  it("returns preflight diagnostics and enabled flag", async () => {
+    const app = createApp();
+    setPreflightState({
+      ok: false,
+      enabled: false,
+      code: "SPAWN_HARDENING_PRECHECK",
+      status: "blocked",
+      reason: "Missing allowlist/denylist override",
+      diagnostics: [
+        {
+          code: "SPAWN_HARDENING_PRECHECK",
+          message: "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
+          remediation: "Configure both overrides to permit spawn invoke calls.",
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/spawn-preflight");
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.enabled).toBe(false);
+    expect(res.body.code).toBe("SPAWN_HARDENING_PRECHECK");
+    expect(res.body.diagnostics).toHaveLength(1);
+  });
+
+  it("returns 503 for /api/spawn when preflight is blocked", async () => {
+    const app = createApp();
+    setPreflightState({
+      ok: false,
+      enabled: false,
+      code: "SPAWN_HARDENING_PRECHECK",
+      status: "blocked",
+      reason: "Missing allowlist/denylist override",
+      diagnostics: [
+        {
+          code: "SPAWN_HARDENING_PRECHECK",
+          message: "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
+          remediation: "Configure both overrides to permit spawn invoke calls.",
+        },
+      ],
+    });
+
+    const res = await request(app).post("/api/spawn").send(validBody);
+    expect(res.status).toBe(503);
+    expect(res.body.enabled).toBe(false);
+    expect(res.body.code).toBe("SPAWN_HARDENING_PRECHECK");
+    expect(res.body.diagnostics).toHaveLength(1);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("returns 400 when contextFiles is not a string", async () => {
@@ -110,6 +218,21 @@ describe("POST /api/spawn", () => {
     expect(fetchBody.args.mode).toBe("session");
   });
 
+  it("calls /tools/invoke with sessions_spawn and required args", async () => {
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [fetchUrl, fetchOptions] = mockFetch.mock.calls[0];
+    expect(fetchUrl).toBe("http://127.0.0.1:18789/tools/invoke");
+    const fetchBody = JSON.parse(fetchOptions.body);
+    expect(fetchBody.tool).toBe("sessions_spawn");
+    expect(fetchBody.args).toMatchObject({
+      agentId: "bot",
+      task: "Do something",
+      mode: "run",
+    });
+  });
+
   it("returns 400 for invalid label format", async () => {
     const res = await request(createApp())
       .post("/api/spawn")
@@ -138,6 +261,63 @@ describe("POST /api/spawn", () => {
     const res = await request(createApp()).post("/api/spawn").send(validBody);
     expect(res.status).toBe(500);
     expect(res.body.error).toContain("token not configured");
+  });
+
+  it("normalizes gateway tool errors using compatibility error mapping", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error: { code: "INVALID_REQUEST", message: "payload missing field" },
+        }),
+    });
+
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("BAD_REQUEST");
+    expect(res.body.reason).toBe("invalid_request");
+    expect(res.body.error).toContain("payload missing field");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves nested gateway error code and status fields", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error: {
+            code: "INVALID_REQUEST",
+            status: 422,
+            message: "agentId must be a string",
+          },
+        }),
+    });
+
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("BAD_REQUEST");
+    expect(res.body.rawCode).toBe("INVALID_REQUEST");
+    expect(res.body.rawStatus).toBe(422);
+    expect(res.body.error).toContain("agentId must be a string");
+  });
+
+  it("returns normalized failure when spawn response omits session/run identifiers", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ result: { details: { accepted: true } } }),
+      json: async () => ({ result: { details: { accepted: true } } }),
+    });
+
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe("GATEWAY_ERROR");
+    expect(res.body.reason).toBe("gateway_error");
+    expect(res.body.error).toContain("spawn response missing session/run identifiers");
   });
 
   it("fails closed when gateway host is not local loopback", async () => {
@@ -181,11 +361,24 @@ describe("POST /api/spawn", () => {
     expect(res.body.error).toContain("agent not found");
   });
 
+  it("maps gateway transport errors to UNAVAILABLE", async () => {
+    const transportErr = new Error("ECONNREFUSED");
+    transportErr.code = "ECONNREFUSED";
+    mockFetch.mockRejectedValue(transportErr);
+
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("UNAVAILABLE");
+    expect(res.body.reason).toBe("network_unreachable");
+    expect(res.body.error).toContain("ECONNREFUSED");
+  });
+
   it("returns 502 when gateway is unreachable", async () => {
     mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
     const res = await request(createApp()).post("/api/spawn").send(validBody);
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(503);
     expect(res.body.error).toContain("ECONNREFUSED");
+    expect(res.body.code).toBe("UNAVAILABLE");
   });
 
   it("enforces rate limit of 5 spawns per minute", async () => {
@@ -295,6 +488,8 @@ describe("resolveAliasFromModel", () => {
     helpers.getGatewayConfig.mockReturnValue({ port: 18789, token: "test-token" });
     mockFetch.mockResolvedValue({
       ok: true,
+      text: async () =>
+        JSON.stringify({ result: { details: { childSessionKey: "key-123", runId: "run-456" } } }),
       json: async () => ({ result: { details: { childSessionKey: "key-123", runId: "run-456" } } }),
     });
   });

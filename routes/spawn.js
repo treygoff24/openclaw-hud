@@ -5,7 +5,8 @@ const express = require("express");
 const { Router } = require("express");
 const { getGatewayConfig } = require("../lib/helpers");
 const { resolveGatewayInvokeBaseUrl } = require("../lib/gateway-http");
-const { isLoopbackOrigin, isTailscaleOrigin, isLoopbackRemoteAddress } = require("../lib/ws-origin-guard");
+const { createRequireLocalOrigin } = require("../lib/gateway-compat/origin-policy");
+const { mapGatewayError } = require("../lib/gateway-compat/error-map");
 
 const router = Router();
 
@@ -19,16 +20,49 @@ const ALLOWED_ROOTS = [
   path.join(os.homedir(), "Dropbox"),
 ];
 
-function requireLocalOrigin(req, res, next) {
-  const origin = req.headers?.origin;
-  if (origin && !isLoopbackOrigin(origin)) {
-    if (isTailscaleOrigin(origin) && isLoopbackRemoteAddress(req.socket?.remoteAddress)) {
-      return next();
-    }
-    return res.status(403).json({ error: "Forbidden origin" });
-  }
-  return next();
+const DEFAULT_SPAWN_PREFLIGHT = {
+  ok: false,
+  enabled: false,
+  code: "SPAWN_PRECHECK_PENDING",
+  status: "blocked",
+  reason: "Spawn preflight is in progress. Start has not completed successfully.",
+  diagnostics: [],
+  checkedAt: null,
+  source: "route-default",
+};
+
+let spawnPreflightState = Object.assign({}, DEFAULT_SPAWN_PREFLIGHT);
+
+function cloneDiagnostics(diagnostics) {
+  return Array.isArray(diagnostics) ? diagnostics.map((d) => Object.assign({}, d)) : [];
 }
+
+function normalizeSpawnPreflightState(nextState = {}) {
+  const base = Object.assign({}, DEFAULT_SPAWN_PREFLIGHT, nextState);
+  const diagnostics = cloneDiagnostics(base.diagnostics);
+  return {
+    ok: Boolean(base.ok),
+    enabled: Boolean(base.ok && base.enabled),
+    code: typeof base.code === "string" && base.code.trim() ? base.code.trim() : base.ok ? "READY" : "SPAWN_PRECHECK_FAILED",
+    status: typeof base.status === "string" && base.status.trim() ? base.status.trim() : base.ok ? "ready" : "blocked",
+    reason:
+      typeof base.reason === "string" && base.reason.trim() ? base.reason.trim() : base.ok ? "spawn preflight passed" : "spawn preflight blocked",
+    diagnostics,
+    checkedAt:
+      typeof base.checkedAt === "number" && Number.isFinite(base.checkedAt) ? base.checkedAt : Date.now(),
+    source: typeof base.source === "string" && base.source.trim() ? base.source.trim() : "server",
+  };
+}
+
+function getSpawnPreflightState() {
+  return normalizeSpawnPreflightState(spawnPreflightState);
+}
+
+function setSpawnPreflightState(nextState) {
+  spawnPreflightState = normalizeSpawnPreflightState(nextState);
+}
+
+const requireLocalOrigin = createRequireLocalOrigin();
 
 function validateContextFiles(filesText) {
   const files = filesText
@@ -54,6 +88,98 @@ function validateContextFiles(filesText) {
   return { valid: files };
 }
 
+function extractGatewayBodyText(response) {
+  if (!response || typeof response.text !== "function") {
+    return "";
+  }
+
+  return response
+    .text()
+    .then((value) => {
+      if (typeof value === "string") return value;
+      return "";
+    })
+    .catch(() => "");
+}
+
+function parseGatewayBodyFromText(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function resolveGatewayErrorPayload(gwRes, parsedBody, responseText) {
+  const parsedError = parsedBody?.error;
+  const rawCode =
+    parsedBody && typeof parsedBody.code === "string"
+      ? parsedBody.code
+      : parsedError && typeof parsedError.code === "string"
+        ? parsedError.code
+        : undefined;
+  const rawStatus =
+    typeof parsedBody?.status === "number" && Number.isFinite(parsedBody.status)
+      ? parsedBody.status
+      : typeof parsedError?.status === "number" && Number.isFinite(parsedError.status)
+        ? parsedError.status
+        : typeof parsedBody?.status === "string" && Number.isFinite(Number(parsedBody.status))
+          ? Number(parsedBody.status)
+          : typeof parsedError?.status === "string" && Number.isFinite(Number(parsedError.status))
+            ? Number(parsedError.status)
+            : gwRes.status;
+  const rawMessage =
+    (parsedError && (typeof parsedError.message === "string" ? parsedError.message : undefined)) ||
+    (typeof parsedError === "string" ? parsedError : undefined) ||
+    (typeof parsedBody?.message === "string" ? parsedBody.message : undefined) ||
+    responseText ||
+    `HTTP ${rawStatus}`;
+
+  return {
+    code: rawCode,
+    message: rawMessage,
+    status: rawStatus,
+  };
+}
+
+function resolveGatewaySuccessPayload(parsedBody) {
+  if (!parsedBody || typeof parsedBody !== "object") return {};
+  if (parsedBody?.result?.details) return parsedBody.result.details;
+  if (parsedBody?.details) return parsedBody.details;
+  return parsedBody;
+}
+
+function normalizeSpawnIdentifier(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed ? trimmed : "";
+}
+
+function extractSpawnIdentifiers(details = {}) {
+  const sessionKey = normalizeSpawnIdentifier(
+    details.childSessionKey ||
+      details.childSession ||
+      details.sessionKey ||
+      details.child_session_key ||
+      details.session_id,
+  );
+  const runId = normalizeSpawnIdentifier(details.runId || details.run_id);
+  return { sessionKey, runId };
+}
+
+function writeCompatibilityErrorResponse(res, errorDetails, fallbackMessage) {
+  const mapped = mapGatewayError(errorDetails);
+  return res.status(mapped.status).json({
+    error: mapped.message || fallbackMessage,
+    code: mapped.code,
+    reason: mapped.reason,
+    status: mapped.status,
+    ...(mapped.rawCode ? { rawCode: mapped.rawCode } : {}),
+    ...(mapped.rawStatus !== undefined ? { rawStatus: mapped.rawStatus } : {}),
+  });
+}
+
 // Cached model list for resolving aliases
 let cachedModels = [];
 
@@ -65,7 +191,29 @@ function resolveAliasFromModel(modelId, modelList) {
   return entry?.alias || entry?.name || undefined;
 }
 
+function failFastSpawnUnavailable(res, state) {
+  const diagnostics = cloneDiagnostics(state.diagnostics);
+  return res.status(503).json({
+    ok: false,
+    enabled: false,
+    code: state.code,
+    status: state.status,
+    error: state.reason,
+    diagnostics,
+  });
+}
+
+router.get("/api/spawn-preflight", (_req, res) => {
+  const state = getSpawnPreflightState();
+  res.json(state);
+});
+
 router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) => {
+  const preflight = getSpawnPreflightState();
+  if (!preflight.ok || !preflight.enabled) {
+    return failFastSpawnUnavailable(res, preflight);
+  }
+
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { agentId, model, prompt, contextFiles, timeout } = body;
   const mode = body.mode === "session" ? "session" : "run";
@@ -119,7 +267,7 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
     throw err;
   }
 
-  spawnTimestamps.push(Date.now());
+    spawnTimestamps.push(Date.now());
 
   try {
     const gwRes = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
@@ -131,6 +279,7 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
       body: JSON.stringify({
         tool: "sessions_spawn",
         args: {
+          agentId,
           task,
           mode,
           ...(model && { model }),
@@ -140,26 +289,46 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
       }),
     });
 
-    if (!gwRes.ok) {
-      const errBody = await gwRes.text();
-      let detail = errBody;
+    let bodyText = await extractGatewayBodyText(gwRes);
+    let parsedBody = bodyText ? parseGatewayBodyFromText(bodyText) : null;
+
+    if (!parsedBody && typeof gwRes.json === "function") {
       try {
-        detail = JSON.parse(errBody).error?.message || errBody;
-      } catch {}
-      return res.status(502).json({ error: `Gateway error: ${detail}` });
+        parsedBody = await gwRes.json();
+      } catch {
+        // Ignore fallback parsing failures; we already have text fallback.
+      }
     }
 
-    const result = await gwRes.json();
-    console.log("[spawn] Gateway response:", JSON.stringify(result).slice(0, 500));
+    if (!gwRes.ok) {
+      const payload = resolveGatewayErrorPayload(gwRes, parsedBody, bodyText);
+      return writeCompatibilityErrorResponse(
+        res,
+        payload,
+        `Gateway request failed${bodyText ? `: ${bodyText}` : ""}`,
+      );
+    }
 
-    const details = result?.result?.details || result?.details || {};
+    const result = resolveGatewaySuccessPayload(parsedBody);
+    console.log("[spawn] Gateway response:", JSON.stringify(parsedBody || result).slice(0, 500));
+
+    const details = result || {};
+    const { sessionKey, runId } = extractSpawnIdentifiers(details);
+    if (!sessionKey && !runId) {
+      return writeCompatibilityErrorResponse(
+        res,
+        { code: "SPAWN_RESPONSE_INVALID", message: "Gateway spawn response missing session/run identifiers." },
+        "Gateway returned a spawn response without usable session/run identifiers.",
+      );
+    }
+
     res.json({
       ok: true,
-      sessionKey: details.childSessionKey || null,
-      runId: details.runId || null,
+      sessionKey: sessionKey || null,
+      runId: runId || null,
     });
   } catch (err) {
-    res.status(502).json({ error: `Cannot reach gateway: ${err.message}` });
+    return writeCompatibilityErrorResponse(res, { message: err.message, code: err.code, status: 502 }, err.message);
   }
 });
 
@@ -169,3 +338,5 @@ module.exports.cachedModels = cachedModels;
 module.exports.setCachedModels = (models) => {
   cachedModels = models;
 };
+module.exports.getSpawnPreflightState = getSpawnPreflightState;
+module.exports.setSpawnPreflightState = setSpawnPreflightState;

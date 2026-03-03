@@ -1,45 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { WebSocketServer } from "ws";
 
 const helpers = require("../../lib/helpers");
+const compatClient = require("../../lib/gateway-compat/client");
 
 function loadModule() {
   delete require.cache[require.resolve("../../lib/usage-rpc")];
   return require("../../lib/usage-rpc");
-}
-
-function createGatewayServer({ onRequest } = {}) {
-  const wss = new WebSocketServer({ port: 0 });
-  const url = () => `ws://127.0.0.1:${wss.address().port}`;
-  const frames = { connect: [], request: [] };
-
-  wss.on("connection", (ws) => {
-    ws.send(
-      JSON.stringify({
-        event: "connect.challenge",
-        payload: { nonce: "nonce-abc", ts: Date.now() },
-      }),
-    );
-    ws.on("message", (raw) => {
-      const msg = JSON.parse(raw.toString());
-      if (msg.method === "connect") {
-        frames.connect.push(msg);
-        ws.send(
-          JSON.stringify({
-            id: msg.id,
-            ok: true,
-            payload: { features: {}, snapshot: {}, policy: {} },
-          }),
-        );
-        return;
-      }
-      frames.request.push(msg);
-      if (onRequest) onRequest(ws, msg);
-    });
-  });
-
-  return { wss, url, frames };
 }
 
 describe("usage-rpc", () => {
@@ -68,96 +35,101 @@ describe("usage-rpc", () => {
     });
   });
 
-  it("sends signed connect payload and requests sessions.usage", async () => {
-    const gateway = createGatewayServer({
-      onRequest: (ws, msg) => {
-        ws.send(
-          JSON.stringify({
-            id: msg.id,
-            ok: true,
-            payload: { sessions: [{ key: "agent:codex:main" }] },
-          }),
-        );
-      },
+  it("delegates sessions.usage lookup to compatibility client", async () => {
+    vi.spyOn(compatClient, "callGatewayMethod").mockResolvedValue({
+      sessions: [{ id: "abc" }],
     });
-    const port = gateway.wss.address().port;
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port, token: "test-token" }));
+
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
 
     const { requestSessionsUsage } = loadModule();
     const result = await requestSessionsUsage({
       from: "2026-02-25T00:00:00.000Z",
       to: "2026-02-25T23:59:59.000Z",
       limit: 5,
+      key: "agent-id",
+      includeContextWeight: true,
+      utcOffset: -360,
+      mode: "local",
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.result.sessions).toHaveLength(1);
+    expect(result).toEqual({
+      ok: true,
+      result: {
+        sessions: [{ id: "abc" }],
+      },
+    });
 
-    expect(gateway.frames.connect).toHaveLength(1);
-    const connectFrame = gateway.frames.connect[0];
-    expect(connectFrame.params.auth.token).toBe("test-token");
-    expect(connectFrame.params.scopes).toEqual(["operator.read"]);
-    expect(connectFrame.params.device).toBeTruthy();
-    expect(connectFrame.params.device.nonce).toBe("nonce-abc");
-    expect(typeof connectFrame.params.device.signature).toBe("string");
-
-    expect(gateway.frames.request).toHaveLength(1);
-    expect(gateway.frames.request[0].method).toBe("sessions.usage");
-    expect(gateway.frames.request[0].params.limit).toBe(5);
-    expect(gateway.frames.request[0].params.startDate).toBe("2026-02-25");
-    expect(gateway.frames.request[0].params.endDate).toBe("2026-02-25");
-
-    await new Promise((resolve) => gateway.wss.close(resolve));
+    expect(compatClient.callGatewayMethod).toHaveBeenCalledTimes(1);
+    expect(compatClient.callGatewayMethod).toHaveBeenCalledWith(
+      "sessions.usage",
+      expect.objectContaining({
+        key: "agent-id",
+        limit: 5,
+        includeContextWeight: true,
+        utcOffset: -360,
+        startDate: "2026-02-25",
+        endDate: "2026-02-25",
+        mode: "local",
+      }),
+      expect.objectContaining({
+        gatewayConfig: { host: "127.0.0.1", port: 18789, token: "test-token" },
+      }),
+    );
   });
 
   it("maps unavailable sessions.usage method errors", async () => {
-    const gateway = createGatewayServer({
-      onRequest: (ws, msg) => {
-        ws.send(
-          JSON.stringify({
-            id: msg.id,
-            ok: false,
-            error: {
-              code: "METHOD_NOT_FOUND",
-              status: 404,
-              message: "Tool not available: sessions.usage",
-            },
-          }),
-        );
-      },
-    });
-    const port = gateway.wss.address().port;
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port, token: "test-token" }));
+    vi.spyOn(compatClient, "callGatewayMethod").mockRejectedValue(
+      Object.assign(new Error("Tool not available: sessions.usage"), {
+        code: "METHOD_NOT_FOUND",
+        status: 404,
+      }),
+    );
 
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
     const { requestSessionsUsage } = loadModule();
+
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({
       code: "GATEWAY_SESSIONS_USAGE_UNAVAILABLE",
       status: 404,
       gatewayCode: "METHOD_NOT_FOUND",
     });
+  });
 
-    await new Promise((resolve) => gateway.wss.close(resolve));
+  it("maps unreachable gateway transport errors", async () => {
+    vi.spyOn(compatClient, "callGatewayMethod").mockRejectedValue(
+      Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18789"), {
+        code: "ECONNREFUSED",
+      }),
+    );
+
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    const { requestSessionsUsage } = loadModule();
+
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({
+      code: "GATEWAY_UNREACHABLE",
+      gatewayCode: "ECONNREFUSED",
+    });
+  });
+
+  it("preserves generic gateway response errors", async () => {
+    vi.spyOn(compatClient, "callGatewayMethod").mockRejectedValue(new Error("Gateway rejected request"));
+
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    const { requestSessionsUsage } = loadModule();
+
+    await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({
+      code: "GATEWAY_RESPONSE_ERROR",
+    });
   });
 
   it("treats 0.0.0.0 host as loopback and connects safely", async () => {
-    const gateway = createGatewayServer({
-      onRequest: (ws, msg) => {
-        ws.send(
-          JSON.stringify({
-            id: msg.id,
-            ok: true,
-            payload: { sessions: [{ key: "agent:codex:main" }] },
-          }),
-        );
-      },
-    });
-    const port = gateway.wss.address().port;
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "0.0.0.0", port, token: "test-token" }));
+    vi.spyOn(compatClient, "callGatewayMethod").mockResolvedValue({ sessions: [{ id: "abc" }] });
 
+    helpers.getGatewayConfig = vi.fn(() => ({ host: "0.0.0.0", port: 18789, token: "test-token" }));
     const { requestSessionsUsage } = loadModule();
-    const result = await requestSessionsUsage({ from: 1, to: 2 });
-    expect(result.ok).toBe(true);
 
-    await new Promise((resolve) => gateway.wss.close(resolve));
+    const result = await requestSessionsUsage({ from: 1, to: 2 });
+    expect(result).toEqual({ ok: true, result: { sessions: [{ id: "abc" }] } });
   });
 });

@@ -1,16 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
-const fs = require("fs");
+const cronGateway = require("../../lib/gateway-compat/contracts/cron.js");
 
 helpers.OPENCLAW_HOME = "/mock/home";
-helpers.safeJSON = vi.fn();
-helpers.safeJSON5 = vi.fn();
-helpers.stripSecrets = vi.fn((obj) => obj);
-fs.copyFileSync = vi.fn();
-fs.writeFileSync = vi.fn();
 
 function createApp() {
   delete require.cache[require.resolve("../../routes/cron")];
@@ -20,213 +15,358 @@ function createApp() {
   return app;
 }
 
+function setGatewayListResult(result) {
+  cronGateway.listCronJobs.mockResolvedValue(result);
+}
+
+function setGatewayListError(error) {
+  cronGateway.listCronJobs.mockRejectedValue(error);
+}
+
+function setFallbackJobs(fileContents, configContents = {}) {
+  const localHelpers = require("../../lib/helpers");
+  vi.spyOn(localHelpers, "safeJSON");
+  vi.spyOn(localHelpers, "safeJSON5");
+  localHelpers.safeJSON.mockReturnValue(fileContents);
+  localHelpers.safeJSON5.mockReturnValue(configContents);
+}
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(cronGateway, "listCronJobs");
+  vi.spyOn(cronGateway, "addCronJob");
+  vi.spyOn(cronGateway, "updateCronJob");
+  vi.spyOn(cronGateway, "removeCronJob");
+  vi.spyOn(helpers, "stripSecrets").mockImplementation((obj) => obj);
+});
+
 describe("GET /api/cron", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    helpers.stripSecrets.mockImplementation((obj) => obj);
+    cronGateway.listCronJobs.mockResolvedValue({ jobs: [] });
   });
 
-  it("returns enriched jobs with default model info", async () => {
-    helpers.safeJSON.mockReturnValue({
-      version: 2,
-      jobs: [{ id: "job1", name: "Test", enabled: true, schedule: "*/5 * * * *" }],
+  it("returns canonical list payload from gateway", async () => {
+    setGatewayListResult({
+      jobs: [{ id: "job-1", name: "Nightly" }],
+      total: 1,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
+      nextOffset: null,
     });
-    helpers.safeJSON5.mockReturnValue({
-      agents: { defaults: { model: { primary: "anthropic/claude" } } },
-    });
+
     const res = await request(createApp()).get("/api/cron");
     expect(res.status).toBe(200);
     expect(res.body.jobs).toHaveLength(1);
-    expect(res.body.jobs[0].defaultModel).toBe("anthropic/claude");
-    expect(res.body.jobs[0].usesDefaultModel).toBe(true);
-    expect(res.body.version).toBe(2);
-  });
-
-  it("returns empty jobs array when jobs.json is missing", async () => {
-    helpers.safeJSON.mockReturnValue(null);
-    helpers.safeJSON5.mockReturnValue(null);
-    const res = await request(createApp()).get("/api/cron");
-    expect(res.body.jobs).toEqual([]);
-    expect(res.body.version).toBe(1);
-  });
-
-  it("marks job as not using default model when model override exists", async () => {
-    helpers.safeJSON.mockReturnValue({
-      version: 1,
-      jobs: [{ id: "j1", payload: { model: "openai/gpt-4" } }],
+    expect(res.body.jobs[0].name).toBe("Nightly");
+    expect(res.body.meta).toMatchObject({
+      gatewayAvailable: true,
+      source: "gateway",
     });
-    helpers.safeJSON5.mockReturnValue(null);
+    expect(cronGateway.listCronJobs).toHaveBeenCalledWith();
+  });
+
+  it("falls back to degraded local read when gateway is unavailable", async () => {
+    setGatewayListError({
+      code: "UNAVAILABLE",
+      status: 503,
+      message: "gateway unreachable",
+      reason: "network_unreachable",
+    });
+    setFallbackJobs(
+      { jobs: [{ id: "local-1", name: "Local job", payload: {} }], version: 2 },
+      { agents: { defaults: { model: { primary: "openai/gpt-4" } } } },
+    );
+
     const res = await request(createApp()).get("/api/cron");
-    expect(res.body.jobs[0].usesDefaultModel).toBe(false);
-    expect(res.body.jobs[0].modelOverride).toBe("openai/gpt-4");
+    expect(res.status).toBe(200);
+    expect(res.body.jobs[0]).toMatchObject({ id: "local-1", name: "Local job" });
+    expect(res.body.meta.gatewayAvailable).toBe(false);
+    expect(res.body.meta.diagnostics).toHaveLength(1);
+    expect(res.body.meta.diagnostics[0].code).toBe("CRON_LIST_FALLBACK");
+    expect(cronGateway.listCronJobs).toHaveBeenCalled();
+  });
+
+  it("falls back to degraded local read when gateway list is unavailable due to missing token", async () => {
+    setGatewayListError(new Error("Gateway token not configured"));
+    setFallbackJobs(
+      { jobs: [{ id: "local-token", name: "Local token fallback", payload: {} }], version: 2 },
+      { agents: { defaults: { model: { primary: "openai/gpt-4" } } } },
+    );
+
+    const res = await request(createApp()).get("/api/cron");
+    expect(res.status).toBe(200);
+    expect(res.body.jobs[0]).toMatchObject({ id: "local-token", name: "Local token fallback" });
+    expect(res.body.meta).toMatchObject({
+      gatewayAvailable: false,
+      source: "fallback",
+      status: "degraded",
+    });
+    expect(res.body.meta.diagnostics).toHaveLength(1);
+    expect(res.body.meta.diagnostics[0].code).toBe("CRON_LIST_FALLBACK");
+  });
+
+  it("returns forbidden when local origin is not allowed for read-only endpoint", async () => {
+    setGatewayListResult({ jobs: [] });
+    const res = await request(createApp())
+      .get("/api/cron")
+      .set("Origin", "https://attacker.example")
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.jobs).toEqual([]);
+  });
+
+  it("maps gateway validation failures to bad request", async () => {
+    setGatewayListError({
+      code: "BAD_REQUEST",
+      status: 400,
+      message: "invalid request",
+      reason: "invalid_request",
+    });
+
+    setFallbackJobs({ jobs: [] }, {});
+    const res = await request(createApp()).get("/api/cron");
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("BAD_REQUEST");
+    expect(cronGateway.listCronJobs).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/cron", () => {
+  it("creates job via cron.add and returns created job", async () => {
+    cronGateway.addCronJob.mockResolvedValue({
+      ok: true,
+      id: "job-new",
+      name: "Manual",
+    });
+
+    const res = await request(createApp())
+      .post("/api/cron")
+      .send({
+        name: "Manual",
+        schedule: { kind: "cron", expr: "0 0 * * *" },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: "job-new", name: "Manual" });
+    expect(cronGateway.addCronJob).toHaveBeenCalledWith(
+      {
+        name: "Manual",
+        schedule: { kind: "cron", expr: "0 0 * * *" },
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("rejects cross-site origin for create", async () => {
+    const res = await request(createApp())
+      .post("/api/cron")
+      .set("Origin", "https://attacker.example")
+      .send({ name: "Manual" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Forbidden origin");
+    expect(cronGateway.addCronJob).not.toHaveBeenCalled();
+  });
+
+  it("returns mapped gateway error codes for add failures", async () => {
+    cronGateway.addCronJob.mockRejectedValue({ code: "INVALID_REQUEST", status: 400, message: "bad payload" });
+
+    const res = await request(createApp())
+      .post("/api/cron")
+      .send({ name: "Manual" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("BAD_REQUEST");
   });
 });
 
 describe("PUT /api/cron/:jobId", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fs.writeFileSync.mockImplementation(() => {});
-  });
+  it("updates job using cron.update patch shape", async () => {
+    cronGateway.updateCronJob.mockResolvedValue({ id: "j1", name: "updated", enabled: false });
 
-  it("rejects invalid job ID characters", async () => {
-    const res = await request(createApp()).put("/api/cron/bad%21id").send({ name: "x" });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Invalid job ID");
-  });
-
-  it("returns 500 when jobs file cannot be read", async () => {
-    helpers.safeJSON.mockReturnValue(null);
-    const res = await request(createApp()).put("/api/cron/job1").send({ name: "x" });
-    expect(res.status).toBe(500);
-  });
-
-  it("returns 404 when job not found", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "other" }] });
-    const res = await request(createApp()).put("/api/cron/missing").send({ name: "x" });
-    expect(res.status).toBe(404);
-  });
-
-  it("rejects cross-site origin on cron update", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "job1", name: "old", payload: {} }] });
     const res = await request(createApp())
-      .put("/api/cron/job1")
-      .set("Origin", "https://attacker.example")
-      .send({ name: "new" });
-    expect(res.status).toBe(403);
-    expect(res.body.error).toBe("Forbidden origin");
-  });
+      .put("/api/cron/j1")
+      .send({
+        name: "updated",
+        enabled: false,
+        sessionTarget: "main",
+        payload: { text: "hello", model: "openai/gpt-4" },
+      });
 
-  it("creates backup before writing", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "job1", name: "old", payload: {} }] });
-    await request(createApp()).put("/api/cron/job1").send({ name: "new" });
-    expect(fs.copyFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("jobs.json"),
-      expect.stringContaining("jobs.json.bak"),
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, job: { id: "j1", name: "updated", enabled: false } });
+    expect(cronGateway.updateCronJob).toHaveBeenCalledWith(
+      {
+        id: "j1",
+        patch: {
+          name: "updated",
+          enabled: false,
+          sessionTarget: "main",
+          payload: {
+            kind: "systemEvent",
+            text: "hello",
+            model: "openai/gpt-4",
+          },
+        },
+      },
+      expect.any(Object),
     );
   });
 
-  it("only updates editable fields, ignoring unknown fields", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "job1", name: "old", payload: {}, internalField: "keep" }],
-    });
-    await request(createApp())
-      .put("/api/cron/job1")
-      .send({ name: "new", id: "hacked", internalField: "evil" });
-    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-    const job = written.jobs[0];
-    expect(job.name).toBe("new");
-    expect(job.id).toBe("job1");
-    expect(job.internalField).toBe("keep");
-  });
+  it("accepts explicit patch from request body", async () => {
+    cronGateway.updateCronJob.mockResolvedValue({ id: "j1", enabled: false });
 
-  it("auto-corrects payload.kind to systemEvent when sessionTarget is main", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "j1", sessionTarget: "main", payload: { kind: "agentTurn" } }],
-    });
-    await request(createApp()).put("/api/cron/j1").send({ sessionTarget: "main" });
-    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-    expect(written.jobs[0].payload.kind).toBe("systemEvent");
-  });
-
-  it("auto-corrects payload.kind to agentTurn when sessionTarget is isolated", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "j1", sessionTarget: "isolated", payload: { kind: "systemEvent" } }],
-    });
-    await request(createApp()).put("/api/cron/j1").send({ sessionTarget: "isolated" });
-    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-    expect(written.jobs[0].payload.kind).toBe("agentTurn");
-  });
-
-  it("normalizes null payload before applying sessionTarget kind guardrails", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "j1", sessionTarget: "main", payload: null }],
-    });
-    const res = await request(createApp()).put("/api/cron/j1").send({});
-    expect(res.status).toBe(200);
-    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-    expect(written.jobs[0].payload.kind).toBe("systemEvent");
-  });
-
-  it("normalizes null payload updates safely", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "j1", sessionTarget: "main", payload: { kind: "systemEvent" } }],
-    });
-    const res = await request(createApp()).put("/api/cron/j1").send({
-      payload: null,
-      sessionTarget: "isolated",
-    });
-    expect(res.status).toBe(200);
-    const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-    expect(written.jobs[0].payload.kind).toBe("agentTurn");
-  });
-
-  it("returns the updated job on success", async () => {
-    helpers.safeJSON.mockReturnValue({
-      jobs: [{ id: "j1", name: "old", schedule: "* * * * *", payload: {} }],
-    });
     const res = await request(createApp())
       .put("/api/cron/j1")
-      .send({ name: "updated", schedule: "0 * * * *" });
+      .send({
+        patch: {
+          enabled: false,
+        },
+      });
+
     expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.job.name).toBe("updated");
-    expect(res.body.job.schedule).toBe("0 * * * *");
-    expect(res.body.job.updatedAtMs).toBeGreaterThan(0);
+    expect(cronGateway.updateCronJob).toHaveBeenCalledWith(
+      {
+        id: "j1",
+        patch: {
+          enabled: false,
+        },
+      },
+      expect.any(Object),
+    );
   });
 
-  it("returns 500 when write fails", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", payload: {} }] });
-    fs.writeFileSync.mockImplementation(() => {
-      throw new Error("disk full");
+  it("rejects invalid job IDs", async () => {
+    const res = await request(createApp()).put("/api/cron/bad%20id").send({ enabled: false });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Invalid job ID");
+    expect(cronGateway.updateCronJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-site origin for update", async () => {
+    const res = await request(createApp())
+      .put("/api/cron/job1")
+      .set("Origin", "https://attacker.example")
+      .send({ enabled: true });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Forbidden origin");
+    expect(cronGateway.updateCronJob).not.toHaveBeenCalled();
+  });
+
+  it("maps unknown cron job id to not found", async () => {
+    cronGateway.updateCronJob.mockRejectedValue({
+      code: "NOT_FOUND",
+      status: 404,
+      message: "unknown cron job id",
+      reason: "not_found",
     });
-    const res = await request(createApp()).put("/api/cron/j1").send({ name: "x" });
-    expect(res.status).toBe(500);
-    expect(res.body.error).toContain("Failed to write");
+
+    const res = await request(createApp()).put("/api/cron/job-1").send({ enabled: true });
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("DELETE /api/cron/:jobId", () => {
+  it("removes job idempotently and preserves 200 when already absent", async () => {
+    cronGateway.removeCronJob.mockResolvedValue({ ok: true, removed: false, id: "missing" });
+
+    const res = await request(createApp()).delete("/api/cron/missing");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: false, id: "missing" });
+    expect(cronGateway.removeCronJob).toHaveBeenCalledWith(
+      "missing",
+      expect.any(Object),
+    );
+  });
+
+  it("returns removed true when deletion succeeds", async () => {
+    cronGateway.removeCronJob.mockResolvedValue({ ok: true, removed: true, id: "job1" });
+
+    const res = await request(createApp()).delete("/api/cron/job1");
+
+    expect(res.status).toBe(200);
+    expect(res.body.removed).toBe(true);
+    expect(res.body.id).toBe("job1");
+  });
+
+  it("rejects cross-site origin for delete", async () => {
+    const res = await request(createApp())
+      .delete("/api/cron/job1")
+      .set("Origin", "https://attacker.example");
+
+    expect(res.status).toBe(403);
+    expect(cronGateway.removeCronJob).not.toHaveBeenCalled();
+  });
+
+  it("maps malformed identifiers", async () => {
+    const res = await request(createApp()).delete("/api/cron/bad%20id");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Invalid job ID");
   });
 });
 
 describe("POST /api/cron/:jobId/toggle", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fs.writeFileSync.mockImplementation(() => {});
-  });
+  it("toggles by re-reading gateway list and sends inverted patch", async () => {
+    cronGateway.listCronJobs.mockResolvedValue({
+      jobs: [
+        {
+          id: "job1",
+          enabled: true,
+          name: "Daily job",
+          schedule: { expr: "* * * * *", tz: "UTC" },
+        },
+      ],
+    });
+    cronGateway.updateCronJob.mockResolvedValue({ ok: true, id: "job1", enabled: false });
 
-  it("toggles enabled from true to false", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", enabled: true }] });
-    const res = await request(createApp()).post("/api/cron/j1/toggle");
+    const res = await request(createApp()).post("/api/cron/job1/toggle");
+
     expect(res.status).toBe(200);
-    expect(res.body.enabled).toBe(false);
+    expect(res.body).toEqual({ ok: true, job: { ok: true, id: "job1", enabled: false } });
+    expect(cronGateway.listCronJobs).toHaveBeenCalledWith(
+      {
+        includeDisabled: true,
+        limit: 200,
+        offset: 0,
+        enabled: "all",
+        sortBy: "nextRunAtMs",
+        sortDir: "asc",
+      },
+      expect.any(Object),
+    );
+    expect(cronGateway.updateCronJob).toHaveBeenCalledWith(
+      {
+        id: "job1",
+        patch: {
+          enabled: false,
+        },
+      },
+      expect.any(Object),
+    );
   });
 
-  it("toggles enabled from false to true", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", enabled: false }] });
-    const res = await request(createApp()).post("/api/cron/j1/toggle");
-    expect(res.body.enabled).toBe(true);
-  });
-
-  it("rejects invalid job ID", async () => {
-    const res = await request(createApp()).post("/api/cron/bad%21id/toggle");
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 404 for nonexistent job", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [] });
+  it("returns 404 when toggle target is missing", async () => {
+    cronGateway.listCronJobs.mockResolvedValue({ jobs: [] });
     const res = await request(createApp()).post("/api/cron/missing/toggle");
+
     expect(res.status).toBe(404);
+    expect(res.body.error).toContain("not found");
+    expect(cronGateway.updateCronJob).not.toHaveBeenCalled();
   });
 
-  it("rejects cross-site origin on cron toggle", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", enabled: true }] });
+  it("rejects cross-site origin for toggle", async () => {
     const res = await request(createApp())
-      .post("/api/cron/j1/toggle")
+      .post("/api/cron/job1/toggle")
       .set("Origin", "https://attacker.example");
+
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("Forbidden origin");
-  });
-
-  it("creates backup before toggling", async () => {
-    helpers.safeJSON.mockReturnValue({ jobs: [{ id: "j1", enabled: true }] });
-    await request(createApp()).post("/api/cron/j1/toggle");
-    expect(fs.copyFileSync).toHaveBeenCalled();
+    expect(cronGateway.listCronJobs).not.toHaveBeenCalled();
   });
 });

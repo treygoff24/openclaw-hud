@@ -98,7 +98,7 @@ describe("GatewayWS", () => {
     expect(gw.snapshot).toEqual({ sessions: [] });
   });
 
-  it("sends signed device proof with least-privilege default scopes", async () => {
+  it("uses default read-only connect scopes", async () => {
     server = createMockServer();
     gw = new GatewayWS({ url: server.url(), token: "tk123", reconnect: { enabled: false } });
     await gw.connect();
@@ -111,11 +111,26 @@ describe("GatewayWS", () => {
     expect(frame.params.maxProtocol).toBe(3);
     expect(frame.params.client.id).toBe("openclaw-ios");
     expect(frame.params.auth.token).toBe("tk123");
-    expect(frame.params.scopes).toEqual(["operator.read", "operator.write"]);
+    expect(frame.params.scopes).toEqual(["operator.read"]);
     expect(frame.params.device).toBeTruthy();
     expect(frame.params.device.nonce).toBe("nonce-1");
     expect(typeof frame.params.device.signature).toBe("string");
     expect(typeof frame.params.device.signedAt).toBe("number");
+  });
+
+  it("supports explicit connect scope override for server-wide policy alignment", async () => {
+    server = createMockServer();
+    gw = new GatewayWS({
+      url: server.url(),
+      token: "tk123",
+      reconnect: { enabled: false },
+      connect: { scopes: ["operator.read", "operator.write"] },
+    });
+    await gw.connect();
+
+    expect(server.connectFrames).toHaveLength(1);
+    const frame = server.connectFrames[0];
+    expect(frame.params.scopes).toEqual(["operator.read", "operator.write"]);
   });
 
   it("rejects on auth failure and does not reconnect", async () => {

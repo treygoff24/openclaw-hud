@@ -81,6 +81,21 @@ describe("GET /health", () => {
     expect(res.body.version).toBe(packageJson.version);
   });
 
+  it("treats websocket dependency errors as unknown (healthy state)", async () => {
+    const res = await request(
+      createApp({
+        healthStateProvider: () => {
+          throw new Error("provider failure");
+        },
+      }),
+    ).get("/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("healthy");
+    expect(res.body.checks.websocket).toBe("unknown");
+    expect(res.body.checks).not.toHaveProperty("websocketClients");
+  });
+
   it("returns uptime as a positive number", async () => {
     const res = await request(createApp()).get("/health");
     expect(typeof res.body.uptime).toBe("number");
