@@ -77,6 +77,24 @@ describe("spawn preflight success detection", () => {
     expect(message).toContain("500");
     expect(message).toContain("upstream gateway returned HTML error page");
   });
+
+  it("uses a syntactically valid probe agentId", () => {
+    const payload = server.createSpawnPreflightProbePayload();
+    expect(payload.args.agentId).toMatch(/^[a-z0-9][a-z0-9_-]{0,63}$/);
+  });
+
+  it("treats invalid probe-agent validation error payload as safe preflight", () => {
+    const payload = {
+      ok: true,
+      result: {
+        details: {
+          error:
+            'Invalid agentId "__openclaw-hud-spawn-preflight-no-op__" was not found (preflight safety validation).',
+        },
+      },
+    };
+    expect(server.isSpawnProbeSafeValidationRejection(payload)).toBe(true);
+  });
 });
 
 describe("spawn preflight startup diagnostics", () => {
@@ -158,6 +176,33 @@ describe("spawn preflight startup diagnostics", () => {
         ]),
       }),
     );
+  });
+
+  it("treats invalid probe agentId validation response as preflight success", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: {
+        get: (key) => (key.toLowerCase() === "content-type" ? "application/json; charset=utf-8" : null),
+      },
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          result: {
+            details: {
+              error:
+                'Invalid agentId "__openclaw-hud-spawn-preflight-no-op__" must match an existing agent id',
+            },
+          },
+        }),
+    });
+
+    const state = await spawnServer.runStartupProbe();
+
+    expect(state.ok).toBe(true);
+    expect(state.enabled).toBe(true);
+    expect(state.code).toBe("READY");
   });
 
   it("truncates raw probe body in diagnostics", () => {

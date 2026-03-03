@@ -91,7 +91,8 @@ const SERVER_GATEWAY_METHOD_SCOPES = dedupeScopes(
 );
 
 const SPAWN_PRECHECK_TOOL_NAME = "sessions_spawn";
-const SPAWN_PRECHECK_AGENT_ID = "__openclaw-hud-spawn-preflight-no-op__";
+const SPAWN_PRECHECK_AGENT_ID = "openclaw-hud-spawn-preflight-no-op";
+const SPAWN_PRECHECK_AGENT_ID_LEGACY = "__openclaw-hud-spawn-preflight-no-op__";
 const SPAWN_PRECHECK_TASK_ID = "__openclaw-hud-spawn-preflight__";
 const SPAWN_PRECHECK_TIMEOUT_MS = 8000;
 const SPAWN_PRECHECK_TIMEOUT_SECONDS = 1;
@@ -259,6 +260,26 @@ function isSpawnProbePayloadSuccess(payload) {
   return details !== undefined && typeof details === "object";
 }
 
+function isSpawnProbeSafeValidationRejection(payload) {
+  const details =
+    payload?.result?.details ||
+    (payload?.result !== undefined && payload?.result !== null ? payload.result : undefined) ||
+    payload?.details;
+  if (!details || typeof details !== "object") return false;
+
+  const raw = typeof details.error === "string" ? details.error : "";
+  const message = raw.toLowerCase();
+  if (!message) return false;
+
+  const mentionsAgent = /\bagent(?:id)?\b/.test(message);
+  const mentionsInvalidOrUnknown = /(invalid|unknown|not found|does not exist)/i.test(message);
+  if (!mentionsAgent || !mentionsInvalidOrUnknown) return false;
+
+  const mentionsProbeAgent = message.includes(SPAWN_PRECHECK_AGENT_ID) || message.includes(SPAWN_PRECHECK_AGENT_ID_LEGACY);
+  const hasProbeContext = /preflight|probe|startup/.test(message);
+  return mentionsProbeAgent || hasProbeContext;
+}
+
 function hasSpawnProbeSideEffect(payload) {
   const details =
     payload?.result?.details ||
@@ -315,6 +336,9 @@ async function probeSpawnTool(gatewayConfig) {
       ]);
     }
     if (isSpawnProbePayloadSuccess(body)) {
+      return createSpawnPreflightSuccess();
+    }
+    if (isSpawnProbeSafeValidationRejection(body)) {
       return createSpawnPreflightSuccess();
     }
 
@@ -513,4 +537,5 @@ module.exports = {
   parseJsonResponseBody,
   runStartupProbe,
   createSpawnPreflightLogPayload,
+  isSpawnProbeSafeValidationRejection,
 };
