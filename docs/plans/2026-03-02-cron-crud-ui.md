@@ -1,256 +1,280 @@
-# OpenClaw HUD Cron CRUD + Arbitrary Edit Implementation Plan
+# OpenClaw HUD Cron CRUD Gateway-Canonical Migration Plan
 
-**Goal:** Add durable cron job create, delete, and arbitrary edit capabilities to OpenClaw HUD UI/UX while staying consistent with OpenClaw's canonical cron semantics.
+**Goal:** Replace HUD cron file-mutation behavior with gateway WS RPC-backed CRUD that stays aligned with canonical OpenClaw cron contracts and hardened gateway policy.
 
-**Architecture:** Use gateway-proxy writes as the single-writer path for cron mutations. HUD route handlers remain thin controllers and delegate to a cron service client that calls OpenClaw gateway cron methods. Keep read-only fallback for listing cron jobs when gateway is unavailable.
+**Architecture:** Keep HUD as a thin API/UI layer. All cron writes (`add/update/remove`) go through gateway RPC methods, and list reads use gateway pagination as the canonical path. Local list fallback exists only as an explicit degraded secondary path with operator-visible diagnostics; it is not a primary reliability strategy. Centralize error normalization so HUD status codes are stable even when raw gateway messages vary.
 
-**Tech Stack:** Node.js + Express (CommonJS), Vanilla JS frontend, Vitest, Playwright.
+**Tech Stack:** Node.js + Express (CommonJS), existing `GatewayWS` + `gateway-connect-auth`, Vanilla JS panel UI, Vitest, Playwright.
 
 ---
 
-## Grounding Summary
+## Strict-Mode Note (Latest-Only Baseline)
 
-- OpenClaw canonical cron semantics live in `/Users/treygoff/Code/openclaw` (not `/code/openclaw` on this machine).
-- Canonical cron write APIs: `cron.add`, `cron.update`, `cron.remove` in `/Users/treygoff/Code/openclaw/src/gateway/server-methods/cron.ts`.
-- Canonical validation/normalization: `/Users/treygoff/Code/openclaw/src/gateway/protocol/schema/cron.ts`, `/Users/treygoff/Code/openclaw/src/cron/normalize.ts`, `/Users/treygoff/Code/openclaw/src/cron/service/jobs.ts`.
-- Current HUD route implementation in `routes/cron.js` still mutates `~/.openclaw/cron/jobs.json` directly for update/toggle.
+- This plan targets newest OpenClaw gateway contracts as first-class baseline.
+- Cron mutation flows are fail-fast with actionable diagnostics; no silent fallback substitution is allowed for core operations.
+- `GET /api/cron` local fallback is degraded secondary-only and must be explicitly flagged (`meta.gatewayAvailable=false`) in API/UI state.
 
-## Architecture Decision
+## Ground Truth (Canonical Contract)
 
-### Chosen approach: Gateway-proxy writes with read-only fallback
+- Canonical cron RPC handlers live in `/Users/treygoff/Code/openclaw/src/gateway/server-methods/cron.ts`.
+- Canonical cron schemas live in `/Users/treygoff/Code/openclaw/src/gateway/protocol/schema/cron.ts`.
+- Canonical scope policy lives in `/Users/treygoff/Code/openclaw/src/gateway/method-scopes.ts`.
+- Canonical runtime semantics (including remove idempotency) live in `/Users/treygoff/Code/openclaw/src/cron/service/ops.ts`.
 
-- HUD mutation endpoints call gateway methods and do not directly mutate cron store files.
-- Listing endpoint can fall back to local file reads if gateway list call fails.
-- This minimizes semantic drift and preserves canonical OpenClaw behavior.
+Current HUD mismatch: `routes/cron.js` directly reads/writes `~/.openclaw/cron/jobs.json` and does not implement canonical `POST /api/cron` + `DELETE /api/cron/:jobId` gateway-backed CRUD flow.
 
-### Why this approach
+Scope constraint: this plan is cron-specific only. It does not change spawn transport constraints; `sessions_spawn` remains a `/tools/invoke` compatibility path in current OpenClaw.
 
-- OpenClaw already handles durability, normalization, and edge-case semantics.
-- A second validator/writer in HUD would diverge over time.
-- Existing HUD route architecture already proxies gateway calls in spawn routes; cron should follow the same pattern.
+## Canonical WS RPC Cron Path
 
-## API Contract (HUD)
+All HUD cron operations must use the same gateway WS request path:
+
+1. `connect.challenge` event received from gateway.
+2. HUD sends `connect` request with `buildConnectParams(...)` device proof.
+3. HUD sends request frame: `{ type: "req", id, method, params }`.
+4. HUD consumes response frame: `{ type: "res", id, ok, payload?, error? }`.
+
+Canonical methods:
+
+- `cron.list`
+- `cron.add`
+- `cron.update`
+- `cron.remove`
+
+## Scope Requirements (Least Privilege)
+
+- `cron.list` requires `operator.read` (read-compatible callers with `operator.write` also pass server auth).
+- `cron.add`, `cron.update`, `cron.remove` require `operator.admin`.
+- HUD cron service must request only method-required scopes per call path; do not rely on a broad static scope set for all operations.
+
+## Canonical Payload Shapes (Must Match)
+
+### `cron.list`
+
+Request params shape:
+
+```json
+{
+  "includeDisabled": true,
+  "limit": 50,
+  "offset": 0,
+  "query": "optional",
+  "enabled": "all",
+  "sortBy": "nextRunAtMs",
+  "sortDir": "asc"
+}
+```
+
+Response payload shape:
+
+```json
+{
+  "jobs": [
+    {
+      "id": "...",
+      "name": "...",
+      "enabled": true,
+      "schedule": { "kind": "every", "everyMs": 60000, "anchorMs": 0 },
+      "sessionTarget": "main",
+      "wakeMode": "next-heartbeat",
+      "payload": { "kind": "systemEvent", "text": "..." },
+      "state": { "nextRunAtMs": 0 }
+    }
+  ],
+  "total": 1,
+  "offset": 0,
+  "limit": 50,
+  "hasMore": false,
+  "nextOffset": null
+}
+```
+
+### `cron.update`
+
+Request params shape:
+
+```json
+{
+  "id": "job-id",
+  "patch": {
+    "enabled": false,
+    "schedule": { "kind": "at", "at": "2026-03-05T12:00:00.000Z" },
+    "payload": { "kind": "systemEvent", "text": "updated" }
+  }
+}
+```
+
+Notes:
+
+- `jobId` alias is accepted by gateway, but HUD should normalize to `id` for outbound calls.
+- `patch` is required and must follow canonical `CronJobPatchSchema`.
+- Response payload is the full updated `CronJob` object.
+
+## Remove Not-Found Semantics (Canonical)
+
+`cron.remove` is idempotent. Unknown IDs return success payload with `removed: false`.
+
+```json
+{ "ok": true, "removed": false }
+```
+
+HUD must not remap this to `404`. Return `200` with `removed:false` and let UI show "already absent" semantics.
+
+## Corrected Error Mapping (HUD HTTP)
+
+Translate gateway errors using code + message pattern instead of raw string passthrough:
+
+- `INVALID_REQUEST` + `missing scope` or `unauthorized role` -> `403 Forbidden`
+- `INVALID_REQUEST` + `unknown cron job id` (update/run paths) -> `404 Not Found`
+- Other `INVALID_REQUEST` -> `400 Bad Request`
+- `UNAVAILABLE` or transport/connect failures (`ECONN*`, timeout, connect closed) -> `503 Service Unavailable`
+- Unclassified gateway response failure -> `502 Bad Gateway`
+
+## Local-Origin Guard (HUD Policy)
+
+Even with gateway auth/scope checks, keep `requireLocalOrigin` for all mutating HUD cron endpoints as an explicit HUD browser-surface policy:
+
+- Blocks cross-site mutation attempts early (`403 Forbidden origin`).
+- Allows loopback-origin requests and tailscale loopback proxy path.
+- This is defense-in-depth for local operator UX, not a substitute for gateway auth.
+
+## Endpoint Contract (HUD)
 
 - `GET /api/cron`
-  - Primary: proxy to gateway list method.
-  - Fallback: local read-only jobs payload with `meta.gatewayAvailable=false`.
+  - Primary: gateway `cron.list`
+  - Degraded secondary path only: local read-only list with `meta.gatewayAvailable=false` and explicit operator-facing degraded diagnostics
 - `POST /api/cron`
-  - Create job (full payload or normalized form payload).
+  - Gateway `cron.add`
 - `PUT /api/cron/:jobId`
-  - Update existing job.
+  - Gateway `cron.update`
 - `DELETE /api/cron/:jobId`
-  - Remove job.
+  - Gateway `cron.remove`
 - `POST /api/cron/:jobId/toggle`
-  - Keep for compatibility; implemented as thin update proxy that flips `enabled`.
-
-### Error mapping
-
-- Validation errors -> `400`
-- Not found -> `404`
-- Conflict (duplicate ID) -> `409`
-- Gateway unavailable / downstream transport failure -> `503`
-
-## OpenClaw Constraints HUD Must Respect
-
-- `sessionTarget` and `payload.kind` coupling:
-  - `main` -> `systemEvent`
-  - `isolated` -> `agentTurn`
-- Main-session job agent restrictions.
-- `schedule.at` bounds:
-  - Reject >1 minute in past.
-  - Reject >10 years in future.
-- Delivery URL must be valid `http(s)`.
-- Canonical field name is `id`; be tolerant if inputs use `jobId`.
+  - Compatibility shim: gateway `cron.update` with `{ patch: { enabled: !current } }`
 
 ## Task Plan
 
-### Task 1: Add Cron Gateway Service Layer
+### Task 1: Add Cron Gateway Adapter + Error Normalizer
 
 **Parallel:** no  
 **Blocked by:** none  
-**Owned files:** `lib/cron-service.js`, `lib/gateway-tool-client.js` (new), `lib/cron-read-fallback.js` (new)
+**Owned files:** `lib/cron-gateway.js`, `lib/gateway-rpc-errors.js`, `tests/lib/cron-gateway.test.js`
 
 **Files:**
-- Create: `lib/gateway-tool-client.js`
-- Create: `lib/cron-service.js`
-- Create: `lib/cron-read-fallback.js`
-- Test: `tests/lib/cron-service.test.js`
+- Create: `lib/cron-gateway.js`
+- Create: `lib/gateway-rpc-errors.js`
+- Test: `tests/lib/cron-gateway.test.js`
 
-**Step 1: Write failing tests for service behavior**
-- Gateway success paths for list/create/update/delete/toggle.
-- Gateway failure translation to app-level errors.
-- Read-only fallback behavior for `list`.
+**Step 1: Write failing adapter tests**
+- Covers method names, param shaping, and response normalization.
+- Covers corrected error mapping table.
 
-**Step 2: Run targeted tests and confirm failure**
-Run: `npx vitest run tests/lib/cron-service.test.js`
+**Step 2: Run tests (expect fail)**
+Run: `npx vitest run tests/lib/cron-gateway.test.js`
 
-**Step 3: Implement minimal service**
-- Shared helper to invoke gateway tool methods.
-- Cron service wrapper methods with consistent return/error shapes.
+**Step 3: Implement adapter + error mapping**
+- Add `list/add/update/remove/toggle` helpers.
+- Normalize `jobId` to `id` outbound.
 
-**Step 4: Run tests and confirm pass**
-Run: `npx vitest run tests/lib/cron-service.test.js`
+**Step 4: Re-run tests (expect pass)**
+Run: `npx vitest run tests/lib/cron-gateway.test.js`
 
----
-
-### Task 2: Refactor Cron Routes to Thin Controllers
+### Task 2: Migrate Cron Routes to Gateway-First Controllers
 
 **Parallel:** no  
 **Blocked by:** Task 1  
-**Owned files:** `routes/cron.js`
+**Owned files:** `routes/cron.js`, `tests/routes/cron.test.js`
 
 **Files:**
 - Modify: `routes/cron.js`
-- Test: `tests/routes/cron.test.js`
-
-**Step 1: Add failing route tests for create/delete and gateway-proxy behavior**
-- Ensure mutation paths no longer depend on direct file writes.
-- Assert route-level status code mapping.
-
-**Step 2: Run route test slice and confirm failure**
-Run: `npx vitest run tests/routes/cron.test.js`
-
-**Step 3: Implement route handlers**
-- Wire route handlers to `cron-service` methods.
-- Keep `requireLocalOrigin` on mutating endpoints.
-- Preserve existing response envelope format where possible.
-
-**Step 4: Re-run route tests**
-Run: `npx vitest run tests/routes/cron.test.js`
-
----
-
-### Task 3: Expand Route Test Matrix for Constraints and Failure Modes
-
-**Parallel:** yes  
-**Blocked by:** Task 2  
-**Owned files:** `tests/routes/cron.test.js`
-
-**Files:**
 - Modify: `tests/routes/cron.test.js`
 
-**Step 1: Add P0 integration cases**
-- `POST /api/cron` success.
-- `DELETE /api/cron/:jobId` success, not found, invalid id.
-- Origin guard denies non-local mutation attempts.
+**Step 1: Write failing route tests**
+- `POST /api/cron`, `DELETE /api/cron/:jobId`, toggle-via-update behavior.
+- `removed:false` returns `200`, not `404`.
+- Scope/auth mapping and `UNAVAILABLE` mapping.
 
-**Step 2: Add constraint/error cases**
-- Invalid `sessionTarget/payload.kind` combination.
-- Main-session restricted agent.
-- Invalid `schedule.at` (past/far future/invalid date).
-- Invalid delivery URL.
-- Duplicate id conflict -> `409`.
-
-**Step 3: Execute test file**
+**Step 2: Run tests (expect fail)**
 Run: `npx vitest run tests/routes/cron.test.js`
 
----
+**Step 3: Implement route migration**
+- Remove direct file writes from mutation handlers.
+- Keep read fallback path only as degraded secondary behavior with explicit diagnostics.
+- Preserve `requireLocalOrigin` on mutations.
 
-### Task 4: Implement Frontend Cron CRUD UX + Arbitrary Edit Mode
+**Step 4: Re-run tests (expect pass)**
+Run: `npx vitest run tests/routes/cron.test.js`
+
+### Task 3: Update Cron Panel Contract + UX States
 
 **Parallel:** yes  
 **Blocked by:** Task 2  
-**Owned files:** `public/panels/cron.js`, `public/index.html`, `public/styles/cron.css`, optional `public/app/cron-api.js`
+**Owned files:** `public/panels/cron.js`, `tests/public/panels/cron.test.js`
 
 **Files:**
 - Modify: `public/panels/cron.js`
-- Modify: `public/index.html`
-- Modify: `public/styles/cron.css`
-- Create (optional): `public/app/cron-api.js`
-- Test: `tests/public/panels/cron.test.js`
+- Modify: `tests/public/panels/cron.test.js`
 
-**Step 1: Add failing frontend unit tests**
-- Create mode defaults/reset.
-- Delete action flow.
-- Form-to-payload serialization correctness.
-- Advanced JSON mode parse/validation messaging.
+**Step 1: Add failing UI tests**
+- Handles `removed:false` user messaging.
+- Displays explicit degraded gateway-unavailable read-only state.
+- Handles paged list payload from `cron.list` contract.
 
-**Step 2: Run panel tests and confirm failure**
+**Step 2: Run tests (expect fail)**
 Run: `npx vitest run tests/public/panels/cron.test.js`
 
-**Step 3: Implement UI changes**
-- Add Create CTA.
-- Add Delete button in modal.
-- Add explicit modal modes: `create`, `edit`, `advanced`.
-- Add read-only mutation state when gateway unavailable.
-- Keep list refresh behavior consistent.
+**Step 3: Implement UI updates**
+- Adapt list parsing to page shape.
+- Add explicit idempotent-delete messaging.
 
-**Step 4: Re-run panel tests**
+**Step 4: Re-run tests (expect pass)**
 Run: `npx vitest run tests/public/panels/cron.test.js`
 
----
-
-### Task 5: Add/Update E2E Cron CRUD Coverage
+### Task 4: E2E CRUD + Contract Regression Coverage
 
 **Parallel:** no  
-**Blocked by:** Tasks 3, 4  
-**Owned files:** `e2e/modals.spec.js` or `e2e/cron-crud.spec.js`
+**Blocked by:** Tasks 2, 3  
+**Owned files:** `e2e/cron-crud.spec.js`
 
 **Files:**
-- Modify: `e2e/modals.spec.js`
-- or Create: `e2e/cron-crud.spec.js`
+- Create or modify: `e2e/cron-crud.spec.js`
 
-**Step 1: Add CRUD happy-path flow**
-- Create isolated one-shot cron.
-- Edit same cron and switch target to main.
-- Delete the cron.
+**Step 1: Add CRUD path tests**
+- Create, update, remove, and remove-again idempotent flow.
+- One scope/permission negative case.
 
-**Step 2: Add one negative case**
-- Invalid `schedule.at` or invalid delivery URL with blocked submit/error display.
-
-**Step 3: Run E2E target spec**
+**Step 2: Run E2E spec**
 Run: `npx playwright test e2e/cron-crud.spec.js`
 
----
-
-### Task 6: Documentation and Spec Alignment
-
-**Parallel:** yes  
-**Blocked by:** Task 2  
-**Owned files:** `CLAUDE.md`, `SPEC.md`, optional `README.md`
-
-**Files:**
-- Modify: `CLAUDE.md`
-- Modify: `SPEC.md`
-- Modify (optional): `README.md`
-
-**Step 1: Remove stale read-only cron wording**
-
-**Step 2: Document new CRUD API and degraded read-only fallback behavior**
-
-**Step 3: Quick doc consistency pass**
-Run: `rg -n \"read-only|cron\" CLAUDE.md SPEC.md README.md`
-
----
-
-### Task 7: Integration Gate
+### Task 5: Integration Gate
 
 **Parallel:** no  
-**Blocked by:** Tasks 3, 4, 5, 6  
+**Blocked by:** Tasks 2, 3, 4  
 **Owned files:** none
 
-**Step 1: Run focused test slices**
-Run: `npx vitest run tests/routes/cron.test.js tests/public/panels/cron.test.js`
+**Step 1: Run focused backend + frontend suites**
+Run: `npx vitest run tests/lib/cron-gateway.test.js tests/routes/cron.test.js tests/public/panels/cron.test.js`
 
-**Step 2: Run cron E2E spec**
+**Step 2: Run cron e2e**
 Run: `npx playwright test e2e/cron-crud.spec.js`
 
 **Step 3: Run full unit suite**
 Run: `npm test`
 
-**Step 4: Run full E2E suite**
-Run: `npm run test:e2e`
-
 ## Acceptance Criteria
 
-- HUD supports create, update, delete, and arbitrary edit of cron jobs.
-- Mutation writes are durable through OpenClaw canonical cron persistence path.
-- HUD no longer performs direct cron file mutations in route handlers for write operations.
-- Gateway-unavailable state degrades to read-only list mode with clear UI state.
-- Test coverage includes backend route/integration, frontend unit behavior, and E2E CRUD flow.
+- Cron mutations are gateway-canonical (`cron.add/update/remove`) with no direct HUD cron file writes.
+- HUD cron list contract correctly handles canonical page payload shape.
+- HUD cron list fallback is degraded secondary-only, explicitly marked, and not relied upon as primary behavior.
+- Error mapping reflects gateway hardening and yields stable HTTP statuses.
+- `cron.remove` idempotency is preserved (`removed:false` => HTTP 200).
+- Core cron operations fail fast with actionable diagnostics when gateway contract/scope requirements are not met.
+- `requireLocalOrigin` remains enforced for all mutating cron routes as HUD policy.
 
-## Parallel Work Safety
+## Non-Goals
 
-- Task 3 and Task 4 can run in parallel (owned files do not overlap).
-- Task 6 can run in parallel with Tasks 3/4 after Task 2.
-- Avoid overlapping edits to `routes/cron.js` outside Task 2.
+- No upstream OpenClaw gateway/protocol changes.
+- No removal of legacy toggle endpoint in this migration (compat shim retained).
+- No broad cron UI redesign beyond contract-compatibility behavior.
+- No claim that other privileged HUD flows (for example spawn) are currently WS-replaceable.
+- No backward-compatibility-first framing for older OpenClaw cron contracts.
