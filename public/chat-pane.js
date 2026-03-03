@@ -31,4 +31,16 @@
   window._flushChatWsQueue = runtime.flushWsQueue;
   window.exportChatSession = runtime.exportChatSession;
   window.ChatState = runtime.ChatState;
+
+  if (!runtime.pillClickFallbackBound) {
+    runtime.pillClickFallbackBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target.id !== "chat-new-pill") return;
+      var container = document.getElementById("chat-messages");
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+      e.target.classList.remove("visible");
+    });
+  }
 })();

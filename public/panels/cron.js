@@ -8,8 +8,38 @@ HUD.cron = (function () {
   let _editingJobId = null;
   let _focusTrap = null;
 
+  function isObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function extractJobs(payload) {
+    const data = isObject(payload) ? payload : {};
+    if (Array.isArray(data.jobs)) return data.jobs;
+    if (Array.isArray(data.result?.jobs)) return data.result.jobs;
+    if (Array.isArray(data.data?.jobs)) return data.data.jobs;
+    return [];
+  }
+
+  function extractCronMeta(payload) {
+    return isObject(payload?.meta) ? payload.meta : {};
+  }
+
+  function readOnlyBanner(meta) {
+    if (meta?.gatewayAvailable !== false) return "";
+
+    const message =
+      (Array.isArray(meta.diagnostics) && meta.diagnostics[0]?.message) ||
+      "Cron list fallback in use. Gateway cron writes are unavailable.";
+
+    return (
+      `<div class="cron-degraded-banner" role="status" aria-live="polite">` +
+      `${escapeHtml("Gateway list fallback")}: ${escapeHtml(message)}` +
+      `</div>`
+    );
+  }
+
   function buildCronHTML(data) {
-    const jobs = data.jobs || [];
+    const jobs = extractJobs(data);
     return jobs
       .map((j, index) => {
         let dotClass = "status-dot-gray";
@@ -42,6 +72,9 @@ HUD.cron = (function () {
           : "";
 
         const enabledLabel = j.enabled ? "enabled" : "disabled";
+        const schedule = isObject(j.schedule) ? j.schedule : {};
+        const scheduleExpr = String(schedule.expr || "").trim() || "manual";
+        const scheduleTz = String(schedule.tz || "?");
 
         return `<div class="cron-row-v2" data-cron-id="${escapeAttr(j.id)}" role="listitem" tabindex="0" aria-label="Cron job ${escapeAttr(j.name)}, ${enabledLabel}, last status ${escapedStatusAttr}, agent ${escapeAttr(j.agentId || "none")}" data-index="${index}">
         <div class="${dotClass}" aria-hidden="true"></div>
@@ -50,7 +83,7 @@ HUD.cron = (function () {
             <span class="cron-agent-tag">${escapeHtml(j.agentId || "")}</span>
           </div>
           <div class="cron-meta">
-            <span class="cron-schedule">${escapeHtml(j.schedule?.expr || "?")} (${escapeHtml(j.schedule?.tz || "?")})</span>
+            <span class="cron-schedule">${escapeHtml(scheduleExpr)} (${escapeHtml(scheduleTz)})</span>
             <span class="cron-model-info">${modelInfo}</span>
           </div>
           <div class="cron-status-row">
@@ -68,11 +101,12 @@ HUD.cron = (function () {
 
   function render(data) {
     _cronData = data;
-    const jobs = data.jobs || [];
+    const jobs = extractJobs(data);
+    const meta = extractCronMeta(data);
     $("#cron-count").textContent = jobs.length;
     
     const cronList = $("#cron-list");
-    const html = buildCronHTML(data);
+    const html = readOnlyBanner(meta) + buildCronHTML(data);
     const temp = document.createElement("div");
     temp.innerHTML = html;
     
@@ -125,7 +159,8 @@ HUD.cron = (function () {
 
   function openEditor(jobId) {
     if (!_cronData) return;
-    const job = (_cronData.jobs || []).find((j) => j.id === jobId);
+    const jobs = extractJobs(_cronData);
+    const job = (jobs || []).find((j) => j.id === jobId);
     if (!job) return;
     _editingJobId = jobId;
 
@@ -167,7 +202,7 @@ HUD.cron = (function () {
         .join("");
     }
 
-    const payload = job.payload || {};
+    const payload = isObject(job.payload) ? job.payload : {};
     modelSelect.value = payload.model || "";
     $("#cron-timeout").value = payload.timeoutSeconds || "";
     $("#cron-prompt").value = payload.message || payload.text || "";
@@ -217,8 +252,15 @@ HUD.cron = (function () {
     const isCron = $("#cron-schedule-kind").value === "cron";
 
     const schedule = isCron
-      ? { kind: "cron", expr: $("#cron-expr").value, tz: $("#cron-tz").value || "America/Chicago" }
-      : { kind: "at", at: new Date($("#cron-at").value).toISOString() };
+      ? {
+          kind: "cron",
+          expr: $("#cron-expr").value,
+          tz: $("#cron-tz").value || "America/Chicago",
+        }
+      : {
+          kind: "at",
+          at: new Date($("#cron-at").value).toISOString(),
+        };
 
     const payloadKind = isIsolated ? "agentTurn" : "systemEvent";
     const payload = { kind: payloadKind };
@@ -232,6 +274,7 @@ HUD.cron = (function () {
     }
 
     const updates = {
+      id: _editingJobId,
       name: $("#cron-name").value,
       enabled: $("#cron-enabled").checked,
       agentId: $("#cron-agent").value,

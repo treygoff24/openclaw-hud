@@ -28,7 +28,6 @@ document.body.innerHTML = `
 `;
 window.HUD = window.HUD || {};
 window._agents = [{ id: "bot1" }, { id: "bot2" }];
-// Mock makeFocusable for keyboard accessibility
 window.makeFocusable = function (el, handler) {
   el.tabIndex = 0;
   el.addEventListener("keydown", function (e) {
@@ -70,6 +69,34 @@ describe("cron.render", () => {
     expect(document.getElementById("cron-count").textContent).toBe("1");
   });
 
+  it("renders canonical paged payload with jobs array", () => {
+    HUD.cron.render({
+      jobs: [
+        {
+          id: "j1",
+          name: "Page Job",
+          enabled: true,
+          agentId: "bot1",
+          schedule: { expr: "0 0 * * *", tz: "America/Chicago" },
+          state: {
+            lastStatus: "completed",
+            lastRunAtMs: Date.now() - 60000,
+            nextRunAtMs: Date.now() + 60000,
+          },
+        },
+      ],
+      total: 1,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
+      nextOffset: null,
+    });
+
+    const rows = document.querySelectorAll(".cron-row-v2");
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelector(".cron-name").textContent).toContain("Page Job");
+  });
+
   it("renders job rows with correct structure", () => {
     HUD.cron.render({
       jobs: [
@@ -93,7 +120,7 @@ describe("cron.render", () => {
     expect(rows[0].querySelector(".cron-schedule").textContent).toContain("0 * * * *");
   });
 
-  it("shows error styling for failed jobs", () => {
+  it("renders error styling for failed jobs", () => {
     HUD.cron.render({
       jobs: [
         {
@@ -110,8 +137,31 @@ describe("cron.render", () => {
     expect(html).toContain("timeout");
   });
 
+  it("renders degraded banner when gateway is unavailable", () => {
+    HUD.cron.render({
+      jobs: [
+        {
+          id: "j1",
+          name: "Local",
+          enabled: true,
+          schedule: { expr: "* * * * *", tz: "UTC" },
+          state: {},
+        },
+      ],
+      meta: {
+        gatewayAvailable: false,
+        diagnostics: [{ code: "CRON_LIST_FALLBACK", message: "Gateway unavailable" }],
+      },
+    });
+
+    const warning = document.getElementById("cron-list").querySelector(".cron-degraded-banner");
+    expect(warning).not.toBeNull();
+    expect(warning.textContent).toContain("Gateway list fallback");
+  });
+
   it("renders empty jobs", () => {
     HUD.cron.render({ jobs: [] });
+    expect(document.getElementById("cron-list").querySelectorAll(".cron-row-v2")).toHaveLength(0);
     expect(document.getElementById("cron-count").textContent).toBe("0");
   });
 

@@ -3,6 +3,16 @@ HUD.sessions = (function () {
   "use strict";
   const $ = (s) => document.querySelector(s);
 
+  function applyFocusableSessionRows() {
+    if (typeof window.makeFocusable !== "function") return;
+    const sessionsList = $("#sessions-list");
+    if (!sessionsList) return;
+    const rows = sessionsList.querySelectorAll(".session-row");
+    rows.forEach((row) => {
+      window.makeFocusable(row, function () {});
+    });
+  }
+
   function buildSessionsHTML(sessions) {
     return sessions
       .slice(0, 40)
@@ -48,6 +58,8 @@ HUD.sessions = (function () {
     } else {
       sessionsList.innerHTML = html;
     }
+
+    applyFocusableSessionRows();
   }
 
   // Event delegation handler

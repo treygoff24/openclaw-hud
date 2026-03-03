@@ -24,6 +24,38 @@ window.HUD.showToast = vi.fn();
 window.HUD.fetchAll = vi.fn();
 window._agents = [{ id: "bot1" }, { id: "bot2" }];
 window._modelAliases = [{ alias: "gpt4", fullId: "openai/gpt-4" }];
+const READY_PREFLIGHT_STATE = {
+  ok: true,
+  enabled: true,
+  code: "READY",
+  status: "ready",
+  reason: "spawn preflight passed",
+  diagnostics: [],
+};
+const PENDING_PREFLIGHT_STATE = {
+  ok: false,
+  enabled: false,
+  code: "SPAWN_PRECHECK_PENDING",
+  status: "blocked",
+  reason: "Spawn preflight is in progress. Start has not completed successfully.",
+  diagnostics: [],
+};
+
+function setFetchPreflightState(state = READY_PREFLIGHT_STATE) {
+  window.fetch = vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(state),
+    }),
+  );
+}
+
+async function waitForPreflightState(state) {
+  setFetchPreflightState(state);
+  await HUD.spawn.refreshPreflight();
+}
+
+setFetchPreflightState(READY_PREFLIGHT_STATE);
 window.escapeHtml = function (s) {
   if (s == null) return "";
   const d = document.createElement("div");
@@ -112,6 +144,10 @@ describe("spawn.init", () => {
 });
 
 describe("spawn.open", () => {
+  beforeEach(async () => {
+    await waitForPreflightState(READY_PREFLIGHT_STATE);
+  });
+
   it("opens the spawn modal", () => {
     HUD.spawn.open();
     expect(document.getElementById("spawn-modal").classList.contains("active")).toBe(true);
@@ -140,6 +176,10 @@ describe("spawn.open", () => {
 });
 
 describe("spawn.model change auto-populates label", () => {
+  beforeEach(async () => {
+    await waitForPreflightState(READY_PREFLIGHT_STATE);
+  });
+
   it("auto-populates label field with selected model alias when label is empty", () => {
     window._modelAliases = [
       { alias: "Claude Opus", fullId: "anthropic/claude-3-opus" },
@@ -197,6 +237,10 @@ describe("spawn.model change auto-populates label", () => {
 });
 
 describe("spawn.close", () => {
+  beforeEach(async () => {
+    await waitForPreflightState(READY_PREFLIGHT_STATE);
+  });
+
   it("closes the modal", () => {
     HUD.spawn.open();
     HUD.spawn.close();
@@ -204,8 +248,78 @@ describe("spawn.close", () => {
   });
 });
 
+describe("spawn.preflight", () => {
+  it("blocks launch actions while startup preflight is pending", async () => {
+    await waitForPreflightState(PENDING_PREFLIGHT_STATE);
+
+    const openSpawnBtn = document.getElementById("open-spawn-btn");
+    expect(openSpawnBtn.disabled).toBe(true);
+    HUD.spawn.open();
+    expect(document.getElementById("spawn-modal").classList.contains("active")).toBe(false);
+    expect(document.getElementById("spawn-error").style.display).toBe("block");
+  });
+
+  it("disables the launcher when preflight is blocked", async () => {
+    window.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: false,
+            enabled: false,
+            code: "SPAWN_HARDENING_PRECHECK",
+            reason: "Missing required overrides",
+            diagnostics: [
+              {
+                code: "SPAWN_HARDENING_PRECHECK",
+                message: "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
+                remediation:
+                  "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
+              },
+            ],
+          }),
+      }),
+    );
+
+    await HUD.spawn.refreshPreflight();
+    await Promise.resolve();
+
+    const openSpawnBtn = document.getElementById("open-spawn-btn");
+    expect(openSpawnBtn.disabled).toBe(true);
+
+    HUD.spawn.open();
+    expect(document.getElementById("spawn-modal").classList.contains("active")).toBe(false);
+    expect(document.getElementById("spawn-error").style.display).toBe("block");
+    expect(document.getElementById("spawn-error").textContent).toContain(
+      "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE",
+    );
+  });
+
+  it("keeps the launcher enabled when preflight passes", async () => {
+    window.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            enabled: true,
+            code: "READY",
+            diagnostics: [],
+          }),
+      }),
+    );
+
+    await HUD.spawn.refreshPreflight();
+    await Promise.resolve();
+
+    const openSpawnBtn = document.getElementById("open-spawn-btn");
+    expect(openSpawnBtn.disabled).toBe(false);
+  });
+});
+
 describe("spawn.launch", () => {
   beforeEach(() => {
+    setFetchPreflightState(READY_PREFLIGHT_STATE);
     vi.clearAllMocks();
     window.fetch = vi.fn(() =>
       Promise.resolve({
@@ -213,6 +327,10 @@ describe("spawn.launch", () => {
         json: () => Promise.resolve({ ok: true }),
       }),
     );
+  });
+
+  beforeEach(async () => {
+    await waitForPreflightState(READY_PREFLIGHT_STATE);
   });
 
   it("shows error when prompt is empty", async () => {
@@ -246,5 +364,22 @@ describe("spawn.launch", () => {
     document.getElementById("spawn-prompt").value = "Do something";
     await HUD.spawn.launch();
     expect(document.getElementById("spawn-error").textContent).toContain("spawn failed");
+  });
+
+  it("blocks launch when preflight is still pending", async () => {
+    await waitForPreflightState(PENDING_PREFLIGHT_STATE);
+
+    window.fetch = vi.fn();
+    HUD.spawn.open();
+    document.getElementById("spawn-prompt").value = "Do something";
+    await HUD.spawn.launch();
+    expect(window.fetch).toHaveBeenCalledTimes(0);
+    expect(document.getElementById("spawn-error").textContent).toContain("in progress");
+  });
+
+  it("does not send a new session when preflight is blocked", async () => {
+    await waitForPreflightState(PENDING_PREFLIGHT_STATE);
+    HUD.spawn.newSession();
+    expect(window.ChatState.sendWs).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,16 @@ HUD.agents = (function () {
 
   let agentFilter = "";
 
+  function applyFocusableAgentCards() {
+    if (typeof window.makeFocusable !== "function") return;
+    const agentsList = $("#agents-list");
+    if (!agentsList) return;
+    const cards = agentsList.querySelectorAll(".agent-card");
+    cards.forEach((card) => {
+      window.makeFocusable(card, function () {});
+    });
+  }
+
   function buildAgentsHTML(agents) {
     const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
     const now = Date.now();
@@ -45,6 +55,8 @@ HUD.agents = (function () {
     } else {
       agentsList.innerHTML = html;
     }
+
+    applyFocusableAgentCards();
     
     $("#agent-count").textContent = filteredCount;
   }
@@ -62,6 +74,8 @@ HUD.agents = (function () {
     } else {
       agentsList.innerHTML = buildAgentsHTML(agents).html;
     }
+
+    applyFocusableAgentCards();
     
     $("#agent-count").textContent = filteredCount;
 

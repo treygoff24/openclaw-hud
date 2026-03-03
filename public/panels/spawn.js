@@ -5,8 +5,90 @@ HUD.spawn = (function () {
 
   let _focusTrap = null;
   let _triggerElement = null;
+  let _spawnPreflight = {
+    ok: false,
+    enabled: false,
+    code: "SPAWN_PRECHECK_PENDING",
+    status: "blocked",
+    reason: "Spawn preflight is in progress. Start has not completed successfully.",
+    diagnostics: [],
+  };
+
+  function applySpawnGateState(nextState) {
+    _spawnPreflight = {
+      ok: Boolean(nextState?.ok),
+      enabled: Boolean(nextState?.enabled),
+      code: typeof nextState?.code === "string" ? nextState.code : "READY",
+      status: typeof nextState?.status === "string" ? nextState.status : "ready",
+      reason: typeof nextState?.reason === "string" ? nextState.reason : "",
+      diagnostics: Array.isArray(nextState?.diagnostics) ? nextState.diagnostics : [],
+    };
+
+    const openSpawnBtn = $("#open-spawn-btn");
+    if (openSpawnBtn) {
+      openSpawnBtn.disabled = !_spawnPreflight.enabled;
+      openSpawnBtn.title = _spawnPreflight.enabled
+        ? "Launch a new session"
+        : "Spawn currently disabled";
+    }
+
+    const newSessionBtn = $("#new-session-btn");
+    if (newSessionBtn) {
+      newSessionBtn.disabled = !_spawnPreflight.enabled;
+      if (!_spawnPreflight.enabled) {
+        newSessionBtn.title = "Spawn currently disabled";
+      }
+    }
+  }
+
+  function getSpawnGateDiagnosticText() {
+    const firstDiagnostic = _spawnPreflight.diagnostics && _spawnPreflight.diagnostics[0];
+    if (firstDiagnostic?.message) return String(firstDiagnostic.message);
+    if (_spawnPreflight.reason) return String(_spawnPreflight.reason);
+    return "Spawn is currently unavailable.";
+  }
+
+  async function refreshPreflight() {
+    const fallbackState = {
+      ok: false,
+      enabled: false,
+      code: "SPAWN_PRECHECK_OFFLINE",
+      status: "blocked",
+      reason: "Spawn preflight endpoint is unavailable.",
+      diagnostics: [
+        {
+          code: "SPAWN_PRECHECK_OFFLINE",
+          message: "Spawn setup gate check failed. HUD cannot confirm spawn is ready.",
+          remediation: "Start HUD after `/api/spawn-preflight` is reachable.",
+        },
+      ],
+    };
+
+    if (typeof fetch !== "function") {
+      applySpawnGateState(fallbackState);
+      return _spawnPreflight;
+    }
+
+    try {
+      const res = await fetch("/api/spawn-preflight", { method: "GET" });
+      if (!res.ok) throw new Error(`Preflight request failed (${res.status})`);
+      const state = await res.json();
+      applySpawnGateState(state);
+    } catch {
+      applySpawnGateState(fallbackState);
+    }
+
+    return _spawnPreflight;
+  }
 
   function open() {
+    if (!_spawnPreflight.enabled) {
+      const errorEl = $("#spawn-error");
+      errorEl.textContent = getSpawnGateDiagnosticText();
+      errorEl.style.display = "block";
+      return;
+    }
+
     _triggerElement = document.activeElement;
     $("#spawn-error").style.display = "none";
     $("#spawn-error").setAttribute("role", "alert");
@@ -63,6 +145,12 @@ HUD.spawn = (function () {
   async function launch() {
     const btn = $("#spawn-launch-btn");
     const errorEl = $("#spawn-error");
+    if (!_spawnPreflight.enabled) {
+      errorEl.textContent = getSpawnGateDiagnosticText();
+      errorEl.style.display = "block";
+      return;
+    }
+
     errorEl.style.display = "none";
 
     const data = {
@@ -110,6 +198,8 @@ HUD.spawn = (function () {
   }
 
   function newSession() {
+    if (!_spawnPreflight.enabled) return;
+
     const agentId =
       window.ChatState && window.ChatState.currentSession
         ? window.ChatState.currentSession.agentId
@@ -145,7 +235,18 @@ HUD.spawn = (function () {
         labelField.value = this.selectedOptions[0]?.text || "";
       }
     });
+
+    if (typeof fetch === "function") {
+      refreshPreflight();
+    }
   }
 
-  return { open, close, launch, newSession, init };
+  return {
+    open,
+    close,
+    launch,
+    newSession,
+    refreshPreflight,
+    init,
+  };
 })();
