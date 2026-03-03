@@ -2,8 +2,11 @@ const path = require("path");
 const fs = require("fs");
 const { OPENCLAW_HOME, safeJSON, safeRead } = require("../../lib/helpers");
 const { parseCanonicalSessionKey } = require("./session-key");
+const { normalizeGatewayError: normalizeCompatGatewayError } = require("../../lib/gateway-compat/error-map");
 
 const CHAT_HISTORY_LOG_PREFIX = "[CHAT-HISTORY]";
+const SESSION_NOT_FOUND_CODES = new Set(["INVALID_SESSION_KEY", "SESSION_NOT_FOUND", "UNKNOWN_SESSION_KEY"]);
+const AUTH_SCOPE_CODES = new Set(["INVALID_SCOPE", "MISSING_SCOPE", "AUTH_SCOPE_MISSING", "INSUFFICIENT_SCOPE"]);
 
 function normalizeHistoryLimit(limit) {
   if (limit === undefined || limit === null || limit === "") return null;
@@ -218,150 +221,33 @@ function loadLocalHistory(sessionKey, requestedLimit) {
 }
 
 function normalizeGatewayError(err) {
-  const message = err && err.message ? err.message : "Unknown error";
-  const rawCode = err && typeof err.code === "string" ? err.code : "";
-  if (
-    rawCode === "INVALID_SESSION_KEY" ||
-    rawCode === "SESSION_NOT_FOUND" ||
-    /unknown session|session.*not found|invalid session key/i.test(message)
-  ) {
-    return { code: "UNKNOWN_SESSION_KEY", message };
-  }
-  if (
-    rawCode === "FORBIDDEN" ||
-    rawCode === "UNAUTHORIZED" ||
-    /missing scope|permission|forbidden|unauthorized/i.test(message)
-  ) {
-    return { code: "FORBIDDEN", message };
-  }
-  return { code: rawCode || "UNKNOWN", message };
-}
-
-function toErrorMessage(err) {
-  if (err && typeof err.message === "string" && err.message.trim()) return err.message;
-  if (typeof err === "string" && err.trim()) return err;
-  return "Unknown error";
-}
-
-function toErrorCode(err) {
-  return err && typeof err.code === "string" ? err.code : "";
-}
-
-function toErrorStatus(err) {
-  const candidates = [
-    err && err.status,
-    err && err.statusCode,
-    err && err.response && err.response.status,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate;
-    if (typeof candidate === "string" && candidate.trim()) {
-      const parsed = Number(candidate);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return undefined;
-}
-
-function classifyChatHistoryGatewayError(err) {
-  const rawCode = toErrorCode(err);
-  const message = toErrorMessage(err);
-  const status = toErrorStatus(err);
-  const codeUpper = rawCode.toUpperCase();
-  const messageLower = message.toLowerCase();
-
-  if (
-    codeUpper === "MISSING_SCOPE" ||
-    codeUpper === "AUTH_SCOPE_MISSING" ||
-    codeUpper === "INSUFFICIENT_SCOPE" ||
-    /missing scope|scope.*missing|insufficient scope|scope.*required|requires.*scope/i.test(
-      messageLower,
-    )
-  ) {
-    return "auth_scope_missing";
-  }
-
-  if (
-    codeUpper === "INVALID_SESSION_KEY" ||
-    codeUpper === "SESSION_NOT_FOUND" ||
-    codeUpper === "UNKNOWN_SESSION_KEY" ||
-    codeUpper === "NOT_FOUND" ||
-    status === 404 ||
-    /unknown session|session.*not found|invalid session key/i.test(messageLower)
-  ) {
-    return "not_found";
-  }
-
-  if (
-    codeUpper === "FORBIDDEN" ||
-    codeUpper === "UNAUTHORIZED" ||
-    codeUpper === "PERMISSION_DENIED" ||
-    status === 401 ||
-    status === 403 ||
-    /permission denied|forbidden|unauthorized|access denied/i.test(messageLower)
-  ) {
-    return "forbidden";
-  }
-
-  if (
-    codeUpper === "ETIMEDOUT" ||
-    codeUpper === "ESOCKETTIMEDOUT" ||
-    codeUpper === "TIMEOUT" ||
-    codeUpper === "ERR_TIMEOUT" ||
-    codeUpper === "ABORT_ERR" ||
-    codeUpper === "UND_ERR_CONNECT_TIMEOUT" ||
-    codeUpper === "UND_ERR_HEADERS_TIMEOUT" ||
-    codeUpper === "UND_ERR_BODY_TIMEOUT" ||
-    status === 408 ||
-    status === 504 ||
-    /timeout|timed out|deadline exceeded|operation was aborted|aborterror/i.test(messageLower)
-  ) {
-    return "timeout";
-  }
-
-  if (
-    codeUpper === "UNAVAILABLE" ||
-    codeUpper === "ECONNRESET" ||
-    codeUpper === "ECONNREFUSED" ||
-    codeUpper === "EHOSTUNREACH" ||
-    codeUpper === "ENETUNREACH" ||
-    codeUpper === "ENOTFOUND" ||
-    codeUpper === "EAI_AGAIN" ||
-    codeUpper === "ERR_NETWORK" ||
-    codeUpper === "NETWORK_ERROR" ||
-    status === 429 ||
-    (typeof status === "number" && status >= 500) ||
-    /gateway not connected|service unavailable|temporarily unavailable|network error|socket hang up|connection reset|connection refused|fetch failed|bad gateway|gateway unavailable|econnreset|econnrefused|ehostunreach|enotfound|eai_again/i.test(
-      messageLower,
-    )
-  ) {
-    return "unavailable";
-  }
-
-  return "unknown";
-}
-
-function adaptChatHistoryGatewayError(err) {
-  const rawCode = toErrorCode(err);
-  const rawMessage = toErrorMessage(err);
-  const rawStatus = toErrorStatus(err);
-  const rawName = err && typeof err.name === "string" ? err.name : undefined;
-  const reason = classifyChatHistoryGatewayError(err);
-
-  let code = rawCode || "UNKNOWN";
-  if (reason === "not_found") code = "UNKNOWN_SESSION_KEY";
-  else if (reason === "forbidden" || reason === "auth_scope_missing") code = "FORBIDDEN";
-  else if (!rawCode && reason === "unavailable") code = "UNAVAILABLE";
-  else if (!rawCode && reason === "timeout") code = "TIMEOUT";
+  const normalized = normalizeCompatGatewayError(err);
+  const normalizedCode = String(normalized.code || "");
+  const rawCode = String(normalized.rawCode || "").toUpperCase();
+  const rawMessage = String(normalized.message || "Unknown error");
+  const reason = normalizeChatHistoryReason(normalized.reason, rawCode, rawMessage);
+  const code = normalizeChatHistoryCode(reason, normalizedCode, rawCode);
 
   return {
     code,
-    message: rawMessage,
+    status: normalized.status,
     reason,
-    ...(rawCode ? { rawCode } : {}),
+    message: rawMessage,
     rawMessage,
-    ...(rawStatus !== undefined ? { rawStatus } : {}),
-    ...(rawName ? { rawName } : {}),
+    ...(normalized.rawCode ? { rawCode } : {}),
+    ...(normalized.rawStatus !== undefined ? { rawStatus: normalized.rawStatus } : {}),
+  };
+}
+
+function classifyChatHistoryGatewayError(err) {
+  const normalized = normalizeCompatGatewayError(err);
+  return normalizeChatHistoryReason(normalized.reason, String(normalized.rawCode || ""), normalized.message);
+}
+
+function adaptChatHistoryGatewayError(err) {
+  return {
+    ...normalizeGatewayError(err),
+    ...(err && typeof err.name === "string" ? { rawName: err.name } : {}),
   };
 }
 
@@ -369,11 +255,42 @@ function isChatHistoryFallbackEligible(error) {
   const reason = error && typeof error.reason === "string" ? error.reason : "unknown";
   return (
     reason === "forbidden" ||
-    reason === "auth_scope_missing" ||
+    reason === "missing_scope" ||
     reason === "not_found" ||
-    reason === "unavailable" ||
+    reason === "network_unreachable" ||
     reason === "timeout"
   );
+}
+
+function normalizeChatHistoryReason(reason, rawCode, message) {
+  const reasonUpper = String(reason || "").toLowerCase();
+  const codeUpper = String(rawCode || "").toUpperCase();
+  const messageLower = String(message || "").toLowerCase();
+
+  if (
+    codeUpper === "NOT_FOUND" ||
+    SESSION_NOT_FOUND_CODES.has(codeUpper) ||
+    /unknown session|session.*not found|invalid session key/i.test(messageLower)
+  ) {
+    return "not_found";
+  }
+
+  if (AUTH_SCOPE_CODES.has(codeUpper) || /missing scope|scope.*missing|insufficient scope/i.test(messageLower)) {
+    return "missing_scope";
+  }
+
+  return reasonUpper;
+}
+
+function normalizeChatHistoryCode(reason, compatCode, rawCode) {
+  if (reason === "not_found") return "UNKNOWN_SESSION_KEY";
+  if (reason === "missing_scope" || reason === "forbidden") return "FORBIDDEN";
+  if (!compatCode) {
+    if (reason === "timeout") return "UNAVAILABLE";
+    if (reason === "network_unreachable") return "UNAVAILABLE";
+    return "GATEWAY_ERROR";
+  }
+  return compatCode;
 }
 
 module.exports = {

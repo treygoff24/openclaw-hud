@@ -308,7 +308,9 @@ describe("WebSocket log-streaming", () => {
     });
     const msg = await p;
     expect(msg.ok).toBe(false);
-    expect(msg.error.code).toBe("UNAVAILABLE");
+    expect(msg.error.code).toBe("GATEWAY_ERROR");
+    expect(msg.error.rawCode).toBe("GATEWAY_TOKEN_MISSING");
+    expect(msg.error.message).toBe("Gateway token not configured");
     mockGateway.connected = true;
   });
 

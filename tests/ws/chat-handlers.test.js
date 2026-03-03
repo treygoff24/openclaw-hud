@@ -115,7 +115,45 @@ describe("chat-handlers", () => {
       );
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
-      expect(sent.error.code).toBe("UNAVAILABLE");
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.rawCode).toBe("GATEWAY_TOKEN_MISSING");
+      expect(sent.error.message).toBe("Gateway token not configured");
+    });
+
+    it("chat-send preserves normalized invokeTool errors when gateway is disconnected", async () => {
+      const ws = mockWs();
+      const gw = mockGateway(false);
+      fs.writeFileSync(
+        path.join(tmpOpenclawHome, "openclaw.json"),
+        JSON.stringify({
+          gateway: { auth: { token: "test-token" } },
+        }),
+      );
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+        json: async () => ({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mod.handleChatMessage(
+        ws,
+        { type: "chat-send", sessionKey: MAIN_KEY, message: "hi", idempotencyKey: "ik1" },
+        gw,
+      );
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe("chat-send-ack");
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("BAD_REQUEST");
+      expect(sent.error.reason).toBe("invalid_request");
+      expect(sent.error.status).toBe(400);
+      expect(sent.error.rawCode).toBe("INVALID_REQUEST");
+      expect(sent.error.message).toBe("payload missing field");
+      expect(sent.error.rawMessage).toBe("payload missing field");
+      vi.unstubAllGlobals();
     });
 
     it("chat-send fails closed when gateway host is not local loopback", async () => {
@@ -139,7 +177,8 @@ describe("chat-handlers", () => {
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
-      expect(sent.error.code).toBe("UNAVAILABLE");
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.rawCode).toBe("GATEWAY_HOST_UNSUPPORTED");
       expect(sent.error.message).toContain("loopback");
     });
 
@@ -173,8 +212,47 @@ describe("chat-handlers", () => {
       );
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.reason).toBe("gateway_error");
       expect(sent.error.message).toBe("boom");
       vi.unstubAllGlobals();
+    });
+
+    it("chat-send maps compatibility not-found errors on attachment sends", async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      const err = new Error("Session not found");
+      err.code = "SESSION_NOT_FOUND";
+      gw.request.mockRejectedValue(err);
+      const attachments = [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "Zm9v",
+          },
+        },
+      ];
+
+      await mod.handleChatMessage(
+        ws,
+        {
+          type: "chat-send",
+          sessionKey: MAIN_KEY,
+          message: "hi",
+          idempotencyKey: "ik-attachment-not-found",
+          attachments,
+        },
+        gw,
+      );
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("UNKNOWN_SESSION_KEY");
+      expect(sent.error.reason).toBe("not_found");
+      expect(sent.error.rawCode).toBe("SESSION_NOT_FOUND");
+      expect(sent.error.rawMessage).toBe("Session not found");
     });
 
     it("chat-history returns messages", async () => {
@@ -359,17 +437,45 @@ describe("chat-handlers", () => {
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.messages).toEqual([]);
-      expect(sent.error.reason).toBe("auth_scope_missing");
+      expect(sent.error.reason).toBe("missing_scope");
       expect(sent.error.rawCode).toBe("MISSING_SCOPE");
       expect(sent.error.rawMessage).toBe("Missing scope: sessions:read");
     });
 
-    it("chat-history does not mask non-recoverable gateway errors with local fallback", async () => {
+    it("chat-history does not fallback on generic gateway errors", async () => {
       writeLocalHistoryFixture({
         sessionKey: MAIN_KEY,
         sessionId: "sess-local-nonrecoverable",
         lines: [
           JSON.stringify({ type: "message", role: "assistant", content: "should not be returned" }),
+        ],
+      });
+      const ws = mockWs();
+      const gw = mockGateway(true);
+      const err = new Error("Unexpected backend shape");
+      err.code = "STRANGE_FAILURE";
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: "chat-history", sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.messages).toEqual([]);
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.reason).toBe("gateway_error");
+      expect(sent.error.rawCode).toBe("STRANGE_FAILURE");
+      expect(sent.error.message).toBe("Unexpected backend shape");
+    });
+
+    it("chat-history falls back when gateway returns auth failure compatibility errors", async () => {
+      writeLocalHistoryFixture({
+        sessionKey: MAIN_KEY,
+        sessionId: "sess-local-auth-failed",
+        lines: [
+          JSON.stringify({
+            type: "message",
+            role: "assistant",
+            content: "auth failed fallback works",
+          }),
         ],
       });
       const ws = mockWs();
@@ -381,9 +487,9 @@ describe("chat-handlers", () => {
       await mod.handleChatMessage(ws, { type: "chat-history", sessionKey: MAIN_KEY }, gw);
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sent.messages).toEqual([]);
-      expect(sent.error.code).toBe("AUTH_FAILED");
-      expect(sent.error.message).toBe("Gateway auth failed");
+      expect(sent.error).toBeUndefined();
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].content[0].text).toBe("auth failed fallback works");
     });
 
     it("chat-history logs correlation id and fallback reason fields", async () => {
@@ -518,6 +624,23 @@ describe("chat-handlers", () => {
       expect(sent.error.message).toBe("Unknown session key");
     });
 
+    it("chat-abort includes compatibility diagnostics on transport errors", async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      const err = new Error("Request timed out");
+      err.code = "ETIMEDOUT";
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: "chat-abort", sessionKey: MAIN_KEY }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("UNAVAILABLE");
+      expect(sent.error.reason).toBe("timeout");
+      expect(sent.error.rawCode).toBe("ETIMEDOUT");
+      expect(sent.error.rawMessage).toBe("Request timed out");
+    });
+
     it("chat-abort includes runId when provided", async () => {
       const ws = mockWs();
       const gw = mockGateway();
@@ -541,7 +664,14 @@ describe("chat-handlers", () => {
       expect(sent).toEqual({
         type: "chat-new-result",
         ok: false,
-        error: "Gateway token not configured",
+        error: {
+          code: "GATEWAY_ERROR",
+          reason: "gateway_error",
+          status: 502,
+          message: "Gateway token not configured",
+          rawMessage: "Gateway token not configured",
+          rawCode: "GATEWAY_TOKEN_MISSING",
+        },
       });
     });
 
@@ -554,6 +684,8 @@ describe("chat-handlers", () => {
         }),
       );
       const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
         json: async () => ({ result: { details: { childSessionKey: MAIN_KEY } } }),
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -587,6 +719,7 @@ describe("chat-handlers", () => {
         }),
       );
       const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
         json: async () => ({ error: { message: "spawn denied" } }),
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -594,7 +727,43 @@ describe("chat-handlers", () => {
       await mod.handleChatMessage(ws, { type: "chat-new" }, null);
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sent).toEqual({ type: "chat-new-result", ok: false, error: "spawn denied" });
+      expect(sent.type).toBe("chat-new-result");
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.reason).toBe("gateway_error");
+      expect(sent.error.status).toBe(502);
+      expect(sent.error.message).toBe("spawn denied");
+      expect(sent.error.rawMessage).toBe("spawn denied");
+      expect(sent.error.rawCode).toBeUndefined();
+      vi.unstubAllGlobals();
+    });
+
+    it("chat-new maps tool compatibility errors into stable fields", async () => {
+      const ws = mockWs();
+      fs.writeFileSync(
+        path.join(tmpOpenclawHome, "openclaw.json"),
+        JSON.stringify({
+          gateway: { auth: { token: "test-token" } },
+        }),
+      );
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => JSON.stringify({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+        json: async () => ({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mod.handleChatMessage(ws, { type: "chat-new" }, null);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe("chat-new-result");
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("BAD_REQUEST");
+      expect(sent.error.reason).toBe("invalid_request");
+      expect(sent.error.status).toBe(400);
+      expect(sent.error.rawCode).toBe("INVALID_REQUEST");
+      expect(sent.error.message).toBe("payload missing field");
       vi.unstubAllGlobals();
     });
 
@@ -613,7 +782,8 @@ describe("chat-handlers", () => {
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.ok).toBe(false);
-      expect(sent.error).toContain("loopback");
+      const errMsg = typeof sent.error === "string" ? sent.error : sent.error.message;
+      expect(errMsg).toContain("loopback");
       expect(fetchMock).not.toHaveBeenCalled();
       vi.unstubAllGlobals();
     });
@@ -632,7 +802,39 @@ describe("chat-handlers", () => {
       await mod.handleChatMessage(ws, { type: "chat-new" }, null);
 
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sent).toEqual({ type: "chat-new-result", ok: false, error: "network down" });
+      expect(sent.type).toBe("chat-new-result");
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.message).toBe("network down");
+      expect(sent.error.rawMessage).toBe("network down");
+      vi.unstubAllGlobals();
+    });
+
+    it("chat-new normalizes unknown spawn response shape to compatibility object", async () => {
+      const ws = mockWs();
+      fs.writeFileSync(
+        path.join(tmpOpenclawHome, "openclaw.json"),
+        JSON.stringify({
+          gateway: { auth: { token: "test-token" } },
+        }),
+      );
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mod.handleChatMessage(ws, { type: "chat-new" }, null);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe("chat-new-result");
+      expect(sent.ok).toBe(false);
+      expect(sent.error.code).toBe("GATEWAY_ERROR");
+      expect(sent.error.reason).toBe("gateway_error");
+      expect(sent.error.status).toBe(502);
+      expect(sent.error.message).toBe("Gateway spawn response missing childSessionKey");
+      expect(sent.error.rawMessage).toBe("Gateway spawn response missing childSessionKey");
       vi.unstubAllGlobals();
     });
 
@@ -643,6 +845,26 @@ describe("chat-handlers", () => {
       await mod.handleChatMessage(ws, { type: "models-list" }, gw);
       const sent = JSON.parse(ws.send.mock.calls[0][0]);
       expect(sent.models).toEqual(["gpt-4"]);
+    });
+
+    it("models-list returns normalized compatibility error object on gateway failures", async () => {
+      const ws = mockWs();
+      const gw = mockGateway();
+      const err = new Error("Gateway unreachable");
+      err.code = "ENOTFOUND";
+      gw.request.mockRejectedValue(err);
+
+      await mod.handleChatMessage(ws, { type: "models-list" }, gw);
+
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent.type).toBe("models-list-result");
+      expect(sent.models).toEqual([]);
+      expect(sent.error.code).toBe("UNAVAILABLE");
+      expect(sent.error.reason).toBe("network_unreachable");
+      expect(sent.error.status).toBe(503);
+      expect(sent.error.message).toBe("Gateway unreachable");
+      expect(sent.error.rawMessage).toBe("Gateway unreachable");
+      expect(sent.error.rawCode).toBe("ENOTFOUND");
     });
 
     it("chat-send without sessionKey sends error", async () => {

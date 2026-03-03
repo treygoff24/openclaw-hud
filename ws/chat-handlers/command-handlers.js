@@ -1,7 +1,8 @@
 const { getGatewayConfig } = require("../../lib/helpers");
-const { resolveGatewayInvokeBaseUrl } = require("../../lib/gateway-http");
 const { chatSubscriptions, clientChatSubs } = require("./state");
 const { isCanonicalSessionKey } = require("./session-key");
+const { invokeTool } = require("../../lib/gateway-compat/tools-invoke");
+const { normalizeGatewayError: normalizeCompatGatewayError } = require("../../lib/gateway-compat/error-map");
 const {
   validateAttachments,
   buildContentBlocks,
@@ -21,32 +22,59 @@ function sendJson(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function buildGatewayUnavailableError(message = "Gateway not connected") {
+  return {
+    code: "UNAVAILABLE",
+    reason: "network_unreachable",
+    status: 503,
+    message,
+    rawCode: "UNAVAILABLE",
+    rawMessage: message,
+    rawStatus: 503,
+  };
+}
+
 let historyCorrelationSeq = 0;
 function nextHistoryCorrelationId() {
   historyCorrelationSeq += 1;
   return `history-${historyCorrelationSeq}`;
 }
 
-async function invokeGatewayTool(tool, args) {
-  const gwConfig = getGatewayConfig();
-  if (!gwConfig.token) throw new Error("Gateway token not configured");
-  const gatewayInvokeBaseUrl = resolveGatewayInvokeBaseUrl(gwConfig);
-  const res = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${gwConfig.token}`,
-    },
-    signal: AbortSignal.timeout(30000),
-    body: JSON.stringify({ tool, args }),
-  });
+function normalizeCompatError(error, defaultMessage = "Unknown gateway error") {
+  const hasCompatMarkers =
+    error &&
+    typeof error === "object" &&
+    typeof error.code === "string" &&
+    (typeof error.reason === "string" || typeof error.rawMessage === "string" || typeof error.rawCode === "string");
 
-  const body = await res.json();
-  if (!res.ok || body?.ok === false) {
-    const msg = body?.error?.message || body?.error || `HTTP ${res.status}`;
-    throw new Error(String(msg || "Gateway request failed"));
+  if (hasCompatMarkers) {
+    const message =
+      typeof error.message === "string" && error.message.trim()
+        ? error.message
+        : defaultMessage;
+    return {
+      ...error,
+      status: Number.isInteger(error.status) ? error.status : 502,
+      reason: error.reason || "gateway_error",
+      message,
+      rawMessage:
+        typeof error.rawMessage === "string" && error.rawMessage.trim()
+          ? error.rawMessage
+          : message,
+    };
   }
-  return body?.result?.details || {};
+
+  const payload =
+    error && typeof error === "object"
+      ? error
+      : { message: typeof error === "string" && error.trim() ? error : defaultMessage };
+  const normalized = normalizeCompatGatewayError(payload);
+  const message = typeof normalized.message === "string" && normalized.message.trim() ? normalized.message : defaultMessage;
+  return {
+    ...normalized,
+    message,
+    rawMessage: typeof normalized.rawMessage === "string" && normalized.rawMessage.trim() ? normalized.rawMessage : message,
+  };
 }
 
 const commandHandlers = {
@@ -118,8 +146,10 @@ const commandHandlers = {
 
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const textMessage = typeof message === "string" ? message : "";
+    const hasGatewayConnection = gatewayWS && gatewayWS.connected;
+    const gwConfig = getGatewayConfig();
 
-    if (gatewayWS && gatewayWS.connected) {
+    if (hasGatewayConnection) {
       try {
         const content = buildContentBlocks(message, attachments);
         const result = await gatewayWS.request("chat.send", {
@@ -153,19 +183,29 @@ const commandHandlers = {
         type: "chat-send-ack",
         idempotencyKey,
         ok: false,
-        error: { code: "UNAVAILABLE", message: "Gateway not connected for attachment send" },
+        error: buildGatewayUnavailableError("Gateway not connected for attachment send"),
       });
       return;
     }
 
     try {
-      const result = await invokeGatewayTool("sessions_send", { sessionKey, message: textMessage });
+      const result = await invokeTool({
+        gatewayConfig: gwConfig,
+        tool: "sessions_send",
+        args: { sessionKey, message: textMessage },
+      });
       if (result?.status === "error") {
         sendJson(ws, {
           type: "chat-send-ack",
           idempotencyKey,
           ok: false,
-          error: { code: "GATEWAY_ERROR", message: result.error || "Gateway send failed" },
+          error: {
+            code: "GATEWAY_ERROR",
+            reason: "gateway_error",
+            status: 502,
+            message: result?.error || "Gateway send failed",
+            rawMessage: result?.error || "Gateway send failed",
+          },
         });
         return;
       }
@@ -177,12 +217,12 @@ const commandHandlers = {
         ok: true,
       });
     } catch (err) {
-      sendJson(ws, {
-        type: "chat-send-ack",
-        idempotencyKey,
-        ok: false,
-        error: { code: "UNAVAILABLE", message: err.message || "Gateway not connected" },
-      });
+      const error = hasGatewayConnection && err && err.code
+        ? err
+        : hasGatewayConnection
+          ? normalizeGatewayError(err)
+          : normalizeCompatError(err, "Gateway not connected for message send");
+      sendJson(ws, { type: "chat-send-ack", idempotencyKey, ok: false, error });
     }
   },
 
@@ -295,7 +335,7 @@ const commandHandlers = {
       sendJson(ws, {
         type: "chat-abort-result",
         ok: false,
-        error: { code: "UNAVAILABLE", message: "Gateway not connected" },
+        error: buildGatewayUnavailableError("Gateway not connected"),
       });
       return;
     }
@@ -317,43 +357,50 @@ const commandHandlers = {
     const { model, agentId } = msg;
     const gwConfig = getGatewayConfig();
     if (!gwConfig.token) {
-      sendJson(ws, { type: "chat-new-result", ok: false, error: "Gateway token not configured" });
+      sendJson(ws, {
+        type: "chat-new-result",
+        ok: false,
+        error: normalizeCompatError({
+          code: "GATEWAY_TOKEN_MISSING",
+          message: "Gateway token not configured",
+        }),
+      });
       return;
     }
 
     try {
-      const gatewayInvokeBaseUrl = resolveGatewayInvokeBaseUrl(gwConfig);
-      const gwRes = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${gwConfig.token}`,
+      const details = await invokeTool({
+        gatewayConfig: gwConfig,
+        tool: "sessions_spawn",
+        args: {
+          task: "New chat session from HUD",
+          agentId: agentId || undefined,
+          model: model || undefined,
+          mode: "session",
+          label: `hud-${Date.now()}`,
         },
-        signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({
-          tool: "sessions_spawn",
-          args: {
-            task: "New chat session from HUD",
-            agentId: agentId || undefined,
-            model: model || undefined,
-            mode: "session",
-            label: `hud-${Date.now()}`,
-          },
-        }),
+        timeoutMs: 15000,
       });
-      const body = await gwRes.json();
-      const sessionKey = body?.result?.details?.childSessionKey;
+      const sessionKey = details?.childSessionKey;
       if (sessionKey) {
         sendJson(ws, { type: "chat-new-result", ok: true, sessionKey });
       } else {
+        const spawnError = details?.error;
         sendJson(ws, {
           type: "chat-new-result",
           ok: false,
-          error: body?.error?.message || "Unknown error",
+          error: normalizeCompatError(
+            spawnError,
+            "Gateway spawn response missing childSessionKey",
+          ),
         });
       }
     } catch (err) {
-      sendJson(ws, { type: "chat-new-result", ok: false, error: err.message });
+      sendJson(ws, {
+        type: "chat-new-result",
+        ok: false,
+        error: normalizeCompatError(err, "Gateway spawn failed"),
+      });
     }
   },
 
@@ -362,7 +409,11 @@ const commandHandlers = {
       const result = await gatewayWS.request("models.list", {});
       sendJson(ws, { type: "models-list-result", models: result.models || result });
     } catch (err) {
-      sendJson(ws, { type: "models-list-result", models: [], error: err.message });
+      sendJson(ws, {
+        type: "models-list-result",
+        models: [],
+        error: normalizeCompatError(err, "Failed to list models"),
+      });
     }
   },
 };
