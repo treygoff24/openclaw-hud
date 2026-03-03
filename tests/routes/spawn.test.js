@@ -44,56 +44,10 @@ function setPreflightState(state) {
 }
 
 describe("spawn preflight success detection", () => {
-  it("rejects ok:false payloads even when details exist", () => {
-    expect(
-      server.isSpawnProbePayloadSuccess({
-        ok: false,
-        result: { details: { childSessionKey: "session-1" } },
-      }),
-    ).toBe(false);
-  });
-
-  it("rejects payloads without explicit success flag", () => {
-    expect(
-      server.isSpawnProbePayloadSuccess({
-        result: { details: { childSessionKey: "session-1" } },
-      }),
-    ).toBe(false);
-  });
-
-  it("extracts fallback error message from HTTP status when no gateway message exists", () => {
-    const message = server.extractGatewayProbeMessage(
-      {},
-      { status: 502, statusText: "Bad Gateway" },
-      "{\"error\":{\"code\":\"UNKNOWN\"}}",
-    );
-    expect(message).toContain("502");
-    expect(message).toContain("Bad Gateway");
-    expect(message).toContain("error\":{\"code\":\"UNKNOWN\"}");
-  });
-
-  it("extracts fallback error message from raw body snippet when status text is missing", () => {
-    const message = server.extractGatewayProbeMessage({}, { status: 500 }, "upstream gateway returned HTML error page");
-    expect(message).toContain("500");
-    expect(message).toContain("upstream gateway returned HTML error page");
-  });
-
-  it("uses a syntactically valid probe agentId", () => {
-    const payload = server.createSpawnPreflightProbePayload();
-    expect(payload.args.agentId).toMatch(/^[a-z0-9][a-z0-9_-]{0,63}$/);
-  });
-
-  it("treats invalid probe-agent validation error payload as safe preflight", () => {
-    const payload = {
-      ok: true,
-      result: {
-        details: {
-          error:
-            'Invalid agentId "__openclaw-hud-spawn-preflight-no-op__" was not found (preflight safety validation).',
-        },
-      },
-    };
-    expect(server.isSpawnProbeSafeValidationRejection(payload)).toBe(true);
+  it("does not expose probe helpers now that startup invocation is removed", () => {
+    expect(typeof server.createSpawnPreflightProbePayload).toBe("undefined");
+    expect(typeof server.isSpawnProbePayloadSuccess).toBe("undefined");
+    expect(typeof server.isSpawnProbeSafeValidationRejection).toBe("undefined");
   });
 });
 
@@ -131,92 +85,53 @@ describe("spawn preflight startup diagnostics", () => {
     mockFetch.mockReset();
   });
 
-  it("logs enriched diagnostics when preflight probe returns unknown-tool-unavailable response", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
-      headers: {
-        get: (key) => (key.toLowerCase() === "content-type" ? "application/json; charset=utf-8" : null),
-      },
-      text: async () =>
-        JSON.stringify({
-          error: { code: "METHOD_NOT_FOUND", message: "Tool sessions_spawn not found" },
-        }),
-    });
-
-    const state = await spawnServer.runStartupProbe();
-
-    expect(state.ok).toBe(false);
-    expect(state.code).toBe("SPAWN_TOOL_UNAVAILABLE");
-    expect(state.diagnostics).toHaveLength(1);
-
-    const diagnostic = state.diagnostics[0];
-    expect(diagnostic).toMatchObject({
-      code: "SPAWN_TOOL_UNAVAILABLE",
-      status: 404,
-      statusText: "Not Found",
-      contentType: "application/json; charset=utf-8",
-      parsedErrorCode: "METHOD_NOT_FOUND",
-    });
-    expect(diagnostic.message).toContain("Tool sessions_spawn not found");
-    expect(diagnostic.rawBodySnippet).toContain("METHOD_NOT_FOUND");
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[spawn-preflight] blocked:",
-      expect.objectContaining({
-        code: "SPAWN_TOOL_UNAVAILABLE",
-        status: "blocked",
-        diagnostics: expect.arrayContaining([
-          expect.objectContaining({
-            status: 404,
-            statusText: "Not Found",
-            parsedErrorCode: "METHOD_NOT_FOUND",
-          }),
-        ]),
-      }),
-    );
-  });
-
-  it("treats invalid probe agentId validation response as preflight success", async () => {
+  it("returns READY from local-only startup preflight without network probe", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: {
-        get: (key) => (key.toLowerCase() === "content-type" ? "application/json; charset=utf-8" : null),
-      },
-      text: async () =>
-        JSON.stringify({
-          ok: true,
-          result: {
-            details: {
-              error:
-                'Invalid agentId "__openclaw-hud-spawn-preflight-no-op__" must match an existing agent id',
-            },
-          },
-        }),
+      text: async () => JSON.stringify({ ok: true }),
     });
 
     const state = await spawnServer.runStartupProbe();
 
     expect(state.ok).toBe(true);
-    expect(state.enabled).toBe(true);
     expect(state.code).toBe("READY");
+    expect(state.diagnostics).toHaveLength(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("truncates raw probe body in diagnostics", () => {
-    const rawBody = "x".repeat(2048);
-    const diagnostic = server.createProbeFailureDiagnostic(
-      { status: 500, statusText: "Internal Server Error", headers: { get: () => "application/json" } },
-      rawBody,
-      "E_TIMEOUT",
-      "error",
-    );
-    expect(typeof diagnostic.rawBodySnippet).toBe("string");
-    expect(diagnostic.rawBodySnippet.length).toBeGreaterThan(0);
-    expect(diagnostic.rawBodySnippet.length).toBeLessThan(rawBody.length);
-    expect(diagnostic.rawBodySnippet.endsWith("...")).toBe(true);
+  it("blocks startup preflight when gateway token is missing", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true }),
+    });
+    spawnServer = require("../../server");
+    helpers.getGatewayConfig.mockReturnValue({ port: 18789, token: null });
+
+    const state = await spawnServer.runStartupProbe();
+
+    expect(state.ok).toBe(false);
+    expect(state.code).toBe("SPAWN_TOKEN_MISSING");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks startup preflight when allowlist/denylist overrides are not true", async () => {
+    process.env.OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE = "false";
+    process.env.OPENCLAW_SPAWN_DENYLIST_OVERRIDE = "true";
+
+    const state = await spawnServer.runStartupProbe();
+
+    expect(state.ok).toBe(false);
+    expect(state.code).toBe("SPAWN_HARDENING_PRECHECK");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not call fetch for startup probe when local config passes", async () => {
+    const state = await spawnServer.runStartupProbe();
+
+    expect(state.ok).toBe(true);
+    expect(state.code).toBe("READY");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 

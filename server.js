@@ -5,7 +5,6 @@ const { WebSocketServer } = require("ws");
 const { setupWebSocket } = require("./ws/log-streaming");
 const { GatewayWS } = require("./lib/gateway-ws");
 const { getGatewayConfig } = require("./lib/helpers");
-const { resolveGatewayInvokeBaseUrl } = require("./lib/gateway-http");
 const { resolveMethodScopes } = require("./lib/gateway-compat/client");
 const { applySecurityHeaders } = require("./lib/security-headers");
 const { validateWsUpgradeRequest } = require("./lib/ws-origin-guard");
@@ -90,14 +89,6 @@ const SERVER_GATEWAY_METHOD_SCOPES = dedupeScopes(
   ].flatMap((method) => resolveMethodScopes(method)),
 );
 
-const SPAWN_PRECHECK_TOOL_NAME = "sessions_spawn";
-const SPAWN_PRECHECK_AGENT_ID = "openclaw-hud-spawn-preflight-no-op";
-const SPAWN_PRECHECK_AGENT_ID_LEGACY = "__openclaw-hud-spawn-preflight-no-op__";
-const SPAWN_PRECHECK_TASK_ID = "__openclaw-hud-spawn-preflight__";
-const SPAWN_PRECHECK_TIMEOUT_MS = 8000;
-const SPAWN_PRECHECK_TIMEOUT_SECONDS = 1;
-const SPAWN_PRECHECK_BODY_SNIPPET_MAX_LENGTH = 512;
-
 // Gateway WebSocket client
 const gwConfig = getGatewayConfig();
 const gatewayHost = gwConfig.host || gwConfig.bind || "127.0.0.1";
@@ -164,244 +155,47 @@ function createSpawnPreflightSuccess() {
   };
 }
 
-function extractGatewayErrorMessage(body) {
-  if (body?.error?.message) return String(body.error.message);
-  if (body?.error) return String(body.error);
-  if (typeof body?.message === "string") return body.message;
-  return "Gateway returned an unknown error";
-}
-
-function extractGatewayErrorCode(body) {
-  if (body?.error?.code) return String(body.error.code);
-  if (body?.code) return String(body.code);
-  return null;
-}
-
-function truncateBodySnippet(rawBody, maxLength = SPAWN_PRECHECK_BODY_SNIPPET_MAX_LENGTH) {
-  if (typeof rawBody !== "string") return "";
-  if (rawBody.length <= maxLength) return rawBody;
-  return `${rawBody.slice(0, maxLength)}...`;
-}
-
-function parseJsonResponseBody(rawBody) {
-  if (typeof rawBody !== "string" || !rawBody.trim()) return {};
-  try {
-    const parsed = JSON.parse(rawBody);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch (_err) {
-    return {};
-  }
-}
-
-function getResponseContentType(response) {
-  const headers = response?.headers;
-  if (!headers || typeof headers !== "object") return null;
-  if (typeof headers.get === "function") return headers.get("content-type");
-  return headers["content-type"] || headers["Content-Type"] || null;
-}
-
-function createProbeFailureDiagnostic(response, rawBody, parsedErrorCode, message) {
-  return {
-    status: response?.status,
-    statusText: response?.statusText || null,
-    contentType: getResponseContentType(response),
-    parsedErrorCode: parsedErrorCode || null,
-    rawBodySnippet: truncateBodySnippet(String(rawBody || "")),
-    message,
-  };
-}
-
-function extractGatewayProbeMessage(body, response, rawBody) {
-  const message = extractGatewayErrorMessage(body);
-  if (message !== "Gateway returned an unknown error") return message;
-
-  const status = Number.isFinite(Number(response?.status)) ? Number(response.status) : null;
-  const statusText = typeof response?.statusText === "string" ? response.statusText.trim() : "";
-  const snippet = truncateBodySnippet(String(rawBody || ""));
-
-  if (status && statusText) return `${status} ${statusText}: ${snippet || "no body"}`;
-  if (status) return `${status}: ${snippet || statusText || "unknown"}`;
-  if (statusText) return statusText;
-  if (snippet) return `Unknown gateway error body: ${snippet}`;
-  return "Gateway returned an unknown error";
-}
-
-function createSpawnPreflightProbePayload() {
-  return {
-    tool: SPAWN_PRECHECK_TOOL_NAME,
-    args: {
-      // Using a non-existent agent id keeps the request side-effect free.
-      // If the contract changes in the future, this probe must fail closed to avoid
-      // enabling spawn when the result is uncertain.
-      agentId: SPAWN_PRECHECK_AGENT_ID,
-      task: `OpenClaw HUD startup spawn preflight probe: ${SPAWN_PRECHECK_TASK_ID}`,
-      mode: "run",
-      runTimeoutSeconds: SPAWN_PRECHECK_TIMEOUT_SECONDS,
-    },
-  };
-}
-
-function isSpawnProbePayloadSuccess(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  if (payload.error !== undefined) return false;
-  if (payload.ok === false) return false;
-  if (payload.ok !== true) return false;
-  const details =
-    payload?.result?.details ||
-    (payload?.result !== undefined && payload?.result !== null ? payload.result : undefined) ||
-    payload?.details;
-
-  // Fail closed on ambiguous payloads or if the gateway surfaced an inline error.
-  if (details && typeof details === "object" && Object.prototype.hasOwnProperty.call(details, "error")) {
-    return false;
-  }
-
-  // Protocol variants vary; only treat this as healthy when a structured result is present.
-  return details !== undefined && typeof details === "object";
-}
-
-function isSpawnProbeSafeValidationRejection(payload) {
-  const details =
-    payload?.result?.details ||
-    (payload?.result !== undefined && payload?.result !== null ? payload.result : undefined) ||
-    payload?.details;
-  if (!details || typeof details !== "object") return false;
-
-  const raw = typeof details.error === "string" ? details.error : "";
-  const message = raw.toLowerCase();
-  if (!message) return false;
-
-  const mentionsAgent = /\bagent(?:id)?\b/.test(message);
-  const mentionsInvalidOrUnknown = /(invalid|unknown|not found|does not exist)/i.test(message);
-  if (!mentionsAgent || !mentionsInvalidOrUnknown) return false;
-
-  const mentionsProbeAgent = message.includes(SPAWN_PRECHECK_AGENT_ID) || message.includes(SPAWN_PRECHECK_AGENT_ID_LEGACY);
-  const hasProbeContext = /preflight|probe|startup/.test(message);
-  return mentionsProbeAgent || hasProbeContext;
-}
-
-function hasSpawnProbeSideEffect(payload) {
-  const details =
-    payload?.result?.details ||
-    (payload?.result !== undefined && payload?.result !== null ? payload.result : undefined) ||
-    payload?.details;
-  if (!details || typeof details !== "object") return false;
-  if (typeof details.childSessionKey === "string" && details.childSessionKey.trim()) return true;
-  if (typeof details.runId === "string" && details.runId.trim()) return true;
-  if (typeof details.sessionKey === "string" && details.sessionKey.trim()) return true;
-  if (typeof details.child_session_key === "string" && details.child_session_key.trim()) return true;
-  if (typeof details.session_id === "string" && details.session_id.trim()) return true;
-  if (typeof details.run_id === "string" && details.run_id.trim()) return true;
-  if (typeof details.childSession === "string" && details.childSession.trim()) return true;
-  return false;
-}
-
-function classifyToolProbeMessage(message, errorCode = null) {
-  const lower = String(message || "").toLowerCase();
-  if (!lower) return "GATEWAY_TOOL_INVOCATION_ERROR";
-  if (typeof errorCode === "string" && /not.?found|unsupported|unknown/i.test(errorCode.toLowerCase())) return "SPAWN_TOOL_UNAVAILABLE";
-  if (/not found|unknown|unsupported|method/i.test(lower)) return "SPAWN_TOOL_UNAVAILABLE";
-  if (/allowlist|denylist|policy|blocked|forbidden/i.test(lower)) return "SPAWN_HARDENING_DENYLIST";
-  return "GATEWAY_TOOL_INVOCATION_ERROR";
-}
-
-async function probeSpawnTool(gatewayConfig) {
-  const baseUrl = resolveGatewayInvokeBaseUrl(gatewayConfig);
-  const res = await fetch(`${baseUrl}/tools/invoke`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${gatewayConfig.token}`,
-    },
-    signal: AbortSignal.timeout(SPAWN_PRECHECK_TIMEOUT_MS),
-    body: JSON.stringify(createSpawnPreflightProbePayload()),
-  });
-
-  const rawBody = await res.text().catch(() => "");
-  const body = parseJsonResponseBody(rawBody);
-  const parsedErrorCode = extractGatewayErrorCode(body);
-  const message = extractGatewayProbeMessage(body, res, rawBody);
-  const probeDiagnostic = createProbeFailureDiagnostic(res, rawBody, parsedErrorCode, message);
-  if (res.ok) {
-    if (hasSpawnProbeSideEffect(body)) {
-      const sideEffectCode = "SPAWN_TOOL_INVOCATION_SIDE_EFFECT";
-      return createSpawnPreflightFailure(sideEffectCode, "Probe payload returned session-like result data.", [
-        {
-          code: sideEffectCode,
-          ...probeDiagnostic,
-          message: message || "Probe invocation returned session-like payload.",
-          remediation:
-            "Do not trust startup compatibility probe when tool execution appears to persist sessions; keep spawn blocked.",
-        },
-      ]);
-    }
-    if (isSpawnProbePayloadSuccess(body)) {
-      return createSpawnPreflightSuccess();
-    }
-    if (isSpawnProbeSafeValidationRejection(body)) {
-      return createSpawnPreflightSuccess();
-    }
-
-    const code = classifyToolProbeMessage(message, parsedErrorCode);
-    return createSpawnPreflightFailure(code, message, [
-      {
-        code,
-        ...probeDiagnostic,
-        message,
-        remediation:
-          code === "SPAWN_HARDENING_DENYLIST"
-            ? "Check OpenClaw gateway tool allowlist/denylist policy override settings."
-            : "Gateway accepted the probe request but did not return a successful result.",
-      },
-    ]);
-  }
-  const code = classifyToolProbeMessage(message, parsedErrorCode);
-  return createSpawnPreflightFailure(code, message, [
-    {
-      code,
-      ...probeDiagnostic,
-      message,
-      remediation: code === "SPAWN_TOOL_UNAVAILABLE"
-        ? "Upgrade OpenClaw gateway to support sessions_spawn invoke compatibility."
-        : "Verify gateway token, network access, and gateway readiness.",
-    },
-  ]);
-}
-
 async function runSpawnPreflight() {
-  const gatewayConfig = getGatewayConfig();
-  if (!gatewayConfig.token) {
-    return createSpawnPreflightFailure("SPAWN_TOKEN_MISSING", "Gateway token is required for spawn invoke preflight", [
-      {
-        code: "SPAWN_TOKEN_MISSING",
-        message: "Gateway token is required.",
-        remediation: "Configure gateway token in gateway auth config.",
-      },
-    ]);
-  }
-
-  const hardening = readSpawnHardeningConfig();
-  if (!hardening.allowlistOverride || !hardening.denylistOverride) {
-    return createSpawnPreflightFailure("SPAWN_HARDENING_PRECHECK", "Allowlist/denylist override flags are required", [
-      {
-        code: "SPAWN_HARDENING_PRECHECK",
-        message: "Missing required allowlist/denylist override configuration.",
-        remediation:
-          "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE=true and OPENCLAW_SPAWN_DENYLIST_OVERRIDE=true before enabling Spawn.",
-      },
-    ]);
-  }
-
   try {
-    return await probeSpawnTool(gatewayConfig);
+    const gatewayConfig = getGatewayConfig();
+    if (!gatewayConfig.token) {
+      return createSpawnPreflightFailure(
+        "SPAWN_TOKEN_MISSING",
+        "Gateway token is required for spawn invoke preflight",
+        [
+          {
+            code: "SPAWN_TOKEN_MISSING",
+            message: "Gateway token is required.",
+            remediation: "Configure gateway token in gateway auth config.",
+          },
+        ],
+      );
+    }
+
+    const hardening = readSpawnHardeningConfig();
+    if (!hardening.allowlistOverride || !hardening.denylistOverride) {
+      return createSpawnPreflightFailure(
+        "SPAWN_HARDENING_PRECHECK",
+        "Allowlist/denylist override flags are required",
+        [
+          {
+            code: "SPAWN_HARDENING_PRECHECK",
+            message: "Missing required allowlist/denylist override configuration.",
+            remediation:
+              "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE=true and OPENCLAW_SPAWN_DENYLIST_OVERRIDE=true before enabling Spawn.",
+          },
+        ],
+      );
+    }
+
+    return createSpawnPreflightSuccess();
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Cannot contact gateway invoke endpoint for preflight";
-    return createSpawnPreflightFailure("SPAWN_PRECHECK_NETWORK", message, [
+    const message = err instanceof Error ? err.message : "Cannot evaluate spawn preflight configuration";
+    return createSpawnPreflightFailure("SPAWN_PRECHECK_UNKNOWN", message, [
       {
-        code: "SPAWN_PRECHECK_NETWORK",
+        code: "SPAWN_PRECHECK_UNKNOWN",
         message,
-        remediation: "Ensure gateway invoke URL is reachable from HUD process.",
+        remediation: "Restart HUD after fixing gateway configuration.",
       },
     ]);
   }
@@ -524,18 +318,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  isSpawnProbePayloadSuccess,
   createSpawnPreflightFailure,
   createSpawnPreflightSuccess,
-  createSpawnPreflightProbePayload,
-  extractGatewayErrorMessage,
-  extractGatewayProbeMessage,
-  extractGatewayErrorCode,
-  truncateBodySnippet,
-  createProbeFailureDiagnostic,
-  getResponseContentType,
-  parseJsonResponseBody,
-  runStartupProbe,
   createSpawnPreflightLogPayload,
-  isSpawnProbeSafeValidationRejection,
+  runStartupProbe,
 };
