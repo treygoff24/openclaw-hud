@@ -112,6 +112,36 @@ describe("perf diagnostics route contract", () => {
     );
   });
 
+  it("POST /api/diag/perf preserves runId and source metadata", async () => {
+    const appendBatch = vi.fn(async () => ({ written: 1, bytes: 128 }));
+    const writer = { appendBatch };
+
+    const payload = {
+      source: "hud",
+      events: [
+        {
+          ts: "2026-03-03T18:12:00.000Z",
+          sessionId: "sess-run",
+          runId: "run-2026",
+          summary: {
+            "fetchAll.finish": {
+              durationMs: { count: 1, sum: 15, min: 15, max: 15, last: 15 },
+            },
+          },
+        },
+      ],
+    };
+
+    const res = await request(createApp({ writer }))
+      .post("/api/diag/perf")
+      .send(payload);
+
+    expect(res.status).toBe(202);
+    expect(appendBatch).toHaveBeenCalledTimes(1);
+    const [[events]] = appendBatch.mock.calls;
+    expect(events[0]).toMatchObject({ runId: "run-2026", source: "hud" });
+  });
+
   it("POST /api/diag/perf rejects invalid payload and redacts sensitive fields before append", async () => {
     const appendBatch = vi.fn(async () => ({ written: 1, bytes: 128 }));
     const writer = { appendBatch };
@@ -232,6 +262,61 @@ describe("perf diagnostics route contract", () => {
     expect(exporter.buildSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("GET /api/diag/perf/export includes runId/source summary fields", async () => {
+    const writer = {
+      appendBatch: vi.fn(async () => ({ written: 0, bytes: 0 })),
+      config: {
+        dir: fs.mkdtempSync(path.join(os.tmpdir(), "diag-perf-runids-")),
+        baseName: "hud-perf",
+      },
+    };
+    const segmentPath = path.join(writer.config.dir, "hud-perf-000001.jsonl");
+    const lines = [
+      JSON.stringify({
+        ts: "2026-03-03T18:00:00.000Z",
+        runId: "run-1",
+        source: "hud",
+        _batchId: "batch-a",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 1, sum: 10, min: 10, max: 10, last: 10 },
+          },
+        },
+      }),
+      JSON.stringify({
+        ts: "2026-03-03T18:00:01.000Z",
+        runId: "run-2",
+        source: "system-viewer",
+        _batchId: "batch-b",
+        summary: {
+          "system.power": {
+            gpuPowerW: { count: 1, sum: 14, min: 14, max: 14, last: 14 },
+          },
+        },
+      }),
+    ];
+    fs.writeFileSync(segmentPath, `${lines.join("\n")}\n`, "utf8");
+
+    try {
+      const app = createApp({ writer });
+      const res = await request(app).get("/api/diag/perf/export");
+
+      expect(res.status).toBe(200);
+      expect(res.body.summary).toMatchObject({
+        totals: {
+          runs: 2,
+        },
+      });
+      expect(res.body.summary.runIds).toEqual(expect.arrayContaining(["run-1", "run-2"]));
+      expect(res.body.summary.sourceCounts).toMatchObject({
+        hud: 1,
+        "system-viewer": 1,
+      });
+    } finally {
+      fs.rmSync(writer.config.dir, { recursive: true, force: true });
+    }
+  });
+
   it("GET /api/diag/perf/export counts all parsed persisted events while range uses valid timestamps only", async () => {
     const perfDir = fs.mkdtempSync(path.join(os.tmpdir(), "diag-perf-range-"));
     const segmentPath = path.join(perfDir, "hud-perf-000001.jsonl");
@@ -305,8 +390,13 @@ describe("perf diagnostics route contract", () => {
     expect(router).toBeTruthy();
     expect(createPerfLogWriterSpy).toHaveBeenCalledTimes(1);
     expect(createPerfLogWriterSpy).toHaveBeenCalledWith(
-      expect.objectContaining(perfWriterModule.PERF_LOG_WRITER_DEFAULTS),
+      expect.objectContaining({
+        dir: perfWriterModule.PERF_LOG_WRITER_DEFAULTS.dir,
+        maxBytes: perfWriterModule.PERF_LOG_WRITER_DEFAULTS.maxBytes,
+        maxFiles: perfWriterModule.PERF_LOG_WRITER_DEFAULTS.maxFiles,
+      }),
     );
+    expect(createPerfLogWriterSpy.mock.calls[0][0]).not.toHaveProperty("baseName");
   });
 
   it("POST /api/diag/perf strips unknown fields and dangerous keys from persisted event schema", async () => {
@@ -446,5 +536,65 @@ describe("perf diagnostics route contract", () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("POST /api/diag/perf/system maps macOS power/thermal samples and persists runId-shared events", async () => {
+    const appendBatch = vi.fn(async () => ({ written: 1, bytes: 256 }));
+    const writer = { appendBatch };
+
+    const res = await request(createApp({ writer }))
+      .post("/api/diag/perf/system")
+      .send({
+        runId: "run-mac-001",
+        source: "viewer-macos",
+        ts: "2026-03-03T19:00:00.000Z",
+        power: {
+          gpuPowerW: 22.5,
+          cpuPowerW: 15.1,
+        },
+        thermal: {
+          cpuTempC: 87,
+          thermalPressure: 2,
+        },
+        capture: {
+          powermetricsAttempts: 1,
+          powermetricsSuccesses: 1,
+          powermetricsFailures: 0,
+          powermetricsUnavailable: 0,
+          thermlogAttempts: 1,
+          thermlogSuccesses: 1,
+          thermlogFailures: 0,
+          thermlogUnavailable: 0,
+        },
+      });
+
+    expect(res.status).toBe(202);
+    expect(appendBatch).toHaveBeenCalledTimes(1);
+    const [[events]] = appendBatch.mock.calls;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      runId: "run-mac-001",
+      source: "viewer-macos",
+      ts: "2026-03-03T19:00:00.000Z",
+    });
+    expect(events[0]).toHaveProperty(["summary", "system.power", "gpuPowerW"]);
+    expect(events[0]).toHaveProperty(["summary", "system.thermal", "thermalPressure"]);
+    expect(events[0]).toHaveProperty(["summary", "system.capture", "powermetricsFailures"]);
+  });
+
+  it("POST /api/diag/perf/system requires runId and returns validation errors on bad payload", async () => {
+    const appendBatch = vi.fn(async () => ({ written: 0, bytes: 0 }));
+    const writer = { appendBatch };
+
+    const res = await request(createApp({ writer })).post("/api/diag/perf/system").send({
+      source: "viewer-macos",
+      thermal: {
+        cpuTempC: 50,
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ ok: false, error: expect.stringMatching(/runId/i) });
+    expect(appendBatch).not.toHaveBeenCalled();
   });
 });

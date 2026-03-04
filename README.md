@@ -79,6 +79,19 @@ See [CONFIGURATION.md](./CONFIGURATION.md) for troubleshooting and runtime detai
 - `npm run test:coverage` — run tests with coverage
 - `npm run test:e2e` — run Playwright tests
 - `npm run bundle:analyze` — bundle/asset analysis
+- `scripts/diag/macos-perf-capture.sh --run-id <RUN_ID> --once` — collect macOS GPU power/thermal samples and POST to `/api/diag/perf/system`
+
+The capture script is intended for a remote viewer machine and posts samples using a shared `runId`:
+
+```bash
+bash scripts/diag/macos-perf-capture.sh \
+  --server http://viewer-machine:3777 \
+  --run-id $(date +%s)-run-1 \
+  --once \
+  --show-json
+```
+
+It posts power/thermal metrics plus capture availability and failure counters, and continues sending thermal samples when `powermetrics` is unavailable.
 
 ## E2E Notes
 

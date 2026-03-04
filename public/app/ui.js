@@ -69,18 +69,39 @@
       });
     }
 
-  function renderPanelSafe(panelName, panelEl, renderFn, data) {
+  function renderPanelSafe(panelName, panelEl, renderFn, data, options) {
       if (!panelEl) {
         console.warn("Panel element not found: " + panelName);
         return;
       }
+      const metricsOptions = options && typeof options === "object" ? options : null;
 
       const shouldRecordPerf = Boolean(resolvePerfMonitor());
+      const shouldTrackMutations =
+        shouldRecordPerf && metricsOptions && typeof metricsOptions.onPanelRender === "function";
       const renderStartedAt = shouldRecordPerf
         ? typeof performance !== "undefined" && typeof performance.now === "function"
           ? performance.now()
           : Date.now()
         : null;
+      let mutationCount = 0;
+      let observer = null;
+
+      if (shouldTrackMutations && typeof MutationObserver !== "undefined") {
+        try {
+          observer = new MutationObserver(function (mutations) {
+            mutationCount += mutations.length;
+          });
+          observer.observe(panelEl, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true,
+          });
+        } catch (_error) {
+          observer = null;
+        }
+      }
 
       let renderSucceeded = 0;
       try {
@@ -102,12 +123,30 @@
           typeof performance !== "undefined" && typeof performance.now === "function"
             ? performance.now()
             : Date.now();
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
         recordPerf({
           name: "panelRender",
           panelName: panelName,
           durationMs: renderFinishedAt - renderStartedAt,
+          mutationCount: mutationCount,
           status: renderSucceeded,
         });
+        if (metricsOptions && typeof metricsOptions.onPanelRender === "function") {
+          try {
+            metricsOptions.onPanelRender({
+              panelName: panelName,
+              panelRender: true,
+              status: renderSucceeded,
+              durationMs: renderFinishedAt - renderStartedAt,
+              mutationCount: mutationCount,
+            });
+          } catch (_error) {
+            // Keep UI rendering resilient.
+          }
+        }
       }
 
       if (shouldRecordPerf && shouldSamplePostPaint() && typeof requestAnimationFrame === "function") {

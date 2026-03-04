@@ -14,11 +14,31 @@ const router = Router();
 
 const PERF_ROUTE_PATH = '/api/diag/perf';
 const PERF_EXPORT_ROUTE_PATH = `${PERF_ROUTE_PATH}/export`;
+const PERF_SYSTEM_ROUTE_PATH = `${PERF_ROUTE_PATH}/system`;
 const PERF_FILE_DIR = PERF_LOG_WRITER_DEFAULTS.dir;
+const DEFAULT_PERF_LOG_OPTIONS = {
+  dir: PERF_LOG_WRITER_DEFAULTS.dir,
+  maxBytes: PERF_LOG_WRITER_DEFAULTS.maxBytes,
+  maxFiles: PERF_LOG_WRITER_DEFAULTS.maxFiles,
+};
 const PERF_UNAVAILABLE_ERROR = 'Performance diagnostics storage unavailable';
 
 function createNullProtoObject() {
   return Object.create(null);
+}
+
+function isSafeObjectKey(value) {
+  return typeof value === 'string' && value.trim().length > 0 && value !== '__proto__' && value !== 'constructor' && value !== 'prototype';
+}
+
+function clampSafeText(value, maxLength = 128) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (maxLength > 0 && trimmed.length > maxLength) {
+    return trimmed.slice(0, maxLength);
+  }
+  return trimmed;
 }
 
 function buildSafeEvents(rawLines) {
@@ -39,7 +59,7 @@ function buildSafeEvents(rawLines) {
   return events;
 }
 
-const defaultPerfLogWriter = createPerfLogWriter(PERF_LOG_WRITER_DEFAULTS);
+const defaultPerfLogWriter = createPerfLogWriter(DEFAULT_PERF_LOG_OPTIONS);
 let perfLogWriter = defaultPerfLogWriter;
 let perfExporter = createPerfExporter(perfLogWriter);
 
@@ -54,6 +74,89 @@ function parseValidTimestamp(ts) {
   }
 
   return new Date(parsed).toISOString();
+}
+
+function appendMetric(summary, metricName, fieldName, value) {
+  if (!isSafeObjectKey(metricName) || !isSafeObjectKey(fieldName)) return;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return;
+
+  if (!Object.prototype.hasOwnProperty.call(summary, metricName)) {
+    summary[metricName] = createNullProtoObject();
+  }
+
+  summary[metricName][fieldName] = {
+    count: 1,
+    sum: value,
+    min: value,
+    max: value,
+    last: value,
+  };
+}
+
+function mapSystemSamplePayload(body) {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'Invalid payload: expected object' };
+  }
+
+  const runId = clampSafeText(body.runId, 128);
+  if (runId === null) {
+    return { ok: false, error: 'Invalid payload: runId is required for system samples' };
+  }
+
+  const source = clampSafeText(body.source, 64) || 'system-viewer';
+  const ts =
+    typeof body.ts === 'string' ? body.ts : new Date().toISOString();
+
+  const summary = createNullProtoObject();
+  const power = body.power && typeof body.power === 'object' ? body.power : null;
+  const thermal = body.thermal && typeof body.thermal === 'object' ? body.thermal : null;
+  const capture = body.capture && typeof body.capture === 'object' ? body.capture : null;
+
+  const appendIfNumber = (metricName, fieldName, value) => {
+    appendMetric(summary, metricName, fieldName, Number.isFinite(Number(value)) ? Number(value) : NaN);
+  };
+
+  if (power) {
+    appendIfNumber('system.power', 'gpuPowerW', power.gpuPowerW);
+    appendIfNumber('system.power', 'gpuPowerMW', power.gpuPowerMW);
+    appendIfNumber('system.power', 'cpuPowerW', power.cpuPowerW);
+    appendIfNumber('system.power', 'packagePowerW', power.packagePowerW);
+  }
+
+  if (thermal) {
+    appendIfNumber('system.thermal', 'cpuTempC', thermal.cpuTempC);
+    appendIfNumber('system.thermal', 'gpuTempC', thermal.gpuTempC);
+    appendIfNumber('system.thermal', 'skinTempC', thermal.skinTempC);
+    appendIfNumber('system.thermal', 'thermalPressure', thermal.thermalPressure);
+  }
+
+  if (capture) {
+    appendIfNumber('system.capture', 'powermetricsAttempts', capture.powermetricsAttempts);
+    appendIfNumber('system.capture', 'powermetricsSuccesses', capture.powermetricsSuccesses);
+    appendIfNumber('system.capture', 'powermetricsFailures', capture.powermetricsFailures);
+    appendIfNumber('system.capture', 'powermetricsUnavailable', capture.powermetricsUnavailable);
+    appendIfNumber('system.capture', 'thermlogAttempts', capture.thermlogAttempts);
+    appendIfNumber('system.capture', 'thermlogSuccesses', capture.thermlogSuccesses);
+    appendIfNumber('system.capture', 'thermlogFailures', capture.thermlogFailures);
+    appendIfNumber('system.capture', 'thermlogUnavailable', capture.thermlogUnavailable);
+  }
+
+  const summaryKeys = Object.keys(summary);
+  if (summaryKeys.length === 0) {
+    return { ok: false, error: 'Invalid payload: no recognized system metrics' };
+  }
+
+  return {
+    ok: true,
+    events: [
+      {
+        ts,
+        runId,
+        source,
+        summary,
+      },
+    ],
+  };
 }
 
 function createPerfExporter(writer) {
@@ -91,6 +194,8 @@ function createPerfExporter(writer) {
       let eventCount = 0;
       const batchIds = new Set();
       const metrics = createNullProtoObject();
+      const runIdCounts = createNullProtoObject();
+      const sources = createNullProtoObject();
 
       const segmentPaths = collectSegmentEntries();
       for (const filePath of segmentPaths) {
@@ -117,6 +222,14 @@ function createPerfExporter(writer) {
 
           if (parsed._batchId) {
             batchIds.add(String(parsed._batchId));
+          }
+
+          if (typeof parsed.runId === 'string' && isSafeObjectKey(parsed.runId)) {
+            runIdCounts[parsed.runId] = (runIdCounts[parsed.runId] || 0) + 1;
+          }
+
+          if (typeof parsed.source === 'string' && isSafeObjectKey(parsed.source)) {
+            sources[parsed.source] = (sources[parsed.source] || 0) + 1;
           }
 
           const summary = parsed.summary;
@@ -177,8 +290,12 @@ function createPerfExporter(writer) {
         totals: {
           batches: Math.max(eventCount > 0 ? batchIds.size : 0, 0),
           events: eventCount,
+          runs: Object.keys(runIdCounts).length,
+          sources: Object.keys(sources).length,
         },
         metrics,
+        runIds: Object.keys(runIdCounts),
+        sourceCounts: sources,
       };
     },
   };
@@ -240,8 +357,21 @@ router.post(PERF_ROUTE_PATH, express.json(), async (req, res) => {
     return res.status(400).json({ ok: false, error: validation.error });
   }
 
+  const envelopeSource = clampSafeText(req.body.source, 64);
+  const envelopeRunId = clampSafeText(req.body.runId, 128);
+  const normalizedEvents = validation.events.map((event) => {
+    const clonedEvent = event && typeof event === 'object' ? event : {};
+    if (envelopeSource && !Object.prototype.hasOwnProperty.call(clonedEvent, 'source')) {
+      clonedEvent.source = envelopeSource;
+    }
+    if (envelopeRunId && !Object.prototype.hasOwnProperty.call(clonedEvent, 'runId')) {
+      clonedEvent.runId = envelopeRunId;
+    }
+    return clonedEvent;
+  });
+
   const sanitizedEvents = sanitizePerfEventBatch(
-    validation.events.map((event) => stripSecrets(event)),
+    normalizedEvents.map((event) => stripSecrets(event)),
   );
 
   if (perfLogWriter && perfLogWriter.isAvailable === false) {
@@ -311,8 +441,18 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
             summary?.totals && Number.isFinite(summary.totals.events)
               ? summary.totals.events
               : 0,
+          runs:
+            summary?.totals && Number.isFinite(summary.totals.runs)
+              ? summary.totals.runs
+              : 0,
+          sources:
+            summary?.totals && Number.isFinite(summary.totals.sources)
+              ? summary.totals.sources
+              : 0,
         },
         metrics: summary?.metrics && typeof summary.metrics === 'object' ? summary.metrics : {},
+        runIds: Array.isArray(summary?.runIds) ? summary.runIds : [],
+        sourceCounts: summary?.sourceCounts && typeof summary.sourceCounts === 'object' ? summary.sourceCounts : {},
       },
     });
   } catch (error) {
@@ -329,9 +469,65 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
         totals: {
           batches: 0,
           events: 0,
+          runs: 0,
+          sources: 0,
         },
         metrics: {},
+        runIds: [],
+        sourceCounts: {},
       },
+    });
+  }
+});
+
+router.post(PERF_SYSTEM_ROUTE_PATH, express.json(), async (req, res) => {
+  const mapped = mapSystemSamplePayload(req.body);
+  if (!mapped.ok) {
+    return res.status(400).json({ ok: false, error: mapped.error });
+  }
+
+  if (perfLogWriter && perfLogWriter.isAvailable === false) {
+    return res.status(503).json({
+      ok: false,
+      error: PERF_UNAVAILABLE_ERROR,
+      reason: perfLogWriter.unavailableReason || null,
+    });
+  }
+
+  try {
+    const summary = await perfLogWriter.appendBatch(mapped.events);
+    return res.status(202).json({
+      ok: true,
+      accepted: mapped.events.length,
+      written: summary?.written,
+      bytes: summary?.bytes,
+      runId: mapped.events[0].runId,
+      source: mapped.events[0].source,
+    });
+  } catch (error) {
+    if (error && error.code === 'E_PERF_EVENT_TOO_LARGE') {
+      return res.status(413).json({
+        ok: false,
+        code: 'E_PERF_EVENT_TOO_LARGE',
+        error: error instanceof Error ? error.message : 'Serialized performance event exceeds maxBytes policy',
+        repairable: true,
+      });
+    }
+
+    if (
+      perfLogWriter?.isAvailable === false ||
+      (error && error.code === 'E_PERF_LOG_WRITER_UNAVAILABLE')
+    ) {
+      return res.status(503).json({
+        ok: false,
+        error: PERF_UNAVAILABLE_ERROR,
+        reason: perfLogWriter?.unavailableReason || (error && error.message) || null,
+      });
+    }
+
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : 'Unable to persist performance events',
     });
   }
 });

@@ -96,21 +96,50 @@
     let inboundMessageBytes = 0;
     let tickRefreshInFlight = false;
     let tickRefreshQueued = false;
+    let tickRunSeq = 0;
+    let tickRefreshQueuedContext = null;
+    const perfContext = (window.HUDApp && window.HUDApp.perfEventContext) || null;
 
-    function scheduleTickRefresh() {
+    function setPerfRunId(nextRunId) {
+      if (!perfContext || typeof perfContext.setRunId !== "function") return;
+      if (nextRunId == null) {
+        return;
+      }
+      perfContext.setRunId(nextRunId);
+    }
+
+    function resolveTickRefreshContext(context) {
+      if (!context || typeof context !== "object") return null;
+
+      const runId = context.runId;
+      if (runId == null) return context;
+
+      return {
+        runId: runId,
+        tickPaintStartMs: context.tickPaintStartMs,
+        includeCold: false,
+      };
+    }
+
+    function scheduleTickRefresh(runContext) {
       if (typeof fetchAll !== "function") {
         return;
       }
 
       if (tickRefreshInFlight) {
         tickRefreshQueued = true;
+        tickRefreshQueuedContext = resolveTickRefreshContext(runContext);
         return;
       }
 
       tickRefreshInFlight = true;
+      const request = resolveTickRefreshContext(runContext) || { includeCold: false };
+      if (request.runId) {
+        setPerfRunId(request.runId);
+      }
       let refreshResult;
       try {
-        refreshResult = fetchAll({ includeCold: false });
+        refreshResult = fetchAll(request);
       } catch (_error) {
         refreshResult = Promise.reject(_error);
       }
@@ -121,7 +150,9 @@
           tickRefreshInFlight = false;
           if (tickRefreshQueued) {
             tickRefreshQueued = false;
-            scheduleTickRefresh();
+            const nextContext = tickRefreshQueuedContext;
+            tickRefreshQueuedContext = null;
+            scheduleTickRefresh(nextContext);
           }
         });
     }
@@ -259,7 +290,15 @@
         const messageType = data && data.type;
         const dispatchStart = shouldRecord ? nowMs() : 0;
         if (messageType === "tick") {
-          scheduleTickRefresh();
+          const tickPaintStartMs = shouldRecord ? nowMs() : null;
+          const tickRunId = "tick-" + ++tickRunSeq;
+          if (shouldRecord) {
+            setPerfRunId(tickRunId);
+          }
+          scheduleTickRefresh({
+            runId: tickRunId,
+            tickPaintStartMs: tickPaintStartMs,
+          });
         }
         if (messageType === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
           setGatewayUptimeSnapshot(data.uptimeMs);

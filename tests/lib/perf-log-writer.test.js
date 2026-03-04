@@ -29,10 +29,69 @@ describe("perf log writer rotation", () => {
 
     expect(writer.config).toMatchObject({
       dir: TMP_ROOT,
-      baseName: PERF_LOG_WRITER_DEFAULTS.baseName,
       maxBytes: PERF_LOG_WRITER_DEFAULTS.maxBytes,
       maxFiles: PERF_LOG_WRITER_DEFAULTS.maxFiles,
     });
+
+    expect(writer.config.baseName).toMatch(
+      /^hud-perf-\d{8}T\d{9}Z-[a-z0-9]+-[0-9]+-[0-9a-f]{8}$/,
+    );
+    expect(writer.config.baseName).not.toBe(PERF_LOG_WRITER_DEFAULTS.baseName);
+  });
+
+  it("keeps an explicit baseName untouched", async () => {
+    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
+    const explicitBaseName = "hud-perf-explicit";
+
+    const writer = createPerfLogWriter({
+      dir: TMP_ROOT,
+      baseName: explicitBaseName,
+      maxBytes: 220,
+    });
+
+    expect(writer.config.baseName).toBe(explicitBaseName);
+  });
+
+  it("generates distinct default base names for separate writers", async () => {
+    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
+
+    const writerA = createPerfLogWriter({
+      dir: TMP_ROOT,
+      maxBytes: 220,
+    });
+    const writerB = createPerfLogWriter({
+      dir: TMP_ROOT,
+      maxBytes: 220,
+    });
+
+    expect(writerA.config.baseName).not.toBe(writerB.config.baseName);
+
+    await writerA.appendBatch([
+      {
+        ts: "2026-03-03T18:00:00.000Z",
+        summary: {
+          "fetchAll.finish": {
+            countMs: { count: 1, sum: 111, min: 111, max: 111, last: 111 },
+          },
+        },
+      },
+    ]);
+    await writerB.appendBatch([
+      {
+        ts: "2026-03-03T18:00:01.000Z",
+        summary: {
+          "fetchAll.finish": {
+            countMs: { count: 1, sum: 112, min: 112, max: 112, last: 112 },
+          },
+        },
+      },
+    ]);
+
+    const segmentEntries = fs
+      .readdirSync(TMP_ROOT)
+      .filter((name) => name.endsWith(".jsonl"));
+    expect(segmentEntries).toHaveLength(2);
+    expect(new Set(segmentEntries).size).toBe(2);
   });
 
   it("rotates to a new segment when maxBytes is exceeded", async () => {
@@ -180,6 +239,38 @@ describe("perf log writer rotation", () => {
       min: 25,
       max: 25,
       last: 25,
+    });
+  });
+
+  it("persists runId and source in sanitized event payload", async () => {
+    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
+
+    const writer = createPerfLogWriter({
+      dir: TMP_ROOT,
+      baseName: "hud-perf",
+      maxBytes: 1024,
+      maxFiles: 3,
+    });
+
+    await writer.appendBatch([
+      {
+        ts: "2026-03-03T20:05:00.000Z",
+        runId: "run-abc-001",
+        source: "hud",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 1, sum: 25, min: 25, max: 25, last: 25 },
+          },
+        },
+      },
+    ]);
+
+    const [segmentPath] = writer.readSegmentPaths();
+    const persisted = JSON.parse(fs.readFileSync(segmentPath, "utf8").trim());
+
+    expect(persisted).toMatchObject({
+      runId: "run-abc-001",
+      source: "hud",
     });
   });
 

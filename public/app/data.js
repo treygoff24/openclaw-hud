@@ -4,6 +4,8 @@
   window.HUDApp = window.HUDApp || {};
   const DEFAULT_ENDPOINT_TIMEOUT_MS = 8000;
   const COLD_REFRESH_INTERVAL_MS = 60 * 1000;
+  let textEncoder = null;
+
   function resolvePerfMonitor() {
     const monitor = window.HUDApp && window.HUDApp.perfMonitor;
     if (!monitor) return null;
@@ -30,6 +32,46 @@
       return "ok";
     }
     return "error";
+  }
+
+  function nowMs() {
+    if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function extractPerfContext() {
+    return (window.HUDApp && window.HUDApp.perfEventContext) || null;
+  }
+
+  function setPerfRunId(runId) {
+    const context = extractPerfContext();
+    if (!context || typeof context.setRunId !== "function") return;
+    context.setRunId(runId);
+  }
+
+  function estimatePayloadBytes(rawPayloadText) {
+    if (typeof rawPayloadText === "string") {
+      if (!textEncoder && typeof TextEncoder === "function") {
+        textEncoder = new TextEncoder();
+      }
+      if (textEncoder) {
+        return textEncoder.encode(rawPayloadText).length;
+      }
+      return rawPayloadText.length;
+    }
+
+    if (!rawPayloadText) return 0;
+    if (typeof rawPayloadText.byteLength === "number") return rawPayloadText.byteLength;
+    return String(rawPayloadText).length;
+  }
+
+  function extractResponseContentLength(response) {
+    const lengthHeader =
+      response?.headers?.get?.("content-length") || response?.headers?.get?.("Content-Length");
+    const numeric = Number(lengthHeader);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
   }
 
   function createDataController(options) {
@@ -66,6 +108,7 @@
     let endpointLastFetchAt = Object.create(null);
     let endpointRenderFingerprints = Object.create(null);
     let endpointLastRenderedPayloads = Object.create(null);
+    let activeRefreshRenderContext = null;
 
     // Cached monthly data survives across tick-based fetchAll() calls so the
     // models panel never flashes back to $0 between the weekly render and the
@@ -147,6 +190,12 @@
     function normalizeFetchRequest(request) {
       return {
         includeCold: Boolean(request && request.includeCold),
+        runId: request && request.runId != null ? request.runId : null,
+        tickPaintStartMs: request && Number.isFinite(request.tickPaintStartMs)
+          ? Number(request.tickPaintStartMs)
+          : request && Number.isFinite(request.tickPaintStart)
+              ? Number(request.tickPaintStart)
+              : null,
       };
     }
 
@@ -338,6 +387,22 @@
       const panel = endpointPanels[endpointName];
       if (!panel) return;
 
+      if (activeRefreshRenderContext) {
+        activeRefreshRenderContext.panelRenderCount += 1;
+      }
+
+      const renderOptions =
+        activeRefreshRenderContext && activeRefreshRenderContext.onPanelRender
+          ? {
+              onPanelRender: function (renderMetrics) {
+                if (!renderMetrics || typeof renderMetrics !== "object") return;
+                if (Number.isFinite(renderMetrics.mutationCount)) {
+                  activeRefreshRenderContext.panelMutationCount += renderMetrics.mutationCount;
+                }
+              },
+            }
+          : null;
+
       renderPanelSafe(
         panel.panelName,
         doc.getElementById(panel.elementId),
@@ -345,6 +410,7 @@
           panel.render(panelData, endpointMeta);
         },
         payload,
+        renderOptions,
       );
     }
 
@@ -355,11 +421,7 @@
       let timeoutId = null;
       let timedOut = false;
       const shouldRecordPerf = Boolean(resolvePerfMonitor());
-      const fetchStartedAt = shouldRecordPerf
-        ? typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now()
-        : null;
+      const fetchStartedAt = shouldRecordPerf ? nowMs() : null;
 
       const timeoutPromise = new Promise(function (resolve) {
         timeoutId = setTimeout(function () {
@@ -371,6 +433,7 @@
           resolve({
             payload: null,
             payloadFingerprint: null,
+            payloadBytes: 0,
             meta: createFailureMeta("timeout"),
           });
         }, endpointTimeoutMs);
@@ -396,11 +459,15 @@
             endpointETagCache[endpoint.name] = responseETag;
           }
 
-          if (Number(response && response.status) === 304) {
+          const responseStatus = Number(response && response.status);
+          const contentLengthBytes = extractResponseContentLength(response);
+          const statusMeta = extractResponseMeta(response, null);
+          if (responseStatus === 304) {
             return {
               payload: null,
               payloadFingerprint: null,
-              meta: extractResponseMeta(response, null),
+              payloadBytes: contentLengthBytes,
+              meta: statusMeta,
             };
           }
 
@@ -409,11 +476,13 @@
               .text()
               .then(function (rawBody) {
                 const rawText = typeof rawBody === "string" ? rawBody : "";
+                const payloadBytes = estimatePayloadBytes(rawText);
                 try {
                   const payload = JSON.parse(rawText);
                   return {
                     payload,
                     payloadFingerprint: rawText,
+                    payloadBytes: payloadBytes,
                     meta: extractResponseMeta(response, payload),
                   };
                 } catch (err) {
@@ -421,6 +490,7 @@
                   return {
                     payload: null,
                     payloadFingerprint: null,
+                    payloadBytes: payloadBytes,
                     meta: extractResponseMeta(response, null),
                   };
                 }
@@ -430,6 +500,7 @@
                 return {
                   payload: null,
                   payloadFingerprint: null,
+                  payloadBytes: 0,
                   meta: extractResponseMeta(response, null),
                 };
               });
@@ -442,6 +513,7 @@
               return {
                 payload,
                 payloadFingerprint: fingerprint,
+                payloadBytes: estimatePayloadBytes(JSON.stringify(payload)),
                 meta: extractResponseMeta(response, payload),
               };
             })
@@ -450,6 +522,7 @@
               return {
                 payload: null,
                 payloadFingerprint: null,
+                payloadBytes: 0,
                 meta: extractResponseMeta(response, null),
               };
             });
@@ -459,6 +532,7 @@
             return {
               payload: null,
               payloadFingerprint: null,
+              payloadBytes: 0,
               meta: createFailureMeta("timeout"),
             };
           }
@@ -466,18 +540,17 @@
           return {
             payload: null,
             payloadFingerprint: null,
+            payloadBytes: 0,
             meta: createFailureMeta(err?.message || "fetch-failed"),
           };
         });
 
       const endpointRequest = Promise.race([fetchPromise, timeoutPromise]).then(function (result) {
         const status = endpointFetchStatus(result);
+        const notModified = isEndpointNotModified(result) ? 1 : 0;
 
         if (shouldRecordPerf) {
-          const endedAt =
-            typeof performance !== "undefined" && typeof performance.now === "function"
-              ? performance.now()
-              : Date.now();
+          const endedAt = nowMs();
           recordPerf({
             name: "fetchEndpoint." + endpoint.name,
             durationMs: endedAt - fetchStartedAt,
@@ -485,6 +558,9 @@
             error: status === "error" ? 1 : 0,
             timeout: status === "timeout" ? 1 : 0,
             status: Number(result && result.meta && result.meta.status) || 0,
+            notModified: notModified,
+            payloadBytes: Number(result && result.payloadBytes) || 0,
+            endpoint: endpoint.name,
           });
         }
 
@@ -622,11 +698,77 @@
 
       const run = function () {
         const shouldRecordPerf = Boolean(resolvePerfMonitor());
-        const runStartedAt = shouldRecordPerf
-          ? typeof performance !== "undefined" && typeof performance.now === "function"
-            ? performance.now()
-            : Date.now()
-          : null;
+        const runStartedAt = shouldRecordPerf ? nowMs() : null;
+        const refreshRenderContext = {
+          panelRenderCount: 0,
+          panelMutationCount: 0,
+        };
+        const tickPaintStartMs = request.tickPaintStartMs;
+        const perfRunId = request.runId != null ? String(request.runId) : String(runId);
+
+        const finalizeRun = function (runSummary) {
+          if (runSummary != null && typeof runSummary === "object") {
+            const shouldRecord = Boolean(runSummary.recordPerf);
+            const hasAnyData = runSummary.hasAnyData;
+            const runSuccess = runSummary.success;
+            const coldRefreshCompleted = runSummary.coldRefreshCompleted;
+
+            if (shouldRecordPerf && shouldRecord) {
+              const runFinishedAt = nowMs();
+              recordPerf({
+                name: "fetchAll.finish",
+                durationMs: runFinishedAt - runStartedAt,
+                includeCold: shouldFetchCold ? 1 : 0,
+                hasAnyData: hasAnyData ? 1 : 0,
+                success: runSuccess ? 1 : 0,
+                coldRefreshCompleted: coldRefreshCompleted ? 1 : 0,
+              });
+
+              recordPerf({
+                name: "compositingPressure",
+                panelRenderCount: refreshRenderContext.panelRenderCount,
+                mutationCount: refreshRenderContext.panelMutationCount,
+                includeCold: shouldFetchCold ? 1 : 0,
+              });
+            }
+
+            if (
+              shouldRecordPerf &&
+              Number.isFinite(tickPaintStartMs)
+            ) {
+              const publishTickPaint = function () {
+                const paintAt = nowMs();
+                const deltaMs = paintAt - tickPaintStartMs;
+                recordPerf({
+                  name: "tickToPaint",
+                  durationMs: deltaMs,
+                  includeCold: shouldFetchCold ? 1 : 0,
+                  success: runSuccess ? 1 : 0,
+                });
+              };
+
+              if (typeof window.requestAnimationFrame === "function") {
+                window.requestAnimationFrame(publishTickPaint);
+              } else {
+                publishTickPaint();
+              }
+            }
+          }
+
+          activeRefreshRenderContext = null;
+          setPerfRunId(null);
+          return runSummary;
+        };
+
+        refreshRenderContext.onPanelRender = function (metrics) {
+          if (!metrics || typeof metrics !== "object") return;
+          if (Number.isFinite(metrics.mutationCount)) {
+            refreshRenderContext.panelMutationCount += metrics.mutationCount;
+          }
+        };
+
+        activeRefreshRenderContext = refreshRenderContext;
+        setPerfRunId(perfRunId);
 
         if (shouldRecordPerf) {
           recordPerf({
@@ -651,9 +793,16 @@
             });
           });
 
-          return Promise.allSettled(endpointTasks)
+          const endpointPromise = Promise.allSettled(endpointTasks)
             .then(function (results) {
-              if (runId !== latestFetchRunId) return;
+              if (runId !== latestFetchRunId) {
+                return finalizeRun({
+                  hasAnyData: 0,
+                  success: false,
+                  coldRefreshCompleted: false,
+                  recordPerf: false,
+                });
+              }
 
               const hasAnyData = results.some(function (entry) {
                 if (entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) return false;
@@ -678,69 +827,67 @@
                 lastColdRefreshAt = Date.now();
               }
 
-              if (shouldRecordPerf) {
-                const runFinishedAt =
-                  typeof performance !== "undefined" && typeof performance.now === "function"
-                    ? performance.now()
-                    : Date.now();
-                recordPerf({
-                  name: "fetchAll.finish",
-                  durationMs: runFinishedAt - runStartedAt,
-                  includeCold: shouldFetchCold ? 1 : 0,
-                  hasAnyData: hasAnyData ? 1 : 0,
-                  success: !(!coldRefreshCompleted && shouldFetchCold) ? 1 : 0,
-                });
-              }
-
               if (!coldRefreshCompleted && shouldFetchCold) {
                 setConnectionStatus(hasAnyData);
-                return;
+                return finalizeRun({
+                  hasAnyData: hasAnyData,
+                  success: false,
+                  coldRefreshCompleted: false,
+                  recordPerf: shouldRecordPerf,
+                });
               }
 
               setConnectionStatus(hasAnyData);
 
-              if (!shouldFetchCold) return;
-              return fetchEndpoint(runFetch, monthlyEndpoint)
-                .then(function (monthlyResult) {
-                  applyMonthlyPayload(state, runId, monthlyResult);
-                })
-                .catch(function (err) {
-                  console.warn("Monthly usage fetch failed (non-critical):", err);
-                });
-            })
-            .catch(function () {
-              if (shouldRecordPerf) {
-                const runFinishedAt =
-                  typeof performance !== "undefined" && typeof performance.now === "function"
-                    ? performance.now()
-                    : Date.now();
-                recordPerf({
-                  name: "fetchAll.finish",
-                  durationMs: runFinishedAt - runStartedAt,
-                  includeCold: shouldFetchCold ? 1 : 0,
-                  hasAnyData: 0,
-                  success: 0,
+              if (!shouldFetchCold) {
+                return finalizeRun({
+                  hasAnyData: hasAnyData,
+                  success: true,
+                  coldRefreshCompleted: true,
+                  recordPerf: shouldRecordPerf,
                 });
               }
 
+              return fetchEndpoint(runFetch, monthlyEndpoint)
+                .then(function (monthlyResult) {
+                  applyMonthlyPayload(state, runId, monthlyResult);
+                  return finalizeRun({
+                    hasAnyData: hasAnyData,
+                    success: true,
+                    coldRefreshCompleted: coldRefreshCompleted,
+                    recordPerf: shouldRecordPerf,
+                  });
+                })
+                .catch(function (err) {
+                  console.warn("Monthly usage fetch failed (non-critical):", err);
+                  return finalizeRun({
+                    hasAnyData: hasAnyData,
+                    success: true,
+                    coldRefreshCompleted: coldRefreshCompleted,
+                    recordPerf: shouldRecordPerf,
+                  });
+                });
+            })
+            .catch(function () {
+              finalizeRun({
+                hasAnyData: 0,
+                success: false,
+                coldRefreshCompleted: false,
+                recordPerf: shouldRecordPerf,
+              });
               setConnectionStatus(false);
             });
+
+          return endpointPromise;
         } catch (err) {
           console.error("Fetch error:", err);
           setConnectionStatus(false);
-          if (shouldRecordPerf) {
-            const runFinishedAt =
-              typeof performance !== "undefined" && typeof performance.now === "function"
-                ? performance.now()
-                : Date.now();
-            recordPerf({
-              name: "fetchAll.finish",
-              durationMs: runFinishedAt - runStartedAt,
-              includeCold: shouldFetchCold ? 1 : 0,
-              hasAnyData: 0,
-              success: 0,
-            });
-          }
+          finalizeRun({
+            hasAnyData: 0,
+            success: false,
+            coldRefreshCompleted: false,
+            recordPerf: false,
+          });
           return Promise.resolve();
         }
       };

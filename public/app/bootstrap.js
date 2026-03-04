@@ -29,6 +29,8 @@
     };
     const previousPerfMonitor = window.HUDApp.perfMonitor;
     const previousPerfLongTaskHook = window.HUDApp.perfLongTaskHook;
+    const previousPerfLongAnimationFrameHook = window.HUDApp.perfLongAnimationFrameHook;
+    const previousPerfFrameBudgetHook = window.HUDApp.perfFrameBudgetHook;
 
     if (
       previousPerfMonitor &&
@@ -55,6 +57,33 @@
         diagLog(
           "[HUD-PERF]",
           "previous long-task monitor stop failed",
+          String(_error && _error.message ? _error.message : _error),
+        );
+      }
+    }
+
+    if (
+      previousPerfLongAnimationFrameHook &&
+      typeof previousPerfLongAnimationFrameHook.stop === "function"
+    ) {
+      try {
+        previousPerfLongAnimationFrameHook.stop();
+      } catch (_error) {
+        diagLog(
+          "[HUD-PERF]",
+          "previous long-animation-frame monitor stop failed",
+          String(_error && _error.message ? _error.message : _error),
+        );
+      }
+    }
+
+    if (previousPerfFrameBudgetHook && typeof previousPerfFrameBudgetHook.stop === "function") {
+      try {
+        previousPerfFrameBudgetHook.stop();
+      } catch (_error) {
+        diagLog(
+          "[HUD-PERF]",
+          "previous frame-budget monitor stop failed",
           String(_error && _error.message ? _error.message : _error),
         );
       }
@@ -131,8 +160,81 @@
             },
           };
 
+    const perfLongAnimationFrameHook =
+      typeof diagnostics.createLongAnimationFrameTelemetryHook === "function"
+        ? diagnostics.createLongAnimationFrameTelemetryHook({
+            enabled: perfDiagnosticsFlags.longTask,
+            monitor: perfMonitor,
+            performanceObserver: window.PerformanceObserver,
+            logger: function (event, fields) {
+              var eventName =
+                typeof event === "string" && event.trim()
+                  ? event.trim()
+                  : "long-animation-frame-observer-failed";
+              var payload =
+                fields && typeof fields === "object" && !Array.isArray(fields)
+                  ? fields
+                  : fields == null
+                    ? {}
+                    : { message: String(fields) };
+              diagLog("[HUD-PERF]", eventName, payload);
+            },
+          })
+        : {
+            start: function () {},
+            stop: function () {},
+            isEnabled: function () {
+              return false;
+            },
+          };
+
+    const perfFrameBudgetHook =
+      typeof diagnostics.createFrameBudgetTelemetryHook === "function"
+        ? diagnostics.createFrameBudgetTelemetryHook({
+            enabled: perfDiagnosticsFlags.enabled,
+            monitor: perfMonitor,
+            requestAnimationFrame: window.requestAnimationFrame,
+            cancelAnimationFrame: window.cancelAnimationFrame,
+            logger: function (event, fields) {
+              var eventName =
+                typeof event === "string" && event.trim()
+                  ? event.trim()
+                  : "frame-budget";
+              var payload =
+                fields && typeof fields === "object" && !Array.isArray(fields)
+                  ? fields
+                  : fields == null
+                    ? {}
+                    : { message: String(fields) };
+              diagLog("[HUD-PERF]", eventName, payload);
+            },
+          })
+        : {
+            start: function () {},
+            stop: function () {},
+            isEnabled: function () {
+              return false;
+            },
+          };
+
+    if (typeof diagnostics.resolvePerfEventContext === "function") {
+      window.HUDApp.perfEventContext = diagnostics.resolvePerfEventContext();
+    } else {
+      window.HUDApp.perfEventContext = window.HUDApp.perfEventContext || {
+        runId: null,
+        setRunId: function (runId) {
+          this.runId = runId == null ? null : String(runId);
+        },
+        getRunId: function () {
+          return this.runId;
+        },
+      };
+    }
+
     window.HUDApp.perfMonitor = perfMonitor;
     window.HUDApp.perfLongTaskHook = perfLongTaskHook;
+    window.HUDApp.perfLongAnimationFrameHook = perfLongAnimationFrameHook;
+    window.HUDApp.perfFrameBudgetHook = perfFrameBudgetHook;
 
     const statusController = window.HUDApp.status.createStatusController({
       document: doc,
@@ -191,12 +293,18 @@
     HUD.cron.init();
     HUD.spawn.init();
 
-    if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
-      perfMonitor.start();
-      if (perfLongTaskHook && typeof perfLongTaskHook.start === "function") {
-        perfLongTaskHook.start();
+      if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
+        perfMonitor.start();
+        if (perfLongTaskHook && typeof perfLongTaskHook.start === "function") {
+          perfLongTaskHook.start();
+        }
+        if (perfLongAnimationFrameHook && typeof perfLongAnimationFrameHook.start === "function") {
+          perfLongAnimationFrameHook.start();
+        }
+        if (perfFrameBudgetHook && typeof perfFrameBudgetHook.start === "function") {
+          perfFrameBudgetHook.start();
+        }
       }
-    }
 
     HUD.fetchAll();
     pollingController.start();

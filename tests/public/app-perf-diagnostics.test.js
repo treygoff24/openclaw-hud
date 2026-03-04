@@ -338,6 +338,39 @@ describe("HUD perf monitor cadence", () => {
     });
     expect(summary.longTaskProbe.label).toBeUndefined();
   });
+
+  it("injects client runId context into monitor payloads before recording", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfMonitor).toBe("function");
+
+    window.HUDApp = window.HUDApp || {};
+    window.HUDApp.perfEventContext = {
+      runId: null,
+      setRunId: function (runId) {
+        this.runId = runId == null ? null : String(runId);
+      },
+      getRunId: function () {
+        return this.runId;
+      },
+    };
+
+    const monitor = diagnostics.createPerfMonitor({
+      enabled: true,
+    });
+    const event = {
+      name: "testRunId",
+      durationMs: 12,
+    };
+
+    window.HUDApp.perfEventContext.setRunId("run-1");
+    monitor.record(event);
+
+    expect(event).toMatchObject({
+      name: "testRunId",
+      durationMs: 12,
+      runId: "run-1",
+    });
+  });
 });
 
 describe("HUD long-task telemetry hook", () => {
@@ -483,6 +516,122 @@ describe("HUD long-task telemetry hook", () => {
     }).not.toThrow();
     expect(record).not.toHaveBeenCalled();
     expect(hook.isUsingObserver()).toBe(false);
+  });
+
+  it("supports long-animation-frame telemetry with browser fallback", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+
+    const MockPerformanceObserver = vi.fn(function (cb) {
+      return {
+        observe,
+        disconnect,
+        callback: cb,
+      };
+    });
+    globalThis.PerformanceObserver = MockPerformanceObserver;
+
+    const record = vi.fn();
+    const hook = diagnostics.createLongAnimationFrameTelemetryHook({
+      enabled: true,
+      monitor: {
+        record,
+      },
+      performanceObserver: MockPerformanceObserver,
+      logger: vi.fn(),
+      eventName: "long-animation-frame",
+    });
+
+    hook.start();
+    expect(hook.isStarted()).toBe(true);
+    expect(observe).toHaveBeenCalledWith({ type: "long-animation-frame", buffered: true });
+
+    const entry = {
+      duration: 50,
+      startTime: 120,
+      name: "raf",
+      frameRate: 48,
+      attribution: [{ culprit: "script" }, { culprit: "gc" }],
+    };
+    MockPerformanceObserver.mock.results[0].value.callback({ getEntries: () => [entry] });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0][0]).toMatchObject({
+      name: "long-animation-frame",
+      durationMs: 50,
+      startTime: 120,
+      frameName: "raf",
+      frameRate: 48,
+    });
+
+    hook.stop();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(hook.isStarted()).toBe(false);
+  });
+
+  it("captures frame budget deltas and counters from requestAnimationFrame loop", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const frames = [1000, 1018, 1080];
+    let frameIndex = 0;
+    const raf = vi.fn(function (fn) {
+      const next = frames[frameIndex++];
+      if (typeof next === "number") {
+        fn(next);
+      }
+      return frameIndex;
+    });
+    const cancel = vi.fn();
+
+    const record = vi.fn();
+    const hook = diagnostics.createFrameBudgetTelemetryHook({
+      enabled: true,
+      monitor: {
+        record,
+      },
+      requestAnimationFrame: raf,
+      cancelAnimationFrame: cancel,
+    });
+
+    hook.start();
+    expect(hook.isStarted()).toBe(true);
+    expect(raf).toHaveBeenCalledTimes(4);
+    expect(cancel).not.toHaveBeenCalled();
+
+    const frameEvents = record.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry && entry.name === "frameBudget");
+    expect(frameEvents.length).toBe(2);
+    expect(frameEvents[0]).toMatchObject({
+      deltaMs: 18,
+      over16ms: 1,
+      over33ms: 0,
+    });
+    expect(frameEvents[1].deltaMs).toBeGreaterThan(33.3);
+    expect(frameEvents[1].over16ms).toBe(1);
+    expect(frameEvents[1].over33ms).toBe(1);
+
+    hook.stop();
+  });
+
+  it("does not start frame-budget telemetry when requestAnimationFrame is unavailable", () => {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const diagnostics = window.HUDApp.diagnostics;
+    const record = vi.fn();
+    globalThis.requestAnimationFrame = undefined;
+    const hook = diagnostics.createFrameBudgetTelemetryHook({
+      enabled: true,
+      monitor: {
+        record,
+      },
+      requestAnimationFrame: undefined,
+      cancelAnimationFrame: undefined,
+    });
+
+    hook.start();
+    expect(hook.isStarted()).toBe(false);
+    expect(record).not.toHaveBeenCalled();
+
+    globalThis.requestAnimationFrame = originalRaf;
   });
 });
 
@@ -729,7 +878,7 @@ describe("disabled perf mode fast paths", () => {
     expect(typeof ws.onmessage).toBe("function");
     ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
 
-    expect(fetchAll).toHaveBeenCalledWith({ includeCold: false });
+    expect(fetchAll).toHaveBeenCalledWith(expect.objectContaining({ includeCold: false }));
     expect(encodeSpy).not.toHaveBeenCalled();
   });
 
@@ -777,7 +926,7 @@ describe("disabled perf mode fast paths", () => {
     expect(typeof ws.onmessage).toBe("function");
     ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
 
-    expect(fetchAll).toHaveBeenCalledWith({ includeCold: false });
+    expect(fetchAll).toHaveBeenCalledWith(expect.objectContaining({ includeCold: false }));
     expect(now).not.toHaveBeenCalled();
   });
 
@@ -914,7 +1063,7 @@ describe("ws perf telemetry and tick backpressure", () => {
     expect(tickEntry.parseMs).toBeGreaterThanOrEqual(0);
     expect(tickEntry.dispatchMs).toBeGreaterThanOrEqual(0);
 
-    expect(harness.fetchAll).toHaveBeenCalledWith({ includeCold: false });
+    expect(harness.fetchAll).toHaveBeenCalledWith(expect.objectContaining({ includeCold: false }));
     expect(harness.setGatewayUptimeSnapshot).toHaveBeenCalledWith(42);
   });
 
@@ -1106,6 +1255,118 @@ describe("data controller perf instrumentation", () => {
     expect(eventNames).toContain("fetchAll.start");
     expect(eventNames).toContain("fetchAll.finish");
     expect(eventNames.some((name) => name.startsWith("fetchEndpoint."))).toBe(true);
+  });
+
+  it("records endpoint 304 hit-rate and payload bytes", async () => {
+    const record = vi.fn();
+    const responsesByUrl = {
+      "/api/agents": { status: 200, payload: [{ id: "agent-1" }], headers: { "content-length": "20" } },
+      "/api/sessions": { status: 200, payload: [] , headers: { "content-length": "3" } },
+      "/api/cron": { status: 200, payload: [] , headers: { "content-length": "2" } },
+      "/api/config": { status: 304, payload: null, headers: { "content-length": "128", "x-request-id": "cfg-304" } },
+      "/api/model-usage/live-weekly": { status: 200, payload: { weekly: { count: 1 } }, headers: { "content-length": "8" } },
+      "/api/model-usage/monthly": { status: 200, payload: { month: "2026-03" }, headers: { "content-length": "12" } },
+      "/api/activity": { status: 200, payload: [], headers: { "content-length": "2" } },
+      "/api/session-tree": { status: 200, payload: { nodes: [] }, headers: { "content-length": "3" } },
+    };
+    const fetchImpl = vi.fn((url) => {
+      const next = responsesByUrl[url];
+      if (!next) {
+        return Promise.resolve(createMockJsonResponse([]));
+      }
+
+      const status = next.status;
+      if (status === 304) {
+        return Promise.resolve({
+          ok: false,
+          status: 304,
+          statusText: "Not Modified",
+          headers: {
+            get: (key) =>
+              responsesByUrl[url].headers?.[key.toLowerCase()] || responsesByUrl[url].headers?.[key] || "",
+          },
+          text: () => Promise.resolve(""),
+          json: () => Promise.resolve(null),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: status,
+        statusText: "OK",
+        headers: {
+          get: (key) =>
+            responsesByUrl[url].headers?.[key.toLowerCase()] || responsesByUrl[url].headers?.[key] || "",
+        },
+        text: () => Promise.resolve(JSON.stringify(next.payload)),
+        json: () => Promise.resolve(next.payload),
+      });
+    });
+
+    window.HUDApp = window.HUDApp || {};
+    window.HUDApp.perfEventContext = {
+      runId: null,
+      setRunId: function (runId) {
+        this.runId = runId == null ? null : String(runId);
+      },
+      getRunId: function () {
+        return this.runId;
+      },
+    };
+    window.HUDApp.perfMonitor = {
+      isEnabled: () => true,
+      record,
+    };
+
+    await import("../../public/app/data.js");
+    const { controller } = createDataControllerPerfHarness({ fetchImpl });
+    const originalRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = function (callback) {
+      if (typeof callback === "function") callback();
+      return 1;
+    };
+
+    await controller.fetchAll({
+      includeCold: true,
+      runId: "manual-1",
+      tickPaintStartMs: 100,
+    });
+    globalThis.requestAnimationFrame = originalRaf;
+
+    const endpointEvent = record.mock.calls
+      .map(([entry]) => entry)
+      .find(
+        (entry) =>
+          entry &&
+          typeof entry.name === "string" &&
+          entry.name.startsWith("fetchEndpoint.") &&
+          entry.endpoint === "config",
+      );
+    expect(endpointEvent).toMatchObject({
+      name: "fetchEndpoint.config",
+      notModified: 1,
+      payloadBytes: 128,
+      endpoint: "config",
+    });
+
+    const compositingEvent = record.mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry && entry.name === "compositingPressure");
+    expect(compositingEvent).toMatchObject({
+      name: "compositingPressure",
+      panelRenderCount: expect.any(Number),
+      mutationCount: expect.any(Number),
+    });
+    expect(compositingEvent.panelRenderCount).toBeGreaterThan(0);
+
+    const tickToPaintEvent = record.mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry && entry.name === "tickToPaint");
+    expect(tickToPaintEvent).toMatchObject({
+      name: "tickToPaint",
+      durationMs: expect.any(Number),
+    });
+    expect(tickToPaintEvent.durationMs).toBeGreaterThanOrEqual(0);
   });
 });
 

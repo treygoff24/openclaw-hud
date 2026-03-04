@@ -37,6 +37,46 @@
     return normalized;
   }
 
+  function normalizePerfRunId(value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (typeof value === "string") {
+      var trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value) && !Number.isNaN(value)) {
+      return String(Math.floor(value));
+    }
+
+    return String(value);
+  }
+
+  function resolvePerfEventContext() {
+    window.HUDApp = window.HUDApp || {};
+
+    if (!window.HUDApp.perfEventContext) {
+      window.HUDApp.perfEventContext = {
+        runId: null,
+        setRunId: function (runId) {
+          this.runId = normalizePerfRunId(runId);
+        },
+        getRunId: function () {
+          return this.runId;
+        },
+      };
+    }
+
+    return window.HUDApp.perfEventContext;
+  }
+
+  function resolvePerfRunId() {
+    var context = resolvePerfEventContext();
+    return context && typeof context.getRunId === "function" ? context.getRunId() : null;
+  }
+
   function createNoopPerfMonitor() {
     function noop() {}
 
@@ -175,6 +215,247 @@
       },
       isUsingObserver: function () {
         return longTaskObserver !== null;
+      },
+    };
+  }
+
+  function createLongAnimationFrameTelemetryHook(input) {
+    var options = input || {};
+    var isEnabled = Boolean(options.enabled);
+    var monitor = options.monitor || null;
+    var observerFactory =
+      options.performanceObserver || (typeof window !== "undefined" && window.PerformanceObserver);
+    var eventName = typeof options.eventName === "string" && options.eventName.trim()
+      ? options.eventName.trim()
+      : "long-animation-frame";
+    var logger =
+      typeof options.logger === "function"
+        ? options.logger
+        : function () {};
+    var longAnimationFrameObserver = null;
+    var isStarted = false;
+
+    function isMonitorUsable() {
+      return isEnabled && monitor && typeof monitor.record === "function";
+    }
+
+    function safeRecord(entry) {
+      if (!entry || !isMonitorUsable()) {
+        return;
+      }
+
+      var durationMs = Number(entry.duration);
+      if (!Number.isFinite(durationMs)) {
+        return;
+      }
+
+      var sample = {
+        name: eventName,
+        durationMs: durationMs,
+      };
+
+      var startTimeMs = Number(entry.startTime);
+      if (Number.isFinite(startTimeMs)) {
+        sample.startTime = startTimeMs;
+      }
+
+      var frameName = entry && entry.name;
+      if (typeof frameName === "string" && frameName.trim()) {
+        sample.frameName = frameName.trim();
+      }
+
+      var frameRate = Number(entry.frameRate);
+      if (Number.isFinite(frameRate)) {
+        sample.frameRate = frameRate;
+      }
+
+      try {
+        monitor.record(sample);
+      } catch (_error) {
+        // Perf data capture must never break runtime behavior.
+      }
+    }
+
+    function onLongAnimationFrame(list) {
+      var entries = list && typeof list.getEntries === "function" ? list.getEntries() : [];
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return;
+      }
+
+      for (var i = 0; i < entries.length; i += 1) {
+        safeRecord(entries[i]);
+      }
+    }
+
+    function logHookError(hookEvent, error) {
+      var details =
+        error && typeof error === "object" && error.message
+          ? { message: String(error.message) }
+          : { message: String(error) };
+      logger(hookEvent, details);
+    }
+
+    function start() {
+      if (!isEnabled || longAnimationFrameObserver) {
+        return;
+      }
+      if (!isMonitorUsable()) {
+        return;
+      }
+
+      if (typeof observerFactory !== "function") {
+        return;
+      }
+
+      try {
+        longAnimationFrameObserver = new observerFactory(onLongAnimationFrame);
+        longAnimationFrameObserver.observe({ type: "long-animation-frame", buffered: true });
+        isStarted = true;
+      } catch (error) {
+        longAnimationFrameObserver = null;
+        isStarted = false;
+        logHookError("long-animation-frame-observer-failed", error);
+      }
+    }
+
+    function stop() {
+      if (!longAnimationFrameObserver) {
+        isStarted = false;
+        return;
+      }
+
+      try {
+        if (typeof longAnimationFrameObserver.disconnect === "function") {
+          longAnimationFrameObserver.disconnect();
+        }
+      } catch (_error) {
+        // Ignore cleanup issues.
+      }
+
+      longAnimationFrameObserver = null;
+      isStarted = false;
+    }
+
+    return {
+      start: start,
+      stop: stop,
+      isEnabled: function () {
+        return isEnabled;
+      },
+      isStarted: function () {
+        return isStarted;
+      },
+      isUsingObserver: function () {
+        return longAnimationFrameObserver !== null;
+      },
+    };
+  }
+
+  function createFrameBudgetTelemetryHook(input) {
+    var options = input || {};
+    var isEnabled = Boolean(options.enabled);
+    var monitor = options.monitor || null;
+    var raf = options.requestAnimationFrame || (typeof window !== "undefined" && window.requestAnimationFrame);
+    var cancelRaf = options.cancelAnimationFrame || (typeof window !== "undefined" && window.cancelAnimationFrame);
+    var logger =
+      typeof options.logger === "function"
+        ? options.logger
+        : function () {};
+    var isStarted = false;
+    var rafHandle = null;
+    var lastTimestamp = null;
+
+    function isMonitorUsable() {
+      return isEnabled && monitor && typeof monitor.record === "function";
+    }
+
+    function safeRecord(deltaMs) {
+      if (!Number.isFinite(deltaMs) || deltaMs < 0 || !isMonitorUsable()) {
+        return;
+      }
+
+      try {
+        monitor.record({
+          name: "frameBudget",
+          deltaMs: deltaMs,
+          over16ms: deltaMs > 16.6667 ? 1 : 0,
+          over33ms: deltaMs > 33.3333 ? 1 : 0,
+        });
+      } catch (_error) {
+        // Perf data capture must never break runtime behavior.
+      }
+    }
+
+    function onFrame(timestamp) {
+      if (!isStarted || !isMonitorUsable()) {
+        return;
+      }
+
+      if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+        if (typeof lastTimestamp === "number") {
+          safeRecord(timestamp - lastTimestamp);
+        }
+        lastTimestamp = timestamp;
+      }
+
+      rafHandle = typeof raf === "function" ? raf(onFrame) : null;
+    }
+
+    function logHookError(hookEvent, error) {
+      var details =
+        error && typeof error === "object" && error.message
+          ? { message: String(error.message) }
+          : { message: String(error) };
+      logger(hookEvent, details);
+    }
+
+    function start() {
+      if (!isEnabled || isStarted) {
+        return;
+      }
+      if (!isMonitorUsable()) {
+        return;
+      }
+      if (typeof raf !== "function") {
+        return;
+      }
+
+      isStarted = true;
+      lastTimestamp = null;
+      try {
+        rafHandle = raf(onFrame);
+      } catch (error) {
+        isStarted = false;
+        rafHandle = null;
+        logHookError("frame-budget-start-failed", error);
+      }
+    }
+
+    function stop() {
+      if (!isStarted) {
+        return;
+      }
+
+      isStarted = false;
+      try {
+        if (typeof cancelRaf === "function" && rafHandle != null) {
+          cancelRaf(rafHandle);
+        }
+      } catch (_error) {
+        // Ignore cleanup issues.
+      }
+      rafHandle = null;
+      lastTimestamp = null;
+    }
+
+    return {
+      start: start,
+      stop: stop,
+      isEnabled: function () {
+        return isEnabled;
+      },
+      isStarted: function () {
+        return isStarted;
       },
     };
   }
@@ -568,6 +849,17 @@
       var eventName = normalizeName(eventData);
       var bucket = ensureEventBucket(eventName);
       var fields = eventData;
+      var runId = resolvePerfRunId();
+
+      if (
+        runId != null &&
+        fields &&
+        typeof fields === "object" &&
+        !Array.isArray(fields) &&
+        fields.runId == null
+      ) {
+        fields.runId = runId;
+      }
 
       if (typeof eventData !== "object") {
         return;
@@ -604,6 +896,9 @@
   window.HUDApp.diagnostics = {
     ensureHudDiagLogger,
     createLongTaskTelemetryHook,
+    createLongAnimationFrameTelemetryHook,
+    createFrameBudgetTelemetryHook,
+    resolvePerfEventContext,
     resolvePerfDiagnosticsFlags,
     createPerfMonitor,
     createPerfBatchTransport,
