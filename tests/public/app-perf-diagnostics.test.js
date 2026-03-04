@@ -233,6 +233,30 @@ describe("HUD perf diagnostics flags", () => {
       globalThis.URLSearchParams = OriginalURLSearchParams;
     }
   });
+
+  it("hydrates perfEventContext from hudPerfRunId query parameter", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.resolvePerfEventContext).toBe("function");
+
+    const context = diagnostics.resolvePerfEventContext({
+      locationSearch: "?hudPerfRunId=query-run-123",
+      localStorage: null,
+    });
+    expect(context.getRunId()).toBe("query-run-123");
+  });
+
+  it("falls back to localStorage hudPerfRunId when query parameter is absent", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.resolvePerfEventContext).toBe("function");
+
+    window.localStorage.setItem("hudPerfRunId", "storage-run-789");
+
+    const context = diagnostics.resolvePerfEventContext({
+      locationSearch: "?hudPerf=1",
+      localStorage: window.localStorage,
+    });
+    expect(context.getRunId()).toBe("storage-run-789");
+  });
 });
 
 describe("HUD perf monitor cadence", () => {
@@ -370,6 +394,53 @@ describe("HUD perf monitor cadence", () => {
       durationMs: 12,
       runId: "run-1",
     });
+  });
+
+  it("includes runId in perf transport summary payloads", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfMonitor).toBe("function");
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const transport = {
+      enqueue: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    window.HUDApp = window.HUDApp || {};
+    window.HUDApp.perfEventContext = {
+      runId: null,
+      setRunId: function (runId) {
+        this.runId = runId == null ? null : String(runId);
+      },
+      getRunId: function () {
+        return this.runId;
+      },
+    };
+    window.HUDApp.perfEventContext.setRunId("transport-run-321");
+
+    const monitor = diagnostics.createPerfMonitor({
+      enabled: true,
+      transport,
+    });
+
+    monitor.record({ name: "fetchAll.finish", durationMs: 11 });
+    monitor.flushSummary();
+
+    expect(transport.enqueue).toHaveBeenCalledTimes(1);
+    const payload = transport.enqueue.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      runId: "transport-run-321",
+      summary: {
+        "fetchAll.finish": {
+          durationMs: {
+            count: 1,
+            sum: 11,
+          },
+        },
+      },
+    });
+    expect(typeof payload.ts).toBe("string");
   });
 });
 
@@ -1117,6 +1188,120 @@ describe("ws perf telemetry and tick backpressure", () => {
     expect(tickEntries[1].messageCount).toBe(1);
   });
 
+  it("keeps existing perf runId stable across queued tick refreshes", async () => {
+    const firstFetch = createDeferred();
+    const fetchAll = vi
+      .fn()
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockImplementation(() => Promise.resolve());
+
+    const record = vi.fn();
+    const setRunId = vi.fn(function (value) {
+      this.runId = value;
+    });
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+      perfEventContext: {
+        runId: "shared-run-id",
+        setRunId,
+        getRunId: function () {
+          return this.runId;
+        },
+      },
+    };
+    const harness = createWsHarness({ fetchAll });
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: harness.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: harness.fetchAll,
+      setConnectionStatus: harness.setConnectionStatus,
+      setGatewayUptimeSnapshot: harness.setGatewayUptimeSnapshot,
+      startPolling: harness.startPolling,
+      stopPolling: harness.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    wsController.connect();
+
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    expect(setRunId).not.toHaveBeenCalled();
+
+    const firstCall = fetchAll.mock.calls[0][0];
+    expect(firstCall).toMatchObject({ runId: "shared-run-id" });
+    firstFetch.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetchAll).toHaveBeenCalledTimes(2);
+    const secondCall = fetchAll.mock.calls[1][0];
+    expect(secondCall).toMatchObject({ runId: "shared-run-id" });
+  });
+
+  it("generates a tick runId once when no context runId is configured", async () => {
+    const firstFetch = createDeferred();
+    const fetchAll = vi
+      .fn()
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockImplementation(() => Promise.resolve());
+
+    const record = vi.fn();
+    const setRunId = vi.fn(function (value) {
+      this.runId = value == null ? null : String(value);
+    });
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+      perfEventContext: {
+        runId: null,
+        setRunId,
+        getRunId: function () {
+          return this.runId;
+        },
+      },
+    };
+    const harness = createWsHarness({ fetchAll });
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: harness.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: harness.fetchAll,
+      setConnectionStatus: harness.setConnectionStatus,
+      setGatewayUptimeSnapshot: harness.setGatewayUptimeSnapshot,
+      startPolling: harness.startPolling,
+      stopPolling: harness.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    wsController.connect();
+
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+
+    expect(setRunId).toHaveBeenCalledTimes(1);
+    const firstCall = fetchAll.mock.calls[0][0];
+    expect(firstCall.runId).toBeDefined();
+    expect(firstCall.runId).toMatch(/^tick-/);
+    firstFetch.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchAll).toHaveBeenCalledTimes(2);
+    const secondCall = fetchAll.mock.calls[1][0];
+    expect(secondCall).toBeTruthy();
+    expect(secondCall.runId).toBe(firstCall.runId);
+    expect(secondCall.runId).toMatch(/^tick-/);
+  });
+
   it("handles ws JSON parse failures without throwing and records parse_error telemetry", async () => {
     const record = vi.fn();
     window.HUDApp = {
@@ -1367,6 +1552,119 @@ describe("data controller perf instrumentation", () => {
       durationMs: expect.any(Number),
     });
     expect(tickToPaintEvent.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("records run-level SLO counters in fetchAll finish summary", async () => {
+    const record = vi.fn();
+    const callCounts = Object.create(null);
+
+    const fetchImpl = vi.fn((url) => {
+      callCounts[url] = (callCounts[url] || 0) + 1;
+      const callIndex = callCounts[url];
+
+      if (callIndex === 1) {
+        const responseBodies = {
+          "/api/agents": [{ id: "a-1" }],
+          "/api/sessions": [{ sessionKey: "agent-a:s-1", agentId: "agent-a", sessionId: "s-1" }],
+          "/api/cron": [],
+          "/api/config": {},
+          "/api/model-usage/live-weekly": { models: [] },
+          "/api/activity": [],
+          "/api/session-tree": { nodes: [] },
+          "/api/models": [{ alias: "gpt-4o-mini" }],
+          "/api/model-usage/monthly": { month: "2026-03" },
+        };
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {
+            get: () => "",
+          },
+          text: () => Promise.resolve(JSON.stringify(responseBodies[url])),
+          json: () => Promise.resolve(responseBodies[url]),
+        });
+      }
+
+      if (url === "/api/agents" && callIndex === 2) {
+        return Promise.resolve({
+          ok: false,
+          status: 304,
+          statusText: "Not Modified",
+          headers: { get: () => "" },
+          text: () => Promise.resolve(""),
+          json: () => Promise.resolve(null),
+        });
+      }
+
+      if (url === "/api/sessions" && callIndex === 2) {
+        return new Promise(function () {});
+      }
+
+      if (url === "/api/cron" && callIndex === 2) {
+        return Promise.reject(new Error("cron unavailable"));
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: {
+          get: () => "",
+        },
+        text: () => Promise.resolve(JSON.stringify([])),
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+    };
+    await import("../../public/app/data.js");
+
+    const { controller } = createDataControllerPerfHarness({
+      fetchImpl,
+      endpointTimeoutMs: 8,
+      onChatRestore: vi.fn(),
+    });
+
+    const originalRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = function (callback) {
+      if (typeof callback === "function") callback();
+      return 1;
+    };
+
+    await controller.fetchAll({ includeCold: true });
+    const secondFetch = controller.fetchAll({
+      includeCold: true,
+      runId: "slo-run",
+      tickPaintStartMs: 1,
+    });
+
+    await secondFetch;
+    globalThis.requestAnimationFrame = originalRaf;
+
+    const finishEvent = record.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry && entry.name === "fetchAll.finish")
+      .at(-1);
+
+    expect(finishEvent).toMatchObject({
+      name: "fetchAll.finish",
+      staleEndpoints: 2,
+      timeoutEndpoints: 1,
+      errorEndpoints: 1,
+      freshEndpoints: 6,
+      over500ms: 0,
+      success: 1,
+      hasAnyData: 1,
+      coldRefreshCompleted: 1,
+      includeCold: 1,
+    });
   });
 });
 

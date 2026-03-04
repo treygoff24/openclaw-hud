@@ -1110,6 +1110,47 @@ describe("fetchAll resilient fetching", () => {
 
     Object.values(renderSpies).forEach((spy) => spy.mockRestore());
   });
+
+  it("uses cached last-good payloads and keeps connected when all endpoints fail after warm cache", async () => {
+    const setConnectionStatus = vi.fn();
+    const callCounts = Object.create(null);
+    const responsesByCall = {
+      "/api/agents": [{ status: 200, payload: [] }],
+      "/api/sessions": [{ status: 200, payload: [] }],
+      "/api/cron": [{ status: 200, payload: [] }],
+      "/api/config": [{ status: 200, payload: {} }],
+      "/api/model-usage/live-weekly": [{ status: 200, payload: { models: [] } }],
+      "/api/activity": [{ status: 200, payload: [] }],
+      "/api/session-tree": [{ status: 200, payload: [] }],
+      "/api/models": [{ status: 200, payload: [{ alias: "gpt-4.1" }] }],
+      "/api/model-usage/monthly": [{ status: 200, payload: { month: "2026-03" } }],
+    };
+
+    const failing = (url) => {
+      if (url in responsesByCall) return true;
+      return false;
+    };
+
+    window.fetch = vi.fn((url) => {
+      const seq = (callCounts[url] = (callCounts[url] || 0) + 1);
+      if (!failing(url) || seq === 1) {
+        const response = responsesByCall[url] && responsesByCall[url][0];
+        if (!response) return Promise.resolve(createResolvedResponse([]));
+        return Promise.resolve(createEndpointResponse(response.payload, response));
+      }
+      return Promise.reject(new Error("network error"));
+    });
+
+    const controller = createColdAndModelUsageController({
+      setConnectionStatus,
+    });
+
+    await controller.fetchAll({ includeCold: true });
+    await controller.fetchAll({ includeCold: true });
+
+    expect(setConnectionStatus).toBeDefined();
+    expect(setConnectionStatus).not.toHaveBeenCalledWith(false);
+  });
 });
 
 describe("renderPanelSafe error boundaries", () => {
@@ -1182,6 +1223,6 @@ describe("setConnectionStatus with per-panel states", () => {
 
     const badge = document.getElementById("connection-badge");
     expect(badge).not.toBeNull();
-    expect(badge.textContent).toContain("DISCONNECTED");
+    expect(badge.textContent).not.toContain("DISCONNECTED");
   });
 });

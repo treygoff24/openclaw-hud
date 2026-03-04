@@ -262,6 +262,38 @@ describe("perf diagnostics route contract", () => {
     expect(exporter.buildSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("GET /api/diag/perf/export fallback includes additive run-level SLO fields when summary fails", async () => {
+    const exporter = {
+      buildSummary: vi.fn(async () => {
+        throw new Error("summary failure");
+      }),
+    };
+
+    const res = await request(createApp({ exporter })).get("/api/diag/perf/export");
+
+    expect(res.status).toBe(500);
+    expect(res.body.summary).toMatchObject({
+      totals: {
+        batches: 0,
+        events: 0,
+        runs: 0,
+        sources: 0,
+      },
+      runLevelSlo: {
+        fetchAll: {
+          p95MsProxy: null,
+          p99MsProxy: null,
+        },
+        tickToPaint: {
+          p95MsProxy: null,
+        },
+        tail: {
+          over500msCount: 0,
+        },
+      },
+    });
+  });
+
   it("GET /api/diag/perf/export includes runId/source summary fields", async () => {
     const writer = {
       appendBatch: vi.fn(async () => ({ written: 0, bytes: 0 })),
@@ -314,6 +346,140 @@ describe("perf diagnostics route contract", () => {
       });
     } finally {
       fs.rmSync(writer.config.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/diag/perf/export includes additive run-level SLO proxy fields", async () => {
+    const perfDir = fs.mkdtempSync(path.join(os.tmpdir(), "diag-perf-slo-"));
+    const segmentPath = path.join(perfDir, "hud-perf-000001.jsonl");
+    const lines = [
+      JSON.stringify({
+        ts: "2026-03-03T18:00:00.000Z",
+        source: "hud",
+        _batchId: "batch-a",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 1, sum: 120, min: 120, max: 120, last: 120 },
+          },
+          tickToPaint: {
+            durationMs: { count: 1, sum: 60, min: 60, max: 60, last: 60 },
+          },
+        },
+      }),
+      JSON.stringify({
+        ts: "2026-03-03T18:00:01.000Z",
+        source: "hud",
+        _batchId: "batch-b",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 1, sum: 700, min: 700, max: 700, last: 700 },
+          },
+          tickToPaint: {
+            durationMs: { count: 1, sum: 240, min: 240, max: 240, last: 240 },
+          },
+        },
+      }),
+      JSON.stringify({
+        ts: "2026-03-03T18:00:02.000Z",
+        source: "hud",
+        _batchId: "batch-c",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 1, sum: 40, min: 40, max: 40, last: 40 },
+          },
+        },
+      }),
+    ];
+    fs.writeFileSync(segmentPath, `${lines.join("\n")}\n`, "utf8");
+
+    try {
+      const writer = {
+        appendBatch: vi.fn(async () => ({ written: 0, bytes: 0 })),
+        config: {
+          dir: perfDir,
+          baseName: "hud-perf",
+        },
+      };
+      const res = await request(createApp({ writer })).get("/api/diag/perf/export");
+
+      expect(res.status).toBe(200);
+      expect(res.body.summary.runLevelSlo).toMatchObject({
+        fetchAll: {
+          p95MsProxy: 700,
+          p99MsProxy: 700,
+        },
+        tickToPaint: {
+          p95MsProxy: 240,
+        },
+        tail: {
+          over500msCount: 1,
+        },
+      });
+    } finally {
+      fs.rmSync(perfDir, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/diag/perf/export avoids max-weight inflation and uses explicit over500 counters", async () => {
+    const perfDir = fs.mkdtempSync(path.join(os.tmpdir(), "diag-perf-slo-aggregated-"));
+    const segmentPath = path.join(perfDir, "hud-perf-000001.jsonl");
+    const lines = [
+      JSON.stringify({
+        ts: "2026-03-03T19:00:00.000Z",
+        source: "hud",
+        _batchId: "batch-a",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 10, sum: 1000, min: 20, max: 900, last: 30 },
+            over500ms: { count: 10, sum: 1, min: 0, max: 1, last: 1 },
+          },
+          tickToPaint: {
+            durationMs: { count: 10, sum: 500, min: 20, max: 120, last: 40 },
+          },
+        },
+      }),
+      JSON.stringify({
+        ts: "2026-03-03T19:00:30.000Z",
+        source: "hud",
+        _batchId: "batch-b",
+        summary: {
+          "fetchAll.finish": {
+            durationMs: { count: 10, sum: 300, min: 20, max: 40, last: 25 },
+            over500ms: { count: 10, sum: 0, min: 0, max: 0, last: 0 },
+          },
+          tickToPaint: {
+            durationMs: { count: 10, sum: 600, min: 20, max: 90, last: 45 },
+          },
+        },
+      }),
+    ];
+    fs.writeFileSync(segmentPath, `${lines.join("\n")}\n`, "utf8");
+
+    try {
+      const writer = {
+        appendBatch: vi.fn(async () => ({ written: 0, bytes: 0 })),
+        config: {
+          dir: perfDir,
+          baseName: "hud-perf",
+        },
+      };
+      const res = await request(createApp({ writer })).get("/api/diag/perf/export");
+
+      expect(res.status).toBe(200);
+      expect(res.body.summary.runLevelSlo).toMatchObject({
+        fetchAll: {
+          p95MsProxy: 30,
+          p99MsProxy: 30,
+        },
+        tickToPaint: {
+          p95MsProxy: 45,
+        },
+        tail: {
+          over500msCount: 1,
+        },
+      });
+    } finally {
+      fs.rmSync(perfDir, { recursive: true, force: true });
     }
   });
 

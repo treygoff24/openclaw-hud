@@ -98,6 +98,7 @@
     let tickRefreshQueued = false;
     let tickRunSeq = 0;
     let tickRefreshQueuedContext = null;
+    let activeTickRunId = null;
     const perfContext = (window.HUDApp && window.HUDApp.perfEventContext) || null;
 
     function setPerfRunId(nextRunId) {
@@ -106,6 +107,15 @@
         return;
       }
       perfContext.setRunId(nextRunId);
+    }
+
+    function resolvePerfRunIdFromContext() {
+      if (!perfContext || typeof perfContext.getRunId !== "function") return null;
+      try {
+        return perfContext.getRunId();
+      } catch (_error) {
+        return null;
+      }
     }
 
     function resolveTickRefreshContext(context) {
@@ -134,9 +144,6 @@
 
       tickRefreshInFlight = true;
       const request = resolveTickRefreshContext(runContext) || { includeCold: false };
-      if (request.runId) {
-        setPerfRunId(request.runId);
-      }
       let refreshResult;
       try {
         refreshResult = fetchAll(request);
@@ -148,6 +155,9 @@
         .catch(function () {})
         .finally(function () {
           tickRefreshInFlight = false;
+          if (!tickRefreshQueued) {
+            activeTickRunId = null;
+          }
           if (tickRefreshQueued) {
             tickRefreshQueued = false;
             const nextContext = tickRefreshQueuedContext;
@@ -291,10 +301,16 @@
         const dispatchStart = shouldRecord ? nowMs() : 0;
         if (messageType === "tick") {
           const tickPaintStartMs = shouldRecord ? nowMs() : null;
-          const tickRunId = "tick-" + ++tickRunSeq;
-          if (shouldRecord) {
-            setPerfRunId(tickRunId);
+          const currentRunId = resolvePerfRunIdFromContext();
+          const tickRunId = currentRunId == null ? activeTickRunId || "tick-" + ++tickRunSeq : currentRunId;
+
+          if (currentRunId == null) {
+            activeTickRunId = tickRunId;
+            if (shouldRecord) {
+              setPerfRunId(tickRunId);
+            }
           }
+
           scheduleTickRefresh({
             runId: tickRunId,
             tickPaintStartMs: tickPaintStartMs,

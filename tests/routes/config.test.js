@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
@@ -7,6 +7,7 @@ const helpers = require("../../lib/helpers");
 helpers.OPENCLAW_HOME = "/mock/home";
 helpers.safeJSON5 = vi.fn();
 helpers.stripSecrets = vi.fn((x) => x);
+const originalModelsCacheTtlMs = process.env.HUD_MODELS_CACHE_TTL_MS;
 
 function mockConfigSources({ primary = null, legacy = null }) {
   helpers.safeJSON5.mockImplementation((fp) => {
@@ -32,6 +33,12 @@ function createApp() {
 describe("GET /api/models", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.HUD_MODELS_CACHE_TTL_MS = "1000";
+  });
+
+  afterEach(() => {
+    process.env.HUD_MODELS_CACHE_TTL_MS = originalModelsCacheTtlMs;
+    vi.restoreAllMocks();
   });
 
   it("uses primary openclaw.json models and does not inject phantom hardcoded models", async () => {
@@ -140,7 +147,9 @@ describe("GET /api/models", () => {
       },
     });
 
-    const { app, spawnRouter } = createApp();
+    const created = createApp();
+    const app = created.app;
+    const spawnRouter = created.spawnRouter;
     const res = await request(app).get("/api/models");
 
     expect(res.status).toBe(200);
@@ -169,5 +178,104 @@ describe("GET /api/models", () => {
       { alias: "default", fullId: "" },
       { alias: "gemini-2.5-pro", fullId: "google/gemini-2.5-pro" },
     ]);
+  });
+
+  it("memo-caches /api/models responses based on config file mtime/size dependencies", async () => {
+    let openclawMtime = 1;
+    let legacyMtime = 2;
+    const fs = require("fs");
+    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath) => {
+      if (String(filePath).endsWith("openclaw.json")) {
+        return { mtimeMs: openclawMtime, size: 10 };
+      }
+      return { mtimeMs: legacyMtime, size: 11 };
+    });
+
+    mockConfigSources({
+      primary: {
+        agents: {
+          defaults: {
+            models: {
+              "openai/gpt-5": { alias: "gpt5" },
+            },
+          },
+        },
+      },
+    });
+
+    const { app, spawnRouter } = createApp();
+    const first = await request(app).get("/api/models");
+    const second = await request(app).get("/api/models");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(helpers.safeJSON5).toHaveBeenCalledTimes(2);
+
+    const firstCacheState = JSON.parse(first.headers["x-hud-cache-state"]);
+    const secondCacheState = JSON.parse(second.headers["x-hud-cache-state"]);
+    expect(firstCacheState.state).toBe("miss");
+    expect(secondCacheState.state).toBe("hit");
+    expect(first.headers["x-hud-endpoint-timing-ms"]).toEqual(expect.any(String));
+    expect(second.headers["x-hud-endpoint-timing-ms"]).toEqual(expect.any(String));
+
+    const secondTiming = JSON.parse(second.headers["x-hud-endpoint-timing-ms"]);
+    expect(secondTiming).toMatchObject({
+      diskReadMs: 0,
+      parseMs: 0,
+      computeMs: expect.any(Number),
+      serializeMs: expect.any(Number),
+    });
+
+    openclawMtime = 3;
+    legacyMtime = 4;
+    const third = await request(app).get("/api/models");
+
+    expect(third.status).toBe(200);
+    expect(helpers.safeJSON5).toHaveBeenCalledTimes(4);
+    const thirdCacheState = JSON.parse(third.headers["x-hud-cache-state"]);
+    expect(thirdCacheState.state).toBe("stale");
+
+    expect(spawnRouter.setCachedModels).toHaveBeenCalledTimes(3);
+    statSpy.mockRestore();
+  });
+
+  it("continues to expose timing headers and cache state headers on miss/hit", async () => {
+    let openclawMtime = 1;
+    let legacyMtime = 2;
+    const fs = require("fs");
+    vi.spyOn(fs, "statSync").mockImplementation((filePath) => {
+      if (String(filePath).endsWith("openclaw.json")) {
+        return { mtimeMs: openclawMtime, size: 10 };
+      }
+      return { mtimeMs: legacyMtime, size: 11 };
+    });
+
+    mockConfigSources({
+      primary: {
+        agents: {
+          defaults: {
+            models: {
+              "openai/gpt-4.1": { alias: "gpt41" },
+            },
+          },
+        },
+      },
+    });
+
+    const created = createApp();
+    const app = created.app;
+    const first = await request(app).get("/api/models");
+
+    const firstTiming = JSON.parse(first.headers["x-hud-endpoint-timing-ms"]);
+    const firstState = JSON.parse(first.headers["x-hud-cache-state"]);
+    expect(firstState.state).toBe("miss");
+    expect(firstTiming).toEqual(
+      expect.objectContaining({
+        diskReadMs: expect.any(Number),
+        parseMs: expect.any(Number),
+        computeMs: expect.any(Number),
+        serializeMs: expect.any(Number),
+      }),
+    );
   });
 });

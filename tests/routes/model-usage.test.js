@@ -7,6 +7,7 @@ const helpers = require("../../lib/helpers");
 helpers.OPENCLAW_HOME = "/mock/home";
 helpers.safeReaddir = vi.fn(() => []);
 helpers.safeRead = vi.fn(() => null);
+const originalLegacyModelUsageCacheTtlMs = process.env.HUD_MODEL_USAGE_CACHE_TTL_MS;
 
 function createApp() {
   delete require.cache[require.resolve("../../routes/model-usage")];
@@ -19,10 +20,12 @@ function createApp() {
 describe("model-usage route seam", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(require("fs"), "statSync").mockReturnValue({ mtimeMs: 1 });
+    process.env.HUD_MODEL_USAGE_CACHE_TTL_MS = "1000";
+    vi.spyOn(require("fs"), "statSync").mockReturnValue({ mtimeMs: 1, size: 10 });
   });
 
   afterEach(() => {
+    process.env.HUD_MODEL_USAGE_CACHE_TTL_MS = originalLegacyModelUsageCacheTtlMs;
     vi.restoreAllMocks();
   });
 
@@ -65,5 +68,70 @@ describe("model-usage route seam", () => {
     const content = fs.readFileSync(serverPath, "utf-8");
 
     expect(content).toMatch(/require\(["']\.\/routes\/model-usage["']\)/);
+  });
+
+  it("memo-caches /api/model-usage with dependency (mtime/size) invalidation", async () => {
+    let sessionMtime = 1;
+    const fs = require("fs");
+    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath) => {
+      if (String(filePath).includes("sess-1.jsonl")) {
+        return { mtimeMs: sessionMtime, size: 10 };
+      }
+      if (String(filePath).endsWith("/mock/home/agents")) {
+        return { mtimeMs: 2, size: 5 };
+      }
+      return { mtimeMs: 1, size: 10 };
+    });
+
+    helpers.safeReaddir.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents") return ["agent-a"];
+      if (fp === "/mock/home/agents/agent-a/sessions") return ["sess-1.jsonl"];
+      return [];
+    });
+    helpers.safeRead.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents/agent-a/sessions/sess-1.jsonl") {
+        return JSON.stringify({
+          type: "message",
+          message: {
+            model: "openai/gpt-5",
+            usage: {
+              input: 10,
+              output: 5,
+              totalTokens: 15,
+              cost: { total: 0.01 },
+            },
+          },
+        });
+      }
+      return null;
+    });
+
+    const app = createApp();
+    const first = await request(app).get("/api/model-usage");
+    const second = await request(app).get("/api/model-usage");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(helpers.safeRead).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(first.headers["x-hud-cache-state"]).state).toBe("miss");
+    expect(JSON.parse(second.headers["x-hud-cache-state"]).state).toBe("hit");
+
+    sessionMtime = 2;
+    const third = await request(app).get("/api/model-usage");
+    expect(third.status).toBe(200);
+    expect(helpers.safeRead).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(third.headers["x-hud-cache-state"]).state).toBe("stale");
+
+    const timing = JSON.parse(third.headers["x-hud-endpoint-timing-ms"]);
+    expect(timing).toEqual(
+      expect.objectContaining({
+        diskReadMs: expect.any(Number),
+        parseMs: expect.any(Number),
+        computeMs: expect.any(Number),
+        serializeMs: expect.any(Number),
+      }),
+    );
+
+    statSpy.mockRestore();
   });
 });

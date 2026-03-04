@@ -76,6 +76,89 @@ function parseValidTimestamp(ts) {
   return new Date(parsed).toISOString();
 }
 
+function createRunLevelSloDefaults() {
+  return {
+    fetchAll: {
+      p95MsProxy: null,
+      p99MsProxy: null,
+    },
+    tickToPaint: {
+      p95MsProxy: null,
+    },
+    tail: {
+      over500msCount: 0,
+    },
+  };
+}
+
+function toFiniteNumber(value, fallback = null) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function toPositiveInteger(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : fallback;
+}
+
+function collectRunLevelSample(rawField, fallbackCount = 1) {
+  const parsedCount = toPositiveInteger(rawField?.count, fallbackCount);
+  const sampleCount = Math.max(parsedCount, 1);
+  const averagedValue =
+    sampleCount > 0 ? toFiniteNumber(rawField?.sum, null) / sampleCount : null;
+  const sampleValue = toFiniteNumber(
+    rawField?.last,
+    toFiniteNumber(averagedValue, toFiniteNumber(rawField?.max, null)),
+  );
+  if (!Number.isFinite(sampleValue) || sampleValue < 0) {
+    return null;
+  }
+  return {
+    value: sampleValue,
+    count: 1,
+  };
+}
+
+function weightedPercentileFromSamples(samples, percentile) {
+  if (!Array.isArray(samples) || samples.length === 0) {
+    return null;
+  }
+
+  const ratio = toFiniteNumber(percentile, null);
+  if (!Number.isFinite(ratio)) {
+    return null;
+  }
+  const clampedRatio = Math.min(100, Math.max(0, ratio));
+
+  const normalized = samples
+    .filter((sample) => Number.isFinite(sample?.value) && Number.isFinite(sample?.count))
+    .map((sample) => ({
+      value: sample.value,
+      count: Math.max(1, Math.floor(sample.count)),
+    }))
+    .filter((sample) => sample.count > 0)
+    .sort((left, right) => left.value - right.value);
+
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const totalCount = normalized.reduce((acc, sample) => acc + sample.count, 0);
+  if (!Number.isFinite(totalCount) || totalCount <= 0) {
+    return null;
+  }
+
+  const targetIndex = Math.ceil((clampedRatio / 100) * totalCount);
+  let cursor = 0;
+  for (const sample of normalized) {
+    cursor += sample.count;
+    if (cursor >= targetIndex) {
+      return sample.value;
+    }
+  }
+  return normalized[normalized.length - 1].value;
+}
+
 function appendMetric(summary, metricName, fieldName, value) {
   if (!isSafeObjectKey(metricName) || !isSafeObjectKey(fieldName)) return;
   if (typeof value !== 'number' || !Number.isFinite(value)) return;
@@ -196,6 +279,12 @@ function createPerfExporter(writer) {
       const metrics = createNullProtoObject();
       const runIdCounts = createNullProtoObject();
       const sources = createNullProtoObject();
+      const runLevelSlo = createRunLevelSloDefaults();
+      const fetchAllSamples = [];
+      const tickToPaintSamples = [];
+      let explicitOver500Count = 0;
+      let sawExplicitOver500Metric = false;
+      let fallbackOver500BucketCount = 0;
 
       const segmentPaths = collectSegmentEntries();
       for (const filePath of segmentPaths) {
@@ -264,6 +353,25 @@ function createPerfExporter(writer) {
                   max: next.max,
                   last: next.last,
                 };
+                if (metricName === 'fetchAll.finish' && fieldName === 'durationMs') {
+                  const sample = collectRunLevelSample(rawField, 1);
+                  if (sample) {
+                    fetchAllSamples.push(sample);
+                    if (sample.value > 500) {
+                      fallbackOver500BucketCount += 1;
+                    }
+                  }
+                }
+                if (metricName === 'fetchAll.finish' && fieldName === 'over500ms') {
+                  sawExplicitOver500Metric = true;
+                  explicitOver500Count += toPositiveInteger(rawField?.sum, toPositiveInteger(rawField?.last, 0));
+                }
+                if (metricName === 'tickToPaint' && fieldName === 'durationMs') {
+                  const sample = collectRunLevelSample(rawField, 1);
+                  if (sample) {
+                    tickToPaintSamples.push(sample);
+                  }
+                }
                 continue;
               }
 
@@ -275,10 +383,36 @@ function createPerfExporter(writer) {
                 last: next.last,
               };
               targetFields[fieldName] = merged;
+              if (metricName === 'fetchAll.finish' && fieldName === 'durationMs') {
+                const sample = collectRunLevelSample(rawField, 1);
+                if (sample) {
+                  fetchAllSamples.push(sample);
+                  if (sample.value > 500) {
+                    fallbackOver500BucketCount += 1;
+                  }
+                }
+              }
+              if (metricName === 'fetchAll.finish' && fieldName === 'over500ms') {
+                sawExplicitOver500Metric = true;
+                explicitOver500Count += toPositiveInteger(rawField?.sum, toPositiveInteger(rawField?.last, 0));
+              }
+              if (metricName === 'tickToPaint' && fieldName === 'durationMs') {
+                const sample = collectRunLevelSample(rawField, 1);
+                if (sample) {
+                  tickToPaintSamples.push(sample);
+                }
+              }
             }
           }
         }
       }
+
+      runLevelSlo.fetchAll.p95MsProxy = weightedPercentileFromSamples(fetchAllSamples, 95);
+      runLevelSlo.fetchAll.p99MsProxy = weightedPercentileFromSamples(fetchAllSamples, 99);
+      runLevelSlo.tickToPaint.p95MsProxy = weightedPercentileFromSamples(tickToPaintSamples, 95);
+      runLevelSlo.tail.over500msCount = sawExplicitOver500Metric
+        ? explicitOver500Count
+        : fallbackOver500BucketCount;
 
       const now = new Date().toISOString();
       return {
@@ -294,6 +428,7 @@ function createPerfExporter(writer) {
           sources: Object.keys(sources).length,
         },
         metrics,
+        runLevelSlo,
         runIds: Object.keys(runIdCounts),
         sourceCounts: sources,
       };
@@ -451,12 +586,17 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
               : 0,
         },
         metrics: summary?.metrics && typeof summary.metrics === 'object' ? summary.metrics : {},
+        runLevelSlo:
+          summary?.runLevelSlo && typeof summary.runLevelSlo === 'object'
+            ? summary.runLevelSlo
+            : createRunLevelSloDefaults(),
         runIds: Array.isArray(summary?.runIds) ? summary.runIds : [],
         sourceCounts: summary?.sourceCounts && typeof summary.sourceCounts === 'object' ? summary.sourceCounts : {},
       },
     });
   } catch (error) {
     const now = new Date().toISOString();
+    const runLevelSlo = createRunLevelSloDefaults();
     return res.status(500).json({
       ok: false,
       error: error instanceof Error ? error.message : 'Unable to build performance summary',
@@ -472,6 +612,7 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
           runs: 0,
           sources: 0,
         },
+        runLevelSlo,
         metrics: {},
         runIds: [],
         sourceCounts: {},

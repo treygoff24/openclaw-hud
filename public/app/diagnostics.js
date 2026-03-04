@@ -54,10 +54,48 @@
     return String(value);
   }
 
-  function resolvePerfEventContext() {
+  function normalizePerfRunIdFromSearch(locationSearch) {
+    if (typeof locationSearch !== "string") return null;
+    try {
+      var params = new URLSearchParams(locationSearch);
+      return normalizePerfRunId(params.get("hudPerfRunId"));
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function resolvePerfRunIdFromStorage(storage) {
+    if (!storage || typeof storage.getItem !== "function") return null;
+    try {
+      return normalizePerfRunId(storage.getItem("hudPerfRunId"));
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function resolvePerfEventContext(input) {
+    var options = input || {};
+    var locationSearch =
+      typeof options.locationSearch === "string"
+        ? options.locationSearch
+        : typeof options.search === "string"
+          ? options.search
+          : "";
+    var storage =
+      Object.prototype.hasOwnProperty.call(options, "localStorage")
+        ? options.localStorage
+        : typeof window !== "undefined"
+          ? window.localStorage
+          : null;
+
+    var hydratedRunId = normalizePerfRunIdFromSearch(locationSearch);
+    if (hydratedRunId == null) {
+      hydratedRunId = resolvePerfRunIdFromStorage(storage);
+    }
+
     window.HUDApp = window.HUDApp || {};
 
-    if (!window.HUDApp.perfEventContext) {
+    if (!window.HUDApp.perfEventContext || typeof window.HUDApp.perfEventContext.setRunId !== "function") {
       window.HUDApp.perfEventContext = {
         runId: null,
         setRunId: function (runId) {
@@ -67,6 +105,10 @@
           return this.runId;
         },
       };
+    }
+
+    if (hydratedRunId != null) {
+      window.HUDApp.perfEventContext.setRunId(hydratedRunId);
     }
 
     return window.HUDApp.perfEventContext;
@@ -752,10 +794,16 @@
       });
       metricsByEvent = new Map();
       if (transport && typeof transport.enqueue === "function") {
-        transport.enqueue({
+        var summaryPayload = {
           ts: new Date().toISOString(),
           summary: result,
-        });
+        };
+        var runId = resolvePerfRunId();
+        if (runId != null) {
+          summaryPayload.runId = runId;
+        }
+
+        transport.enqueue(summaryPayload);
       }
       publishSummary(result);
       return result;

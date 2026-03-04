@@ -315,6 +315,17 @@
       return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
     }
 
+    function endpointResultHasUsableData(endpointName, result) {
+      return endpointResultHasFreshData(endpointName, result) || endpointResultIsStaleFallback(endpointName, result);
+    }
+
+    function endpointResultIsStaleFallback(endpointName, result) {
+      const payload = result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
+      if (payload !== null && payload !== undefined) return false;
+      if (isEndpointNotModified(result)) return false;
+      return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
+    }
+
     function modelUsageWithMonthly(state) {
       const weeklyPayload = state.data["model-usage"];
       if (!cachedMonthlyPayload) {
@@ -631,7 +642,7 @@
         onChatRestore(state.data.sessions);
       }
 
-      if (endpointResultHasFreshData(endpointName, result)) {
+      if (endpointResultHasUsableData(endpointName, result)) {
         state.hasAnyData = true;
         if (!state.connectionSetConnected) {
           state.connectionSetConnected = true;
@@ -715,13 +726,19 @@
 
             if (shouldRecordPerf && shouldRecord) {
               const runFinishedAt = nowMs();
+              const fetchAllDurationMs = runFinishedAt - runStartedAt;
               recordPerf({
                 name: "fetchAll.finish",
-                durationMs: runFinishedAt - runStartedAt,
+                durationMs: fetchAllDurationMs,
+                over500ms: fetchAllDurationMs > 500 ? 1 : 0,
                 includeCold: shouldFetchCold ? 1 : 0,
                 hasAnyData: hasAnyData ? 1 : 0,
                 success: runSuccess ? 1 : 0,
                 coldRefreshCompleted: coldRefreshCompleted ? 1 : 0,
+                freshEndpoints: Number(runSummary.freshEndpoints) || 0,
+                staleEndpoints: Number(runSummary.staleEndpoints) || 0,
+                timeoutEndpoints: Number(runSummary.timeoutEndpoints) || 0,
+                errorEndpoints: Number(runSummary.errorEndpoints) || 0,
               });
 
               recordPerf({
@@ -801,12 +818,16 @@
                   success: false,
                   coldRefreshCompleted: false,
                   recordPerf: false,
+                  freshEndpoints: 0,
+                  staleEndpoints: 0,
+                  timeoutEndpoints: 0,
+                  errorEndpoints: 0,
                 });
               }
 
               const hasAnyData = results.some(function (entry) {
                 if (entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) return false;
-                return endpointResultHasFreshData(entry.value.endpointName, entry.value.result);
+                return endpointResultHasUsableData(entry.value.endpointName, entry.value.result);
               });
 
               const coldRefreshCompleted = !shouldFetchCold
@@ -817,11 +838,43 @@
                     }
                     if (entry.status !== "fulfilled") return false;
 
-                    return endpointResultHasFreshData(
-                      entry.value.endpointName,
-                      entry.value && entry.value.result,
-                    );
-                  });
+                      return endpointResultHasFreshData(
+                        entry.value.endpointName,
+                        entry.value && entry.value.result,
+                      );
+                    });
+
+              const runEndpointSlo = results.reduce(function (accumulator, entry) {
+                if (!entry || entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) {
+                  accumulator.errorEndpoints += 1;
+                  return accumulator;
+                }
+
+                const endpointName = entry.value.endpointName;
+                const result = entry.value.result;
+
+                if (endpointResultHasFreshData(endpointName, result)) {
+                  accumulator.freshEndpoints += 1;
+                }
+
+                if (endpointResultIsStaleFallback(endpointName, result)) {
+                  accumulator.staleEndpoints += 1;
+                }
+
+                const endpointStatus = endpointFetchStatus(result);
+                if (endpointStatus === "timeout") {
+                  accumulator.timeoutEndpoints += 1;
+                } else if (endpointStatus === "error" && !isEndpointNotModified(result)) {
+                  accumulator.errorEndpoints += 1;
+                }
+
+                return accumulator;
+              }, {
+                freshEndpoints: 0,
+                staleEndpoints: 0,
+                timeoutEndpoints: 0,
+                errorEndpoints: 0,
+              });
 
               if (shouldFetchCold && coldRefreshCompleted) {
                 lastColdRefreshAt = Date.now();
@@ -834,6 +887,10 @@
                   success: false,
                   coldRefreshCompleted: false,
                   recordPerf: shouldRecordPerf,
+                  freshEndpoints: runEndpointSlo.freshEndpoints,
+                  staleEndpoints: runEndpointSlo.staleEndpoints,
+                  timeoutEndpoints: runEndpointSlo.timeoutEndpoints,
+                  errorEndpoints: runEndpointSlo.errorEndpoints,
                 });
               }
 
@@ -845,6 +902,10 @@
                   success: true,
                   coldRefreshCompleted: true,
                   recordPerf: shouldRecordPerf,
+                  freshEndpoints: runEndpointSlo.freshEndpoints,
+                  staleEndpoints: runEndpointSlo.staleEndpoints,
+                  timeoutEndpoints: runEndpointSlo.timeoutEndpoints,
+                  errorEndpoints: runEndpointSlo.errorEndpoints,
                 });
               }
 
@@ -856,6 +917,10 @@
                     success: true,
                     coldRefreshCompleted: coldRefreshCompleted,
                     recordPerf: shouldRecordPerf,
+                    freshEndpoints: runEndpointSlo.freshEndpoints,
+                    staleEndpoints: runEndpointSlo.staleEndpoints,
+                    timeoutEndpoints: runEndpointSlo.timeoutEndpoints,
+                    errorEndpoints: runEndpointSlo.errorEndpoints,
                   });
                 })
                 .catch(function (err) {
@@ -865,15 +930,23 @@
                     success: true,
                     coldRefreshCompleted: coldRefreshCompleted,
                     recordPerf: shouldRecordPerf,
+                    freshEndpoints: runEndpointSlo.freshEndpoints,
+                    staleEndpoints: runEndpointSlo.staleEndpoints,
+                    timeoutEndpoints: runEndpointSlo.timeoutEndpoints,
+                    errorEndpoints: runEndpointSlo.errorEndpoints,
                   });
                 });
-            })
+              })
             .catch(function () {
               finalizeRun({
                 hasAnyData: 0,
                 success: false,
                 coldRefreshCompleted: false,
                 recordPerf: shouldRecordPerf,
+                freshEndpoints: 0,
+                staleEndpoints: 0,
+                timeoutEndpoints: 0,
+                errorEndpoints: 0,
               });
               setConnectionStatus(false);
             });
@@ -887,6 +960,10 @@
             success: false,
             coldRefreshCompleted: false,
             recordPerf: false,
+            freshEndpoints: 0,
+            staleEndpoints: 0,
+            timeoutEndpoints: 0,
+            errorEndpoints: 0,
           });
           return Promise.resolve();
         }

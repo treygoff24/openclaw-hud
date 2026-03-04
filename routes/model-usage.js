@@ -26,10 +26,14 @@ const {
   writeMonthCache,
   getMonthCacheTtlMs,
 } = require("../lib/month-usage-cache");
+const { createInProcessMemoCache } = require("../lib/inprocess-memo-cache");
 
 const router = Router();
 
 let liveWeeklyCache = null;
+const legacyModelUsageCache = createInProcessMemoCache({ name: "api-model-usage" });
+
+const HUD_MODEL_USAGE_CACHE_TTL_MS = "HUD_MODEL_USAGE_CACHE_TTL_MS";
 
 const DEFAULT_USAGE_SESSIONS_LIMIT = 500;
 const MIN_USAGE_SESSIONS_LIMIT = 1;
@@ -40,6 +44,23 @@ const MAX_MONTH_USAGE_MAX_WINDOWS = 120;
 const DEFAULT_MONTH_USAGE_MAX_DURATION_MS = 7000;
 const MIN_MONTH_USAGE_MAX_DURATION_MS = 100;
 const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
+
+function toTimingValue(value) {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function writeEndpointHeaders(res, timing, cacheState) {
+  res.set(
+    "x-hud-endpoint-timing-ms",
+    JSON.stringify({
+      diskReadMs: toTimingValue(timing.diskReadMs),
+      parseMs: toTimingValue(timing.parseMs),
+      computeMs: toTimingValue(timing.computeMs),
+      serializeMs: toTimingValue(timing.serializeMs),
+    }),
+  );
+  res.set("x-hud-cache-state", JSON.stringify(cacheState || { state: "disabled" }));
+}
 
 function parseIfNoneMatchHeader(value) {
   return String(value || "")
@@ -93,6 +114,12 @@ function sendJsonWithETag(req, res, payload, stablePayloadTransformer = (value) 
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
+  return ttlMs;
+}
+
+function getLegacyModelUsageCacheTtlMs() {
+  const ttlMs = Number(process.env[HUD_MODEL_USAGE_CACHE_TTL_MS]);
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
   return ttlMs;
 }
@@ -594,18 +621,17 @@ function buildUnavailableMonthlyPayload({ tz, monthWindow, nowMs, reason, reques
     summary: {
       monthSpend: 0,
       topMonthModel: null,
-    },
-  };
+  },
+};
 }
 
-router.get("/api/model-usage", (req, res) => {
+function createLegacyModelUsagePayload() {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const agents = safeReaddir(agentsDir);
-  const usage = {};
+  const dependencies = [];
 
-  const ensure = (model) => {
-    if (!usage[model])
-      usage[model] = {
+  const ensure = (usageData, model) => {
+    if (!usageData[model]) {
+      usageData[model] = {
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -614,78 +640,137 @@ router.get("/api/model-usage", (req, res) => {
         totalCost: 0,
         agents: {},
       };
+    }
   };
-  const ensureAgent = (model, agentId) => {
-    if (!usage[model].agents[agentId])
-      usage[model].agents[agentId] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+  const ensureAgent = (usageData, model, agentId) => {
+    if (!usageData[model].agents[agentId]) {
+      usageData[model].agents[agentId] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
   };
+
+  const usage = {};
+  const diskReadStartMs = performance.now();
+  const agents = safeReaddir(agentsDir);
+  dependencies.push(agentsDir);
+
+  const parseStartMs = performance.now();
+  let parseMs = 0;
 
   for (const agentId of agents) {
     const sessDir = path.join(agentsDir, agentId, "sessions");
+    dependencies.push(sessDir);
+
     const files = safeReaddir(sessDir)
-      .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => {
+      .filter((fileName) => fileName.endsWith(".jsonl"))
+      .map((fileName) => {
+        const filePath = path.join(sessDir, fileName);
         try {
-          return { name: f, mtime: fs.statSync(path.join(sessDir, f)).mtimeMs };
+          return { filePath, mtime: fs.statSync(filePath).mtimeMs };
         } catch (err) {
           console.warn("[model-usage] session file stat failed", {
             agentId,
-            file: f,
+            file: fileName,
             message: err?.message || "Unknown stat error",
           });
           return null;
         }
       })
       .filter(Boolean)
-      .sort((a, b) => b.mtime - a.mtime)
+      .sort((left, right) => right.mtime - left.mtime)
       .slice(0, 10)
-      .map((f) => f.name);
+      .map((entry) => entry.filePath);
 
-    for (const file of files) {
-      const raw = safeRead(path.join(sessDir, file));
+    for (const filePath of files) {
+      dependencies.push(filePath);
+    }
+
+    for (const filePath of files) {
+      const raw = safeRead(filePath);
       if (!raw) continue;
 
       let currentModel = null;
       for (const line of raw.split("\n").filter(Boolean)) {
+        let entry;
+        const parseLineStart = performance.now();
         try {
-          const e = JSON.parse(line);
-          if (e.type === "model_change" && e.modelId) {
-            currentModel = e.modelId;
-          }
-          if (e.type === "message" && e.message?.usage) {
-            const u = e.message.usage;
-            const model = e.message.model || currentModel || "unknown";
-            ensure(model);
-            ensureAgent(model, agentId);
-            const inp = u.input || 0;
-            const out = u.output || 0;
-            const cr = u.cacheRead || 0;
-            const cw = u.cacheWrite || 0;
-            const tot = u.totalTokens || inp + out + cr + cw;
-            const cost = u.cost?.total || 0;
-            usage[model].inputTokens += inp;
-            usage[model].outputTokens += out;
-            usage[model].cacheReadTokens += cr;
-            usage[model].cacheWriteTokens += cw;
-            usage[model].totalTokens += tot;
-            usage[model].totalCost += cost;
-            usage[model].agents[agentId].inputTokens += inp;
-            usage[model].agents[agentId].outputTokens += out;
-            usage[model].agents[agentId].totalTokens += tot;
-          }
+          entry = JSON.parse(line);
+          parseMs += performance.now() - parseLineStart;
         } catch (err) {
+          parseMs += performance.now() - parseLineStart;
           console.warn("[model-usage] session jsonl parse failed", {
             agentId,
-            file,
+            file: path.basename(filePath),
             linePreview: makeLinePreview(line),
             message: err?.message || "Unknown parse error",
           });
+          continue;
+        }
+
+        if (entry.type === "model_change" && entry.modelId) {
+          currentModel = entry.modelId;
+        }
+        if (entry.type === "message" && entry.message?.usage) {
+          const u = entry.message.usage;
+          const model = entry.message.model || currentModel || "unknown";
+          ensure(usage, model);
+          ensureAgent(usage, model, agentId);
+          const inp = u.input || 0;
+          const out = u.output || 0;
+          const cr = u.cacheRead || 0;
+          const cw = u.cacheWrite || 0;
+          const tot = u.totalTokens || inp + out + cr + cw;
+          const cost = u.cost?.total || 0;
+          usage[model].inputTokens += inp;
+          usage[model].outputTokens += out;
+          usage[model].cacheReadTokens += cr;
+          usage[model].cacheWriteTokens += cw;
+          usage[model].totalTokens += tot;
+          usage[model].totalCost += cost;
+          usage[model].agents[agentId].inputTokens += inp;
+          usage[model].agents[agentId].outputTokens += out;
+          usage[model].agents[agentId].totalTokens += tot;
         }
       }
     }
   }
 
-  res.json(usage);
+  const diskReadMs = performance.now() - diskReadStartMs;
+  const computeMs = Math.max(0, performance.now() - parseStartMs - parseMs);
+
+  return {
+    value: usage,
+    cacheMeta: {
+      diskReadMs,
+      parseMs,
+      computeMs,
+    },
+    dependencyPaths: dependencies,
+  };
+}
+
+router.get("/api/model-usage", async (req, res) => {
+  const result = await legacyModelUsageCache.getOrSet({
+    key: "legacy-model-usage",
+    ttlMs: getLegacyModelUsageCacheTtlMs(),
+    getDependencyPaths: () => [path.join(OPENCLAW_HOME, "agents")],
+    loader: () => createLegacyModelUsagePayload(),
+  });
+
+  const usage = result.value;
+  const timing = {
+    diskReadMs: result.fromCache ? 0 : toTimingValue(result.cacheMeta?.diskReadMs),
+    parseMs: result.fromCache ? 0 : toTimingValue(result.cacheMeta?.parseMs),
+    computeMs: result.fromCache ? 0 : toTimingValue(result.cacheMeta?.computeMs),
+    serializeMs: 0,
+  };
+
+  const serializeStartMs = performance.now();
+  const body = JSON.stringify(usage);
+  timing.serializeMs = performance.now() - serializeStartMs;
+
+  writeEndpointHeaders(res, timing, result.cacheState);
+  res.type("json").send(body);
 });
 
 router.get("/api/model-usage/history", (req, res) => {

@@ -4,7 +4,7 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 const { setupWebSocket } = require("./ws/log-streaming");
 const { GatewayWS } = require("./lib/gateway-ws");
-const { getGatewayConfig } = require("./lib/helpers");
+const { buildModelAliasPayload, getGatewayConfig, prewarmModelAliasMapCache } = require("./lib/helpers");
 const { resolveMethodScopes } = require("./lib/gateway-compat/client");
 const { applySecurityHeaders } = require("./lib/security-headers");
 const { validateWsUpgradeRequest } = require("./lib/ws-origin-guard");
@@ -218,6 +218,24 @@ function createSpawnPreflightLogPayload(state) {
   };
 }
 
+function warmModelAliasCacheForSpawn() {
+  if (typeof spawnRouter.setCachedModels !== "function") return;
+  const applyModelAliases = (aliasMap) => {
+    try {
+      spawnRouter.setCachedModels(buildModelAliasPayload(aliasMap));
+    } catch (error) {
+      console.warn("[spawn-cache] failed to refresh cached model aliases:", error?.message || error);
+    }
+  };
+
+  try {
+    const aliasMap = prewarmModelAliasMapCache(applyModelAliases);
+    applyModelAliases(aliasMap);
+  } catch (error) {
+    console.warn("[spawn-cache] failed to prewarm model aliases:", error?.message || error);
+  }
+}
+
 // Static files — vendor assets get long immutable cache, app files get short cache with ETag
 // Vendor files: immutable, long cache (1 year)
 app.use("/vendor", express.static(path.join(__dirname, "public", "vendor"), {
@@ -303,6 +321,7 @@ if (require.main === module) {
     broadcastAll(createGatewayStatusPayload("disconnected"));
   });
 
+  warmModelAliasCacheForSpawn();
   runStartupProbe();
   // Connect (non-blocking)
   gatewayWS.connect().catch((err) => console.error("Gateway WS initial connect failed:", err));
