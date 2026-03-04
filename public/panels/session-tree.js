@@ -7,6 +7,7 @@ HUD.sessionTree = (function () {
   const EXPANDED_TOGGLE_CHAR = "▾";
 
   function buildTreeHTML(sessions) {
+    if (!Array.isArray(sessions)) sessions = [];
     const byKey = {};
     sessions.forEach((s) => {
       byKey[s.key] = s;
@@ -160,6 +161,7 @@ HUD.sessionTree = (function () {
   }
 
   function render(sessions) {
+    if (!Array.isArray(sessions)) sessions = [];
     for (const s of sessions) {
       if (!s.sessionKey)
         throw new Error("sessionTree.render requires canonical sessionKey for each node");

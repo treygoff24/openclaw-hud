@@ -6,7 +6,8 @@ HUD.activity = (function () {
   let _previousCount = 0;
 
   function buildActivityHTML(events) {
-    return events
+    const safeEvents = Array.isArray(events) ? events : [];
+    return safeEvents
       .map((e) => {
         const t = new Date(e.timestamp);
         const time = t.toLocaleTimeString("en-US", {
@@ -27,6 +28,7 @@ HUD.activity = (function () {
   }
 
   function render(events) {
+    if (!Array.isArray(events)) events = [];
     const newCount = events.length;
     const hasNewActivity = newCount > _previousCount;
     _previousCount = newCount;

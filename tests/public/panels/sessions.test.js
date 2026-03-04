@@ -135,6 +135,30 @@ describe("sessions.render", () => {
     expect(document.getElementById("session-count").textContent).toBe("0");
   });
 
+  it("handles null input without throwing and reports zero count", () => {
+    expect(() => HUD.sessions.render(null)).not.toThrow();
+    expect(document.getElementById("session-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".session-row").length).toBe(0);
+  });
+
+  it("handles undefined input without throwing and reports zero count", () => {
+    expect(() => HUD.sessions.render(undefined)).not.toThrow();
+    expect(document.getElementById("session-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".session-row").length).toBe(0);
+  });
+
+  it("handles string input without throwing and reports zero count", () => {
+    expect(() => HUD.sessions.render("not-an-array")).not.toThrow();
+    expect(document.getElementById("session-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".session-row").length).toBe(0);
+  });
+
+  it("handles object input without throwing and reports zero count", () => {
+    expect(() => HUD.sessions.render({})).not.toThrow();
+    expect(document.getElementById("session-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".session-row").length).toBe(0);
+  });
+
   it("caps at 40 rows", () => {
     const sessions = Array.from({ length: 50 }, (_, i) => ({
       agentId: "a",
