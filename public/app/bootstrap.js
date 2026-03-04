@@ -7,12 +7,65 @@
     const opts = options || {};
     const doc = opts.document || document;
     const HUD = opts.HUD || window.HUD;
+    let localStorage;
+
+    try {
+      localStorage = window.localStorage;
+    } catch (_error) {
+      localStorage = null;
+    }
+
     const $ = function (selector) {
       return doc.querySelector(selector);
     };
 
-    const diagLog = window.HUDApp.diagnostics.ensureHudDiagLogger();
+    const diagnostics = window.HUDApp.diagnostics || {};
+    const diagLog = diagnostics.ensureHudDiagLogger();
+    const previousPerfMonitor = window.HUDApp.perfMonitor;
+
+    if (
+      previousPerfMonitor &&
+      typeof previousPerfMonitor.stop === "function"
+    ) {
+      try {
+        previousPerfMonitor.stop();
+      } catch (_error) {
+        diagLog(
+          "[HUD-PERF]",
+          "previous monitor stop failed",
+          String(_error && _error.message ? _error.message : _error)
+        );
+      }
+    }
+
     const wsLogPrefix = "[HUD-WS]";
+    const perfDiagnosticsFlags =
+      typeof diagnostics.resolvePerfDiagnosticsFlags === "function"
+            ? diagnostics.resolvePerfDiagnosticsFlags({
+                locationSearch: window.location.search,
+                localStorage: localStorage,
+                globalConfig: opts.globalConfig,
+              })
+        : { enabled: false };
+    const perfMonitor =
+      typeof diagnostics.createPerfMonitor === "function"
+        ? diagnostics.createPerfMonitor({
+            enabled: perfDiagnosticsFlags.enabled,
+            summaryIntervalMs: opts.perfSummaryIntervalMs,
+            emitSummary: function (summary) {
+              diagLog("[HUD-PERF]", "summary", summary);
+            },
+            logger: function () {},
+          })
+        : {
+            start: () => {},
+            stop: () => {},
+            record: () => {},
+            flushSummary: () => ({}),
+            isEnabled: () => false,
+          };
+
+    window.HUDApp.perfMonitor = perfMonitor;
 
     const statusController = window.HUDApp.status.createStatusController({
       document: doc,
@@ -70,6 +123,10 @@
     HUD.agents.init();
     HUD.cron.init();
     HUD.spawn.init();
+
+    if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
+      perfMonitor.start();
+    }
 
     HUD.fetchAll();
     pollingController.start();

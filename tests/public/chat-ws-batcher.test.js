@@ -223,6 +223,46 @@ describe("WebSocketMessageBatcher", () => {
         expect(time).toBeLessThan(16); // 60fps frame budget
       });
     });
+
+    it("skips perf timing and metrics when HUD perf monitor is disabled", () => {
+      const record = vi.fn();
+      const nowSpy = vi.spyOn(performance, "now");
+      window.HUDApp = {
+        perfMonitor: {
+          isEnabled: () => false,
+          record,
+        },
+      };
+
+      batcher.queue({ type: "chat-send-ack", id: "ack-disabled" });
+
+      expect(record).not.toHaveBeenCalled();
+      expect(nowSpy).not.toHaveBeenCalled();
+      nowSpy.mockRestore();
+    });
+
+    it("records chatBatcher.flush metrics when HUD perf monitor is enabled", () => {
+      const record = vi.fn();
+      const nowSpy = vi.spyOn(performance, "now");
+      nowSpy.mockReturnValueOnce(10).mockReturnValueOnce(15);
+      window.HUDApp = {
+        perfMonitor: {
+          isEnabled: () => true,
+          record,
+        },
+      };
+
+      batcher.queue({ type: "chat-send-ack", id: "ack-enabled" });
+
+      expect(record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "chatBatcher.flush",
+          batchSize: 1,
+          durationMs: 5,
+        }),
+      );
+      nowSpy.mockRestore();
+    });
   });
 
   describe("cleanup", () => {

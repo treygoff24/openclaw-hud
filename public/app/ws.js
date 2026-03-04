@@ -7,6 +7,39 @@
   const WS_RECONNECT_MAX_MS = 5000;
   const WS_RECONNECT_JITTER_MS = 250;
   const WS_POST_OPEN_RECONNECT_MS = 2000;
+  let textEncoder = null;
+  let inboundMessageCount = 0;
+  let inboundMessageBytes = 0;
+
+  function resolvePerfMonitor() {
+    const monitor = window.HUDApp && window.HUDApp.perfMonitor;
+    if (!monitor) return null;
+    if (typeof monitor.isEnabled === "function" && !monitor.isEnabled()) return null;
+    if (typeof monitor.record !== "function") return null;
+    return monitor;
+  }
+
+  function recordPerf(entry) {
+    const monitor = resolvePerfMonitor();
+    if (!monitor) return;
+    try {
+      monitor.record(entry);
+    } catch {
+      // Ignore diagnostics failures for runtime behavior.
+    }
+  }
+
+  function estimateMessageBytes(rawMessage) {
+    if (typeof rawMessage === "string") {
+      if (!textEncoder && typeof TextEncoder === "function") {
+        textEncoder = new TextEncoder();
+      }
+      return textEncoder ? textEncoder.encode(rawMessage).length : rawMessage.length;
+    }
+    if (!rawMessage) return 0;
+    if (typeof rawMessage.byteLength === "number") return rawMessage.byteLength;
+    return String(rawMessage).length;
+  }
 
   function createWsController(options) {
     const opts = options || {};
@@ -129,6 +162,20 @@
       };
 
       ws.onmessage = function (event) {
+        const shouldRecord = Boolean(resolvePerfMonitor());
+        if (shouldRecord) {
+          const inboundBytes = estimateMessageBytes(event && event.data);
+          inboundMessageCount += 1;
+          inboundMessageBytes += inboundBytes;
+          recordPerf({
+            name: "ws.onmessage",
+            count: 1,
+            bytes: inboundBytes,
+            messageCount: inboundMessageCount,
+            bytesTotal: inboundMessageBytes,
+          });
+        }
+
         const data = JSON.parse(event.data);
         if (data.type === "tick") {
           fetchAll({ includeCold: false });

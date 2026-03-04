@@ -4,6 +4,33 @@
   window.HUDApp = window.HUDApp || {};
   const DEFAULT_ENDPOINT_TIMEOUT_MS = 8000;
   const COLD_REFRESH_INTERVAL_MS = 60 * 1000;
+  function resolvePerfMonitor() {
+    const monitor = window.HUDApp && window.HUDApp.perfMonitor;
+    if (!monitor) return null;
+    if (typeof monitor.isEnabled === "function" && !monitor.isEnabled()) return null;
+    if (typeof monitor.record !== "function") return null;
+    return monitor;
+  }
+
+  function recordPerf(entry) {
+    const monitor = resolvePerfMonitor();
+    if (!monitor) return;
+    try {
+      monitor.record(entry);
+    } catch {
+      // Ignore perf monitor failures to avoid runtime impact.
+    }
+  }
+
+  function endpointFetchStatus(result) {
+    if (result && result.meta && result.meta.statusText === "timeout") {
+      return "timeout";
+    }
+    if (result && result.meta && result.meta.ok) {
+      return "ok";
+    }
+    return "error";
+  }
 
   function createDataController(options) {
     const opts = options || {};
@@ -207,6 +234,12 @@
       const controller = typeof AbortController === "function" ? new AbortController() : null;
       let timeoutId = null;
       let timedOut = false;
+      const shouldRecordPerf = Boolean(resolvePerfMonitor());
+      const fetchStartedAt = shouldRecordPerf
+        ? typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now()
+        : null;
 
       const timeoutPromise = new Promise(function (resolve) {
         timeoutId = setTimeout(function () {
@@ -259,7 +292,26 @@
           };
         });
 
-      return Promise.race([fetchPromise, timeoutPromise]).finally(function () {
+      return Promise.race([fetchPromise, timeoutPromise]).then(function (result) {
+        const status = endpointFetchStatus(result);
+
+        if (shouldRecordPerf) {
+          const endedAt =
+            typeof performance !== "undefined" && typeof performance.now === "function"
+              ? performance.now()
+              : Date.now();
+          recordPerf({
+            name: "fetchEndpoint." + endpoint.name,
+            durationMs: endedAt - fetchStartedAt,
+            ok: status === "ok" ? 1 : 0,
+            error: status === "error" ? 1 : 0,
+            timeout: status === "timeout" ? 1 : 0,
+            status: Number(result && result.meta && result.meta.status) || 0,
+          });
+        }
+
+        return result;
+      }).finally(function () {
         if (timeoutId) clearTimeout(timeoutId);
       });
     }
@@ -349,6 +401,22 @@
       window._endpointResponseMeta = responseMeta;
 
       const run = function () {
+        const shouldRecordPerf = Boolean(resolvePerfMonitor());
+        const runStartedAt = shouldRecordPerf
+          ? typeof performance !== "undefined" && typeof performance.now === "function"
+            ? performance.now()
+            : Date.now()
+          : null;
+
+        if (shouldRecordPerf) {
+          recordPerf({
+            name: "fetchAll.start",
+            count: 1,
+            includeCold: shouldFetchCold ? 1 : 0,
+            endpointCount: runTargets.length,
+          });
+        }
+
         try {
           const endpointTasks = runTargets.map(function (endpoint) {
             return fetchEndpoint(runFetch, endpoint).then(function (result) {
@@ -389,6 +457,20 @@
                 lastColdRefreshAt = Date.now();
               }
 
+              if (shouldRecordPerf) {
+                const runFinishedAt =
+                  typeof performance !== "undefined" && typeof performance.now === "function"
+                    ? performance.now()
+                    : Date.now();
+                recordPerf({
+                  name: "fetchAll.finish",
+                  durationMs: runFinishedAt - runStartedAt,
+                  includeCold: shouldFetchCold ? 1 : 0,
+                  hasAnyData: hasAnyData ? 1 : 0,
+                  success: !(!coldRefreshCompleted && shouldFetchCold) ? 1 : 0,
+                });
+              }
+
               if (!coldRefreshCompleted && shouldFetchCold) {
                 setConnectionStatus(hasAnyData);
                 return;
@@ -406,11 +488,38 @@
                 });
             })
             .catch(function () {
+              if (shouldRecordPerf) {
+                const runFinishedAt =
+                  typeof performance !== "undefined" && typeof performance.now === "function"
+                    ? performance.now()
+                    : Date.now();
+                recordPerf({
+                  name: "fetchAll.finish",
+                  durationMs: runFinishedAt - runStartedAt,
+                  includeCold: shouldFetchCold ? 1 : 0,
+                  hasAnyData: 0,
+                  success: 0,
+                });
+              }
+
               setConnectionStatus(false);
             });
         } catch (err) {
           console.error("Fetch error:", err);
           setConnectionStatus(false);
+          if (shouldRecordPerf) {
+            const runFinishedAt =
+              typeof performance !== "undefined" && typeof performance.now === "function"
+                ? performance.now()
+                : Date.now();
+            recordPerf({
+              name: "fetchAll.finish",
+              durationMs: runFinishedAt - runStartedAt,
+              includeCold: shouldFetchCold ? 1 : 0,
+              hasAnyData: 0,
+              success: 0,
+            });
+          }
           return Promise.resolve();
         }
       };

@@ -2,6 +2,31 @@
   "use strict";
 
   window.HUDApp = window.HUDApp || {};
+  const PANEL_POST_PAINT_SAMPLE_INTERVAL = 4;
+  let panelRenderPostPaintCounter = 0;
+
+  function resolvePerfMonitor() {
+    const monitor = window.HUDApp && window.HUDApp.perfMonitor;
+    if (!monitor) return null;
+    if (typeof monitor.isEnabled === "function" && !monitor.isEnabled()) return null;
+    if (typeof monitor.record !== "function") return null;
+    return monitor;
+  }
+
+  function recordPerf(entry) {
+    const monitor = resolvePerfMonitor();
+    if (!monitor) return;
+    try {
+      monitor.record(entry);
+    } catch {
+      // Ignore diagnostics failures for user-visible behavior.
+    }
+  }
+
+  function shouldSamplePostPaint() {
+    panelRenderPostPaintCounter += 1;
+    return panelRenderPostPaintCounter % PANEL_POST_PAINT_SAMPLE_INTERVAL === 0;
+  }
 
   function createUiController(options) {
     const opts = options || {};
@@ -44,14 +69,23 @@
       });
     }
 
-    function renderPanelSafe(panelName, panelEl, renderFn, data) {
+  function renderPanelSafe(panelName, panelEl, renderFn, data) {
       if (!panelEl) {
         console.warn("Panel element not found: " + panelName);
         return;
       }
 
+      const shouldRecordPerf = Boolean(resolvePerfMonitor());
+      const renderStartedAt = shouldRecordPerf
+        ? typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now()
+        : null;
+
+      let renderSucceeded = 0;
       try {
         renderFn(panelEl, data);
+        renderSucceeded = 1;
       } catch (err) {
         console.error("Panel render failed: " + panelName, err);
         panelEl.innerHTML =
@@ -61,6 +95,38 @@
           panelName +
           '\')" title="Retry">↻</button>' +
           "</div>";
+      }
+
+      if (shouldRecordPerf) {
+        const renderFinishedAt =
+          typeof performance !== "undefined" && typeof performance.now === "function"
+            ? performance.now()
+            : Date.now();
+        recordPerf({
+          name: "panelRender",
+          panelName: panelName,
+          durationMs: renderFinishedAt - renderStartedAt,
+          status: renderSucceeded,
+        });
+      }
+
+      if (shouldRecordPerf && shouldSamplePostPaint() && typeof requestAnimationFrame === "function") {
+        const paintScheduledAt =
+          typeof performance !== "undefined" && typeof performance.now === "function"
+            ? performance.now()
+            : Date.now();
+
+        requestAnimationFrame(function () {
+          const paintDoneAt =
+            typeof performance !== "undefined" && typeof performance.now === "function"
+              ? performance.now()
+              : Date.now();
+          recordPerf({
+            name: "panelRender.postPaintDelay",
+            panelName: panelName,
+            durationMs: paintDoneAt - paintScheduledAt,
+          });
+        });
       }
     }
 

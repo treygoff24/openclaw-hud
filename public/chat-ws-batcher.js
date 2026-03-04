@@ -4,6 +4,26 @@
 
   const BATCH_INTERVAL = 50; // 50ms batch window
   const MAX_BATCH_SIZE = 50; // Flush immediately if batch gets too large
+  const hasPerformanceNow =
+    typeof performance !== "undefined" && typeof performance.now === "function";
+
+  function resolvePerfMonitor() {
+    const monitor = window.HUDApp && window.HUDApp.perfMonitor;
+    if (!monitor) return null;
+    if (typeof monitor.isEnabled === "function" && !monitor.isEnabled()) return null;
+    if (typeof monitor.record !== "function") return null;
+    return monitor;
+  }
+
+  function recordPerf(entry) {
+    const monitor = resolvePerfMonitor();
+    if (!monitor) return;
+    try {
+      monitor.record(entry);
+    } catch {
+      // Ignore perf monitor failures for runtime behavior.
+    }
+  }
 
   function WebSocketMessageBatcher() {
     this.messageHandler = null;
@@ -65,6 +85,7 @@
     if (this.isProcessing || this.batch.length === 0) {
       return;
     }
+    const shouldRecordPerf = Boolean(resolvePerfMonitor());
 
     this.isProcessing = true;
 
@@ -77,6 +98,11 @@
     // Copy and clear batch atomically
     const currentBatch = this.batch.slice();
     this.batch = [];
+    const flushStartedAt = shouldRecordPerf
+      ? hasPerformanceNow
+        ? performance.now()
+        : Date.now()
+      : null;
 
     // Process batch
     if (this.messageHandler) {
@@ -91,6 +117,15 @@
     if (this.processedIds.size > 1000) {
       const idsArray = Array.from(this.processedIds);
       this.processedIds = new Set(idsArray.slice(-500));
+    }
+
+    if (shouldRecordPerf) {
+      const flushFinishedAt = hasPerformanceNow ? performance.now() : Date.now();
+      recordPerf({
+        name: "chatBatcher.flush",
+        batchSize: currentBatch.length,
+        durationMs: flushFinishedAt - flushStartedAt,
+      });
     }
 
     this.isProcessing = false;
