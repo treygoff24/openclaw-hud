@@ -135,6 +135,11 @@ describe("sessions.render", () => {
     expect(document.getElementById("session-count").textContent).toBe("0");
   });
 
+  it("handles null input without throwing and reports zero count", () => {
+    expect(() => HUD.sessions.render(null)).not.toThrow();
+    expect(document.getElementById("session-count").textContent).toBe("0");
+  });
+
   it("caps at 40 rows", () => {
     const sessions = Array.from({ length: 50 }, (_, i) => ({
       agentId: "a",

@@ -6,7 +6,8 @@ HUD.activity = (function () {
   let _previousCount = 0;
 
   function buildActivityHTML(events) {
-    return events
+    const safeEvents = Array.isArray(events) ? events : [];
+    return safeEvents
       .map((e) => {
         const t = new Date(e.timestamp);
         const time = t.toLocaleTimeString("en-US", {
@@ -27,14 +28,15 @@ HUD.activity = (function () {
   }
 
   function render(events) {
-    const newCount = events.length;
+    const safeEvents = Array.isArray(events) ? events : [];
+    const newCount = safeEvents.length;
     const hasNewActivity = newCount > _previousCount;
     _previousCount = newCount;
 
     $("#activity-count").textContent = newCount;
     
     const activityFeed = $("#activity-feed");
-    const html = buildActivityHTML(events);
+    const html = buildActivityHTML(safeEvents);
     const temp = document.createElement("div");
     temp.innerHTML = html;
     
@@ -45,8 +47,8 @@ HUD.activity = (function () {
     }
 
     // Announce new activity to screen readers
-    if (hasNewActivity && window.A11yAnnouncer && events.length > 0) {
-      const latest = events[0];
+    if (hasNewActivity && window.A11yAnnouncer && safeEvents.length > 0) {
+      const latest = safeEvents[0];
       const activityDesc = latest.toolName
         ? `tool use: ${latest.toolName}`
         : latest.content || latest.type || "activity";

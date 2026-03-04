@@ -73,3 +73,4 @@ Panels use a `HUD` global namespace (set on `window`). Each panel file adds itse
 - `stripSecrets()` removes sensitive config keys before sending to frontend
 - Config files use JSON5 format (parsed via `json5` package)
 - Session status is derived from age: active (<5min), warm (<1hr), stale (>1hr), completed (subagent >5min)
+- Panel `render` methods must defensively handle null/invalid payloads by treating non-array inputs as empty arrays, while preserving validation for real items.

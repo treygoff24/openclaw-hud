@@ -16,7 +16,8 @@ HUD.agents = (function () {
   }
 
   function buildAgentsHTML(agents) {
-    const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
+    const safeAgents = Array.isArray(agents) ? agents : [];
+    const filtered = safeAgents.filter((a) => a.id.toLowerCase().includes(agentFilter));
     const now = Date.now();
     let activeCount = 0;
     
@@ -39,7 +40,7 @@ HUD.agents = (function () {
       })
       .join("");
     
-    return { html, filteredCount: filtered.length, activeCount, totalCount: agents.length };
+    return { html, filteredCount: filtered.length, activeCount, totalCount: safeAgents.length };
   }
 
   function updateAgentsList() {
@@ -62,17 +63,18 @@ HUD.agents = (function () {
   }
 
   function render(agents) {
-    window._agents = agents;
-    const { filteredCount, activeCount, totalCount } = buildAgentsHTML(agents);
+    const safeAgents = Array.isArray(agents) ? agents : [];
+    window._agents = safeAgents;
+    const { html, filteredCount, activeCount, totalCount } = buildAgentsHTML(safeAgents);
     
     const agentsList = $("#agents-list");
     const temp = document.createElement("div");
-    temp.innerHTML = buildAgentsHTML(agents).html;
+    temp.innerHTML = html;
     
     if (typeof morphdom !== "undefined") {
       morphdom(agentsList, temp, { childrenOnly: true });
     } else {
-      agentsList.innerHTML = buildAgentsHTML(agents).html;
+      agentsList.innerHTML = html;
     }
 
     applyFocusableAgentCards();

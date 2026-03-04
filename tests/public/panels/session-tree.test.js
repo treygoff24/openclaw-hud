@@ -100,6 +100,11 @@ describe("sessionTree.render", () => {
     expect(document.getElementById("tree-count").textContent).toBe("0");
   });
 
+  it("handles non-array input without throwing and reports zero count", () => {
+    expect(() => HUD.sessionTree.render("invalid")).not.toThrow();
+    expect(document.getElementById("tree-count").textContent).toBe("0");
+  });
+
   it("uses correct status dot classes", () => {
     const now = Date.now();
     HUD.sessionTree.render([

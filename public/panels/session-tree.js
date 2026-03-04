@@ -7,13 +7,14 @@ HUD.sessionTree = (function () {
   const EXPANDED_TOGGLE_CHAR = "▾";
 
   function buildTreeHTML(sessions) {
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
     const byKey = {};
-    sessions.forEach((s) => {
+    safeSessions.forEach((s) => {
       byKey[s.key] = s;
     });
     const children = {};
     const roots = [];
-    sessions.forEach((s) => {
+    safeSessions.forEach((s) => {
       if (s.spawnedBy && byKey[s.spawnedBy]) {
         if (!children[s.spawnedBy]) children[s.spawnedBy] = [];
         children[s.spawnedBy].push(s);
@@ -160,12 +161,13 @@ HUD.sessionTree = (function () {
   }
 
   function render(sessions) {
-    for (const s of sessions) {
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    for (const s of safeSessions) {
       if (!s.sessionKey)
         throw new Error("sessionTree.render requires canonical sessionKey for each node");
     }
-    window._treeData = sessions;
-    $("#tree-count").textContent = sessions.length;
+    window._treeData = safeSessions;
+    $("#tree-count").textContent = safeSessions.length;
     updateTree();
   }
 

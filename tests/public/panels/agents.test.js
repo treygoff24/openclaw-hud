@@ -131,6 +131,16 @@ describe("agents.render", () => {
     expect(document.getElementById("agent-count").textContent).toBe("0");
   });
 
+  it("handles null input without throwing and reports zero count", () => {
+    expect(() => HUD.agents.render(null)).not.toThrow();
+    expect(document.getElementById("agent-count").textContent).toBe("0");
+  });
+
+  it("handles non-array input without throwing and reports zero count", () => {
+    expect(() => HUD.agents.render({ id: "not-an-array" })).not.toThrow();
+    expect(document.getElementById("agent-count").textContent).toBe("0");
+  });
+
   it("does not stack makeFocusable listeners on rerender", () => {
     HUD.agents.render([
       {

@@ -50,6 +50,12 @@ describe("activity.render", () => {
     expect(document.querySelectorAll(".activity-item").length).toBe(0);
   });
 
+  it("handles null input without throwing and reports zero count", () => {
+    expect(() => HUD.activity.render(null)).not.toThrow();
+    expect(document.getElementById("activity-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".activity-item").length).toBe(0);
+  });
+
   it("handles missing fields gracefully", () => {
     HUD.activity.render([{ timestamp: Date.now() }]);
     const item = document.querySelector(".activity-item");
