@@ -1,6 +1,73 @@
 (function () {
   "use strict";
 
+  function getTextContent(message) {
+    return window.ChatMessage.extractText(message) || "";
+  }
+
+  function shouldReplaceContent(text, run, p) {
+    if (!run) return true;
+    if (typeof text !== "string") return true;
+    if (text.length > 0) return true;
+    if (!p || !p.state || p.state !== "final") return true;
+    return !(run.gapDetected && run.renderedText && run.renderedText.length > 0);
+  }
+
+  function updateRunContent(run, p) {
+    if (!run || !run.el || !p || !("message" in p)) return;
+
+    var text = getTextContent(p.message);
+    if (!shouldReplaceContent(text, run, p)) return;
+
+    var contentEl = run.el.querySelector(".chat-msg-content");
+    if (!contentEl) return;
+
+    if (p.state === "final" && window.ChatMarkdown) {
+      contentEl.innerHTML = window.ChatMarkdown.renderMarkdown(text);
+    } else {
+      contentEl.textContent = text;
+    }
+    run.renderedText = text;
+  }
+
+  function maybeRequestHistoryForGap(p, run) {
+    if (!p || !p.seq || !run || run.lastSeq <= 0) return;
+    if (p.seq <= run.lastSeq + 1) return;
+    if (run.gapRecovered) return;
+
+    console.warn("Gap detected: expected seq " + (run.lastSeq + 1) + " got " + p.seq);
+    run.gapDetected = true;
+
+    if (window.ChatState && typeof window.ChatState.requestChatHistory === "function") {
+      var accepted = window.ChatState.requestChatHistory(p.sessionKey, "stream_gap") === true;
+      if (accepted) run.gapRecovered = true;
+    }
+  }
+
+  function getOrCreateRun(container, s, p) {
+    var run = s.activeRuns.get(p.runId);
+    if (!run) {
+      var el = window.ChatMessage.createAssistantStreamEl();
+      if (container) container.appendChild(el);
+      run = { el: el, lastSeq: 0, renderedText: "" };
+      s.activeRuns.set(p.runId, run);
+    }
+    return run;
+  }
+
+  function finalizeRun(s, p, run) {
+    if (!run || !run.el) return;
+
+    run.el.classList.remove("streaming");
+    run.el.classList.add(p.state === "aborted" ? "aborted" : "final");
+    s.activeRuns.delete(p.runId);
+
+    if (p.state === "final") {
+      run.gapRecovered = false;
+      run.renderedText = "";
+    }
+  }
+
   function handleChatEvent(data) {
     var s = window.ChatState;
     var runtime = window.ChatWsRuntime;
@@ -10,34 +77,15 @@
     var container = document.getElementById("chat-messages");
     if (!container) return;
 
-    if (p.state === "delta" || p.state === "final") {
-      var run = s.activeRuns.get(p.runId);
-      if (!run) {
-        var el = window.ChatMessage.createAssistantStreamEl();
-        container.appendChild(el);
-        run = { el: el, lastSeq: 0 };
-        s.activeRuns.set(p.runId, run);
-      }
-      if (p.seq && p.seq > run.lastSeq + 1 && run.lastSeq > 0) {
-        console.warn("Gap detected: expected seq " + (run.lastSeq + 1) + " got " + p.seq);
-      }
-      if (p.seq) run.lastSeq = p.seq;
-      if (p.message) {
-        var contentEl = run.el.querySelector(".chat-msg-content");
-        if (contentEl) {
-          var text = window.ChatMessage.extractText(p.message);
-          if (p.state === "final" && window.ChatMarkdown) {
-            contentEl.innerHTML = window.ChatMarkdown.renderMarkdown(text);
-          } else {
-            contentEl.textContent = text;
-          }
+      if (p.state === "delta" || p.state === "final") {
+        var run = getOrCreateRun(container, s, p);
+
+        maybeRequestHistoryForGap(p, run);
+        if (p.seq) run.lastSeq = p.seq;
+        updateRunContent(run, p);
+        if (p.state === "final") {
+          finalizeRun(s, p, run);
         }
-      }
-      if (p.state === "final") {
-        run.el.classList.remove("streaming");
-        run.el.classList.add("final");
-        s.activeRuns.delete(p.runId);
-      }
       runtime.updateButtons();
       if (window.ChatScroll) window.ChatScroll.scrollToBottom(false);
       return;
@@ -88,32 +136,13 @@
       if (!p || p.sessionKey !== s.currentSession.sessionKey) return;
 
       if (p.state === "delta" || p.state === "final") {
-        var run = s.activeRuns.get(p.runId);
-        if (!run) {
-          var el = window.ChatMessage.createAssistantStreamEl();
-          fragment.appendChild(el);
-          run = { el: el, lastSeq: 0 };
-          s.activeRuns.set(p.runId, run);
-        }
-        if (p.seq && p.seq > run.lastSeq + 1 && run.lastSeq > 0) {
-          console.warn("Gap detected: expected seq " + (run.lastSeq + 1) + " got " + p.seq);
-        }
+        var run = getOrCreateRun(fragment, s, p);
+
+        maybeRequestHistoryForGap(p, run);
         if (p.seq) run.lastSeq = p.seq;
-        if (p.message) {
-          var contentEl = run.el.querySelector(".chat-msg-content");
-          if (contentEl) {
-            var text = window.ChatMessage.extractText(p.message);
-            if (p.state === "final" && window.ChatMarkdown) {
-              contentEl.innerHTML = window.ChatMarkdown.renderMarkdown(text);
-            } else {
-              contentEl.textContent = text;
-            }
-          }
-        }
+        updateRunContent(run, p);
         if (p.state === "final") {
-          run.el.classList.remove("streaming");
-          run.el.classList.add("final");
-          s.activeRuns.delete(p.runId);
+          finalizeRun(s, p, run);
           assistantMessageCount++;
         }
         needsScroll = true;

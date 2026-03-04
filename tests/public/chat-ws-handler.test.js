@@ -222,3 +222,169 @@ describe("ChatWsHandler branches", () => {
     expect(document.querySelector(".chat-msg.assistant")).toBeNull();
   });
 });
+
+describe("chat-event stream overwrite guard", () => {
+  beforeEach(resetState);
+
+  it("requests stream-gap history once per run when request is accepted", () => {
+    setCurrentSession();
+    window.ChatState.requestChatHistory = vi.fn(() => true);
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 1,
+        message: [{ type: "text", text: "hello" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 3,
+        message: [{ type: "text", text: "there" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 5,
+        message: [{ type: "text", text: "again" }],
+      },
+    });
+
+    expect(window.ChatState.requestChatHistory).toHaveBeenCalledTimes(1);
+    expect(window.ChatState.requestChatHistory).toHaveBeenCalledWith(
+      "agent:agent1:session1",
+      "stream_gap",
+    );
+  });
+
+  it("retries stream-gap history request when the first attempt is skipped", () => {
+    setCurrentSession();
+    window.ChatState.requestChatHistory = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 1,
+        message: [{ type: "text", text: "hello" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 3,
+        message: [{ type: "text", text: "" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 5,
+        message: [{ type: "text", text: "resume" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 7,
+        message: [{ type: "text", text: "finalized soon" }],
+      },
+    });
+
+    expect(window.ChatState.requestChatHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves previously rendered assistant text for gap final payload in batched processing", () => {
+    setCurrentSession();
+    window.ChatState.requestChatHistory = vi.fn(() => true);
+
+    window.ChatWsHandler.processChatEventBatch([
+      {
+        type: "chat-event",
+        payload: {
+          sessionKey: "agent:agent1:session1",
+          runId: "run-1",
+          state: "delta",
+          seq: 1,
+          message: [{ type: "text", text: "hello" }],
+        },
+      },
+      {
+        type: "chat-event",
+        payload: {
+          sessionKey: "agent:agent1:session1",
+          runId: "run-1",
+          state: "final",
+          seq: 3,
+          message: [],
+        },
+      },
+    ]);
+
+    const msg = document.querySelector(".chat-msg.assistant.final");
+    expect(msg).not.toBeNull();
+    expect(msg.querySelector(".chat-msg-content").textContent).toBe("hello");
+    expect(window.ChatState.requestChatHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves previously rendered assistant text when final event has a seq gap and empty payload", () => {
+    setCurrentSession();
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 1,
+        message: [{ type: "text", text: "hello" }],
+      },
+    });
+
+    window.ChatWsHandler.handle({
+      type: "chat-event",
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "final",
+        seq: 3,
+        message: [],
+      },
+    });
+
+    const msg = document.querySelector(".chat-msg.assistant.final");
+    expect(msg).not.toBeNull();
+    expect(msg.querySelector(".chat-msg-content").textContent).toBe("hello");
+    expect(window.ChatState.activeRuns.size).toBe(0);
+  });
+});
