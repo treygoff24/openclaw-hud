@@ -21,6 +21,12 @@
 
     const diagnostics = window.HUDApp.diagnostics || {};
     const diagLog = diagnostics.ensureHudDiagLogger();
+    const perfTransportLogger = function (event, message) {
+      diagLog("[HUD-PERF]", "transport", {
+        event: typeof event === "string" ? event : "perf-batch",
+        message: message,
+      });
+    };
     const previousPerfMonitor = window.HUDApp.perfMonitor;
 
     if (
@@ -47,11 +53,26 @@
                 globalConfig: opts.globalConfig,
               })
         : { enabled: false };
+    const perfBatchTransport =
+      typeof diagnostics.createPerfBatchTransport === "function"
+        ? diagnostics.createPerfBatchTransport({
+            enabled: perfDiagnosticsFlags.enabled,
+            sink: perfDiagnosticsFlags.sink,
+            endpoint: "/api/diag/perf",
+            batchSize: opts.perfBatchSize || 5,
+            flushIntervalMs: 3000,
+            logger: perfTransportLogger,
+            fetchImpl: function (url, options) {
+              return window.fetch(url, options);
+            },
+          })
+        : null;
     const perfMonitor =
       typeof diagnostics.createPerfMonitor === "function"
         ? diagnostics.createPerfMonitor({
             enabled: perfDiagnosticsFlags.enabled,
             summaryIntervalMs: opts.perfSummaryIntervalMs,
+            transport: perfBatchTransport,
             emitSummary: function (summary) {
               diagLog("[HUD-PERF]", "summary", summary);
             },

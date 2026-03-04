@@ -362,6 +362,41 @@ describe("app bootstrap with perf monitor disabled", () => {
     expect(() => window.HUDApp.bootstrap.initApp({ document, HUD })).not.toThrow();
     expect(diagnostics.resolvePerfDiagnosticsFlags).toHaveBeenCalledTimes(1);
   });
+
+  it("wires a callable logger into perf batch transport options", async () => {
+    const diagLog = vi.fn();
+    const createPerfBatchTransport = vi.fn(() => ({
+      start: vi.fn(),
+      stop: vi.fn(),
+      enqueue: vi.fn(),
+      flush: vi.fn(),
+      isEnabled: () => true,
+      isFileSink: () => true,
+      transportLogError: vi.fn(),
+    }));
+    const diagnostics = {
+      ensureHudDiagLogger: vi.fn(() => diagLog),
+      resolvePerfDiagnosticsFlags: vi.fn(() => ({ enabled: true, sink: "file" })),
+      createPerfBatchTransport,
+      createPerfMonitor: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        record: vi.fn(),
+        isEnabled: () => true,
+      })),
+    };
+    const { HUD } = createBootstrapHarness({ diagnostics });
+
+    await import("../../public/app/bootstrap.js");
+    window.HUDApp.bootstrap.initApp({ document, HUD });
+
+    expect(createPerfBatchTransport).toHaveBeenCalledTimes(1);
+    const [transportOptions] = createPerfBatchTransport.mock.calls[0];
+    expect(typeof transportOptions.logger).toBe("function");
+
+    expect(() => transportOptions.logger("perf", "transport failed")).not.toThrow();
+    expect(diagLog).toHaveBeenCalled();
+  });
 });
 
 describe("disabled perf mode fast paths", () => {
@@ -532,5 +567,253 @@ describe("data controller perf instrumentation", () => {
     expect(eventNames).toContain("fetchAll.start");
     expect(eventNames).toContain("fetchAll.finish");
     expect(eventNames.some((name) => name.startsWith("fetchEndpoint."))).toBe(true);
+  });
+});
+
+describe("HUD perf sink transport", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    installLocalStorageMock();
+    await loadAppDiagnosticsModule();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("parses hudPerfSink=file into diagnostics flags", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.resolvePerfDiagnosticsFlags).toBe("function");
+
+    const flags = diagnostics.resolvePerfDiagnosticsFlags({
+      search: "?hudPerf=1&hudPerfSink=file",
+      localStorageValue: null,
+    });
+
+    expect(flags).toMatchObject({
+      enabled: true,
+      sink: "file",
+    });
+  });
+
+  it("defaults sink metadata in payload when sink option is omitted", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 202,
+      }),
+    );
+    const transport = diagnostics.createPerfBatchTransport({
+      enabled: true,
+      endpoint: "/api/diag/perf",
+      batchSize: 1,
+      flushIntervalMs: 250,
+      fetchImpl,
+    });
+
+    transport.enqueue({
+      ts: "2026-03-03T18:00:00.000Z",
+      summary: {
+        "fetchAll.finish": {
+          durationMs: { count: 1, sum: 15, min: 15, max: 15, last: 15 },
+        },
+      },
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [, options] = fetchImpl.mock.calls[0];
+    const payload = JSON.parse(options.body);
+    expect(payload.sink).toBe("file");
+  });
+
+  it("sends batched perf summaries when file sink transport is enabled", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 202,
+        json: async () => ({ ok: true }),
+      }),
+    );
+    const transport = diagnostics.createPerfBatchTransport({
+      enabled: true,
+      sink: "file",
+      endpoint: "/api/diag/perf",
+      batchSize: 2,
+      flushIntervalMs: 250,
+      fetchImpl,
+    });
+
+    transport.enqueue({
+      ts: "2026-03-03T18:00:00.000Z",
+      summary: {
+        "fetchAll.finish": {
+          durationMs: { count: 1, sum: 15, min: 15, max: 15, last: 15 },
+        },
+      },
+    });
+    transport.enqueue({
+      ts: "2026-03-03T18:00:01.000Z",
+      summary: {
+        "chatBatcher.flush": {
+          durationMs: { count: 1, sum: 8, min: 8, max: 8, last: 8 },
+        },
+      },
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe("/api/diag/perf");
+    expect(options).toMatchObject({
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const payload = JSON.parse(options.body);
+    expect(payload).toMatchObject({
+      source: "hud",
+      sink: "file",
+    });
+    expect(Array.isArray(payload.events)).toBe(true);
+    expect(payload.events).toHaveLength(2);
+  });
+
+  it("does not send batched summaries when file sink transport is disabled", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 202,
+      }),
+    );
+    const transport = diagnostics.createPerfBatchTransport({
+      enabled: false,
+      sink: "file",
+      endpoint: "/api/diag/perf",
+      batchSize: 2,
+      flushIntervalMs: 250,
+      fetchImpl,
+    });
+
+    transport.enqueue({
+      ts: "2026-03-03T18:05:00.000Z",
+      summary: {
+        "fetchAll.finish": {
+          durationMs: { count: 1, sum: 11, min: 11, max: 11, last: 11 },
+        },
+      },
+    });
+    transport.enqueue({
+      ts: "2026-03-03T18:05:01.000Z",
+      summary: {
+        "fetchAll.finish": {
+          durationMs: { count: 1, sum: 12, min: 12, max: 12, last: 12 },
+        },
+      },
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("retains failed batches for retry and logs transport errors when fetch rejects", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({ ok: true, status: 202 });
+    const logger = vi.fn();
+    const transport = diagnostics.createPerfBatchTransport({
+      enabled: true,
+      sink: "file",
+      endpoint: "/api/diag/perf",
+      batchSize: 2,
+      flushIntervalMs: 250,
+      fetchImpl,
+      logger,
+    });
+
+    transport.enqueue({
+      ts: "2026-03-03T18:06:00.000Z",
+      summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 19, min: 19, max: 19, last: 19 } } },
+    });
+    transport.enqueue({
+      ts: "2026-03-03T18:06:01.000Z",
+      summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 20, min: 20, max: 20, last: 20 } } },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(logger).toHaveBeenCalled();
+
+    transport.flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const firstPayload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    const retryPayload = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(retryPayload.events).toEqual(firstPayload.events);
+
+    const loggedText = logger.mock.calls.map((call) => call.map(String).join(" ")).join(" ");
+    expect(loggedText).toContain("network down");
+  });
+
+  it("retains failed batches for retry when fetch returns non-2xx", async () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfBatchTransport).toBe("function");
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, statusText: "Service Unavailable" })
+      .mockResolvedValueOnce({ ok: true, status: 202 });
+    const transport = diagnostics.createPerfBatchTransport({
+      enabled: true,
+      sink: "file",
+      endpoint: "/api/diag/perf",
+      batchSize: 2,
+      flushIntervalMs: 250,
+      fetchImpl,
+    });
+
+    transport.enqueue({
+      ts: "2026-03-03T18:07:00.000Z",
+      summary: { "chatBatcher.flush": { durationMs: { count: 1, sum: 9, min: 9, max: 9, last: 9 } } },
+    });
+    transport.enqueue({
+      ts: "2026-03-03T18:07:01.000Z",
+      summary: { "chatBatcher.flush": { durationMs: { count: 1, sum: 10, min: 10, max: 10, last: 10 } } },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    transport.flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const firstPayload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    const retryPayload = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(retryPayload.events).toEqual(firstPayload.events);
   });
 });

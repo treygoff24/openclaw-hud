@@ -251,6 +251,7 @@ app.use(require("./routes/cron"));
 app.use(spawnRouter);
 app.use(require("./routes/model-usage"));
 app.use(require("./routes/activity"));
+app.use(require("./routes/diag-perf"));
 
 function runStartupProbe() {
   return runSpawnPreflight()
