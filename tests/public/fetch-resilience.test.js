@@ -96,7 +96,9 @@ function createEndpointResponse(payload, options) {
         return "";
       },
     },
-    text: opts.text ? () => Promise.resolve(opts.text) : () => Promise.resolve(JSON.stringify(payload)),
+    text: opts.text
+      ? () => Promise.resolve(opts.text)
+      : () => Promise.resolve(JSON.stringify(payload)),
     json: () => Promise.resolve(payload),
   };
 }
@@ -211,7 +213,10 @@ afterEach(() => {
 
 describe("fetchAll resilient fetching", () => {
   function createColdAndModelUsageController(overrides) {
-    const fetchImpl = overrides && Object.prototype.hasOwnProperty.call(overrides, "fetch") ? overrides.fetch : null;
+    const fetchImpl =
+      overrides && Object.prototype.hasOwnProperty.call(overrides, "fetch")
+        ? overrides.fetch
+        : null;
     const opts = {
       HUD: HUD,
       renderPanelSafe: window.renderPanelSafe,
@@ -438,7 +443,9 @@ describe("fetchAll resilient fetching", () => {
 
       if (url === "/api/models") {
         if (requestCounts[url] === 1) {
-          return Promise.resolve(createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }));
+          return Promise.resolve(
+            createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }),
+          );
         }
         return Promise.resolve(createEndpointResponse("", { status: 304 }));
       }
@@ -458,9 +465,7 @@ describe("fetchAll resilient fetching", () => {
     now = 60 * 1000;
     await modelUsageController.fetchAll();
 
-    expect(
-      window.fetch.mock.calls.filter((call) => call[0] === "/api/models").length,
-    ).toBe(2);
+    expect(window.fetch.mock.calls.filter((call) => call[0] === "/api/models").length).toBe(2);
 
     dateNowSpy.mockRestore();
   });
@@ -473,7 +478,9 @@ describe("fetchAll resilient fetching", () => {
 
       if (url === "/api/models") {
         if (requestCounts[url] === 1) {
-          return Promise.resolve(createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }));
+          return Promise.resolve(
+            createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }),
+          );
         }
         return Promise.resolve(createEndpointResponse("", { status: 304 }));
       }
@@ -513,10 +520,12 @@ describe("fetchAll resilient fetching", () => {
       if (url === "/api/sessions") {
         sessionsCallCount += 1;
         if (sessionsCallCount === 1) {
-          return Promise.resolve(createEndpointResponse(sessionsPayload, {
-            status: 200,
-            etag: '"sessions-v1"',
-          }));
+          return Promise.resolve(
+            createEndpointResponse(sessionsPayload, {
+              status: 200,
+              etag: '"sessions-v1"',
+            }),
+          );
         }
         return Promise.resolve(createEndpointResponse("", { status: 304 }));
       }
@@ -553,10 +562,12 @@ describe("fetchAll resilient fetching", () => {
       if (url === "/api/agents") {
         agentCallCount += 1;
         if (agentCallCount === 1) {
-          return Promise.resolve(createEndpointResponse(agentsPayload, {
-            status: 200,
-            etag: '"agent-v1"',
-          }));
+          return Promise.resolve(
+            createEndpointResponse(agentsPayload, {
+              status: 200,
+              etag: '"agent-v1"',
+            }),
+          );
         }
 
         if (options && options.headers && typeof options.headers.get === "function") {
@@ -765,14 +776,16 @@ describe("fetchAll resilient fetching", () => {
     const setConnectionStatus = vi.fn();
     let sessionsRequestCount = 0;
     let lastSessionsPayload = null;
-    const sessionsPayload = [{
-      sessionKey: "agent-alpha::session-static",
-      agentId: "agent-alpha",
-      sessionId: "session-static",
-      updatedAt: "2026-03-03T18:00:00.000Z",
-      status: "active",
-      label: "Session Static",
-    }];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-static",
+        agentId: "agent-alpha",
+        sessionId: "session-static",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+        label: "Session Static",
+      },
+    ];
 
     window.fetch = vi.fn((url) => {
       if (url === "/api/sessions") {
@@ -826,35 +839,41 @@ describe("fetchAll resilient fetching", () => {
     const onChatRestore = vi.fn();
     const setConnectionStatus = vi.fn();
     const sessionsPayloads = [
-      [{
-        sessionKey: "agent-alpha::session-a",
-        agentId: "agent-alpha",
-        sessionId: "session-a",
-        updatedAt: "2026-03-03T18:00:00.000Z",
-        status: "active",
-        label: "Session A",
-      }],
-      [{
-        sessionKey: "agent-alpha::session-b",
-        agentId: "agent-alpha",
-        sessionId: "session-b",
-        updatedAt: "2026-03-03T18:01:00.000Z",
-        status: "active",
-        label: "Session B",
-      }],
+      [
+        {
+          sessionKey: "agent-alpha::session-a",
+          agentId: "agent-alpha",
+          sessionId: "session-a",
+          updatedAt: "2026-03-03T18:00:00.000Z",
+          status: "active",
+          label: "Session A",
+        },
+      ],
+      [
+        {
+          sessionKey: "agent-alpha::session-b",
+          agentId: "agent-alpha",
+          sessionId: "session-b",
+          updatedAt: "2026-03-03T18:01:00.000Z",
+          status: "active",
+          label: "Session B",
+        },
+      ],
     ];
     let sessionsRequestCount = 0;
 
     window.fetch = vi.fn((url) => {
       if (url === "/api/sessions") {
-        const payload = sessionsPayloads[Math.min(sessionsRequestCount, sessionsPayloads.length - 1)];
+        const payload =
+          sessionsPayloads[Math.min(sessionsRequestCount, sessionsPayloads.length - 1)];
         sessionsRequestCount += 1;
         return Promise.resolve({
           ok: true,
           status: 200,
           statusText: "OK",
           headers: {
-            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+            get: (key) =>
+              String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : "",
           },
           json: () => Promise.resolve(payload),
         });
@@ -894,14 +913,16 @@ describe("fetchAll resilient fetching", () => {
     const onChatRestore = vi.fn();
     const setConnectionStatus = vi.fn();
     let sessionsRequestCount = 0;
-    const sessionsPayload = [{
-      sessionKey: "agent-alpha::session-a",
-      agentId: "agent-alpha",
-      sessionId: "session-a",
-      updatedAt: "2026-03-03T18:00:00.000Z",
-      status: "active",
-      label: "Session A",
-    }];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-a",
+        agentId: "agent-alpha",
+        sessionId: "session-a",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+        label: "Session A",
+      },
+    ];
 
     window.fetch = vi.fn((url) => {
       if (url === "/api/sessions") {
@@ -911,7 +932,8 @@ describe("fetchAll resilient fetching", () => {
           status: 200,
           statusText: "OK",
           headers: {
-            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+            get: (key) =>
+              String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : "",
           },
           json: () => Promise.resolve(sessionsPayload),
         });
@@ -950,14 +972,16 @@ describe("fetchAll resilient fetching", () => {
     const stringifySpy = vi.spyOn(JSON, "stringify");
     let sessionsRequestCount = 0;
     let lastSessionsPayload = null;
-    const sessionsPayload = [{
-      sessionKey: "agent-alpha::session-static",
-      agentId: "agent-alpha",
-      sessionId: "session-static",
-      updatedAt: "2026-03-03T18:00:00.000Z",
-      status: "active",
-      label: "Session Static",
-    }];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-static",
+        agentId: "agent-alpha",
+        sessionId: "session-static",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+        label: "Session Static",
+      },
+    ];
 
     window.fetch = vi.fn((url) => {
       if (url === "/api/sessions") {
@@ -1003,15 +1027,17 @@ describe("fetchAll resilient fetching", () => {
     const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
     const onChatRestore = vi.fn();
     const setConnectionStatus = vi.fn();
-    const sessionsPayload = [{
-      sessionKey: "agent-alpha::session-fingerprint",
-      agentId: "agent-alpha",
-      sessionId: "session-fingerprint",
-      updatedAt: "2026-03-03T18:00:00.000Z",
-      status: "active",
-      label: "Session Fingerprint",
-      fingerprintMarker: "sessions-fingerprint-marker",
-    }];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-fingerprint",
+        agentId: "agent-alpha",
+        sessionId: "session-fingerprint",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+        label: "Session Fingerprint",
+        fingerprintMarker: "sessions-fingerprint-marker",
+      },
+    ];
     const sessionsText = JSON.stringify(sessionsPayload);
     const sessionsJson = vi.fn(() => Promise.resolve(sessionsPayload));
     const stringifySpy = vi.spyOn(JSON, "stringify");
@@ -1024,7 +1050,8 @@ describe("fetchAll resilient fetching", () => {
           status: 200,
           statusText: "OK",
           headers: {
-            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "dynamic-request-id" : ""),
+            get: (key) =>
+              String(key).toLowerCase() === "x-request-id" ? "dynamic-request-id" : "",
           },
           text: () => Promise.resolve(sessionsText),
           json: sessionsJson,
@@ -1224,5 +1251,81 @@ describe("setConnectionStatus with per-panel states", () => {
     const badge = document.getElementById("connection-badge");
     expect(badge).not.toBeNull();
     expect(badge.textContent).not.toContain("DISCONNECTED");
+  });
+});
+
+describe("endpointFetchStatus", () => {
+  let endpointFetchStatus;
+
+  beforeEach(() => {
+    // Access the exported function from the data module
+    endpointFetchStatus = window.HUDApp.data._test.endpointFetchStatus;
+  });
+
+  it("returns 'ok' for status 200 with ok=true", () => {
+    const result = {
+      meta: {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+      },
+    };
+    expect(endpointFetchStatus(result)).toBe("ok");
+  });
+
+  it("returns 'ok' for status 304 with ok=false (THE BUG FIX)", () => {
+    const result = {
+      meta: {
+        ok: false,
+        status: 304,
+        statusText: "Not Modified",
+      },
+    };
+    expect(endpointFetchStatus(result)).toBe("ok");
+  });
+
+  it("returns 'error' for status 0 with ok=false", () => {
+    const result = {
+      meta: {
+        ok: false,
+        status: 0,
+        statusText: "",
+      },
+    };
+    expect(endpointFetchStatus(result)).toBe("error");
+  });
+
+  it("returns 'error' for status 500 with ok=false", () => {
+    const result = {
+      meta: {
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      },
+    };
+    expect(endpointFetchStatus(result)).toBe("error");
+  });
+
+  it("returns 'timeout' for statusText 'timeout'", () => {
+    const result = {
+      meta: {
+        ok: false,
+        status: 0,
+        statusText: "timeout",
+      },
+    };
+    expect(endpointFetchStatus(result)).toBe("timeout");
+  });
+
+  it("returns 'error' for null result", () => {
+    expect(endpointFetchStatus(null)).toBe("error");
+  });
+
+  it("returns 'error' for undefined result", () => {
+    expect(endpointFetchStatus(undefined)).toBe("error");
+  });
+
+  it("returns 'error' for result without meta", () => {
+    expect(endpointFetchStatus({})).toBe("error");
   });
 });

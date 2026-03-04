@@ -104,10 +104,12 @@ router.get("/api/sessions", async (req, res) => {
   const all = [];
   const invalid = [];
 
-  const perAgent = await Promise.all(agents.map(async (agentId) => ({
-    agentId,
-    ...(await sessionsDeps.getCachedSessionEntries(agentId)),
-  })));
+  const perAgent = await Promise.all(
+    agents.map(async (agentId) => ({
+      agentId,
+      ...(await sessionsDeps.getCachedSessionEntries(agentId)),
+    })),
+  );
 
   for (const entry of perAgent) {
     const invalidEntries = Array.isArray(entry.invalid) ? entry.invalid : [];
@@ -123,7 +125,7 @@ router.get("/api/sessions", async (req, res) => {
   const now = Date.now();
   const recent = all.filter((s) => s.updatedAt && now - s.updatedAt < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  res.json(recent.slice(0, 100));
+  sendJsonWithETag(req, res, recent.slice(0, 100));
 });
 
 router.get("/api/session-log/:agentId/:sessionId", async (req, res) => {
@@ -150,10 +152,12 @@ router.get("/api/session-tree", async (req, res) => {
   const allSessions = {};
   const invalid = [];
 
-  const perAgent = await Promise.all(agents.map(async (agentId) => ({
-    agentId,
-    ...(await sessionsDeps.getCachedSessionEntries(agentId)),
-  })));
+  const perAgent = await Promise.all(
+    agents.map(async (agentId) => ({
+      agentId,
+      ...(await sessionsDeps.getCachedSessionEntries(agentId)),
+    })),
+  );
 
   for (const entry of perAgent) {
     const invalidEntries = Array.isArray(entry.invalid) ? entry.invalid : [];

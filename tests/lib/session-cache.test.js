@@ -149,6 +149,80 @@ describe("session-cache", () => {
     });
   });
 
+  describe("buildSessionEntries strips heavy fields (tested via getCachedSessionEntries)", () => {
+    it("does NOT include skillsSnapshot in output", async () => {
+      writeSessionsFile("agent-strip-test", {
+        session1: {
+          sessionId: "s1",
+          updatedAt: 1000,
+          skillsSnapshot: { some: "heavy", data: "here" },
+        },
+      });
+      const result = await getCachedSessionEntries("agent-strip-test");
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]).not.toHaveProperty("skillsSnapshot");
+    });
+
+    it("does NOT include systemPromptReport in output", async () => {
+      writeSessionsFile("agent-strip-test-2", {
+        session1: {
+          sessionId: "s1",
+          updatedAt: 1000,
+          systemPromptReport: { huge: "blob", of: "text" },
+        },
+      });
+      const result = await getCachedSessionEntries("agent-strip-test-2");
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]).not.toHaveProperty("systemPromptReport");
+    });
+
+    it("does NOT include toolsSnapshot in output", async () => {
+      writeSessionsFile("agent-strip-test-3", {
+        session1: {
+          sessionId: "s1",
+          updatedAt: 1000,
+          toolsSnapshot: [{ name: "tool1" }, { name: "tool2" }],
+        },
+      });
+      const result = await getCachedSessionEntries("agent-strip-test-3");
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]).not.toHaveProperty("toolsSnapshot");
+    });
+
+    it("still includes expected fields: agentId, key, sessionKey, status, updatedAt", async () => {
+      writeSessionsFile("agent-strip-test-4", {
+        session1: {
+          sessionId: "s1",
+          updatedAt: 1000,
+          skillsSnapshot: { data: "should-be-removed" },
+        },
+      });
+      const result = await getCachedSessionEntries("agent-strip-test-4");
+      expect(result.sessions).toHaveLength(1);
+      const session = result.sessions[0];
+      expect(session.agentId).toBe("agent-strip-test-4");
+      expect(session.key).toBe("session1");
+      expect(session.sessionKey).toBe("agent:agent-strip-test-4:session1");
+      expect(session.status).toBeDefined();
+      expect(session.updatedAt).toBe(1000);
+    });
+
+    it("still excludes fullSlug (via destructuring) and does not reintroduce via base spread", async () => {
+      writeSessionsFile("agent-strip-test-5", {
+        session1: {
+          sessionId: "s1",
+          updatedAt: 1000,
+          fullSlug: "should-be-excluded",
+          modelLabel: "should-be-excluded",
+        },
+      });
+      const result = await getCachedSessionEntries("agent-strip-test-5");
+      expect(result.sessions).toHaveLength(1);
+      // fullSlug should be computed by enrichSessionMetadata, not from base
+      expect(result.sessions[0].fullSlug).toBe("agent:agent-strip-test-5:session1");
+    });
+  });
+
   describe("getCachedSessionEntries", () => {
     it("does not let persisted session payload overwrite canonical/session-computed fields", async () => {
       writeSessionsFile("agent-override", {

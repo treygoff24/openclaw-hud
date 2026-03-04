@@ -31,11 +31,18 @@
     if (result && result.meta && result.meta.ok) {
       return "ok";
     }
+    if (result && result.meta && Number(result.meta.status) === 304) {
+      return "ok";
+    }
     return "error";
   }
 
   function nowMs() {
-    if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+    if (
+      typeof performance !== "undefined" &&
+      performance &&
+      typeof performance.now === "function"
+    ) {
       return performance.now();
     }
     return Date.now();
@@ -125,9 +132,7 @@
       { name: "session-tree", url: "/api/session-tree" },
     ];
 
-    const coldEndpoints = [
-      { name: "models", url: "/api/models" },
-    ];
+    const coldEndpoints = [{ name: "models", url: "/api/models" }];
     const coldEndpointNames = coldEndpoints.map(function (endpoint) {
       return endpoint.name;
     });
@@ -184,16 +189,17 @@
         render: function (payload) {
           HUD.sessionTree.render(payload);
         },
-        },
+      },
     };
 
     function normalizeFetchRequest(request) {
       return {
         includeCold: Boolean(request && request.includeCold),
         runId: request && request.runId != null ? request.runId : null,
-        tickPaintStartMs: request && Number.isFinite(request.tickPaintStartMs)
-          ? Number(request.tickPaintStartMs)
-          : request && Number.isFinite(request.tickPaintStart)
+        tickPaintStartMs:
+          request && Number.isFinite(request.tickPaintStartMs)
+            ? Number(request.tickPaintStartMs)
+            : request && Number.isFinite(request.tickPaintStart)
               ? Number(request.tickPaintStart)
               : null,
       };
@@ -272,7 +278,10 @@
 
     function isEndpointNotModified(result) {
       const status = Number(result && result.meta && result.meta.status);
-      return status === 304 || String(result && result.meta && result.meta.statusText).toLowerCase() === "not modified";
+      return (
+        status === 304 ||
+        String(result && result.meta && result.meta.statusText).toLowerCase() === "not modified"
+      );
     }
 
     function extractResponseETag(response) {
@@ -309,18 +318,23 @@
     }
 
     function endpointResultHasFreshData(endpointName, result) {
-      const payload = result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
+      const payload =
+        result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
       if (payload !== null && payload !== undefined) return true;
       if (!isEndpointNotModified(result)) return false;
       return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
     }
 
     function endpointResultHasUsableData(endpointName, result) {
-      return endpointResultHasFreshData(endpointName, result) || endpointResultIsStaleFallback(endpointName, result);
+      return (
+        endpointResultHasFreshData(endpointName, result) ||
+        endpointResultIsStaleFallback(endpointName, result)
+      );
     }
 
     function endpointResultIsStaleFallback(endpointName, result) {
-      const payload = result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
+      const payload =
+        result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
       if (payload !== null && payload !== undefined) return false;
       if (isEndpointNotModified(result)) return false;
       return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
@@ -575,30 +589,32 @@
           };
         });
 
-      const endpointRequest = Promise.race([fetchPromise, timeoutPromise]).then(function (result) {
-        const status = endpointFetchStatus(result);
-        const notModified = isEndpointNotModified(result) ? 1 : 0;
+      const endpointRequest = Promise.race([fetchPromise, timeoutPromise])
+        .then(function (result) {
+          const status = endpointFetchStatus(result);
+          const notModified = isEndpointNotModified(result) ? 1 : 0;
 
-        if (shouldRecordPerf) {
-          const endedAt = nowMs();
-          recordPerf({
-            name: "fetchEndpoint." + endpoint.name,
-            durationMs: endedAt - fetchStartedAt,
-            ok: status === "ok" ? 1 : 0,
-            error: status === "error" ? 1 : 0,
-            timeout: status === "timeout" ? 1 : 0,
-            status: Number(result && result.meta && result.meta.status) || 0,
-            notModified: notModified,
-            payloadBytes: Number(result && result.payloadBytes) || 0,
-            endpoint: endpoint.name,
-          });
-        }
+          if (shouldRecordPerf) {
+            const endedAt = nowMs();
+            recordPerf({
+              name: "fetchEndpoint." + endpoint.name,
+              durationMs: endedAt - fetchStartedAt,
+              ok: status === "ok" ? 1 : 0,
+              error: status === "error" ? 1 : 0,
+              timeout: status === "timeout" ? 1 : 0,
+              status: Number(result && result.meta && result.meta.status) || 0,
+              notModified: notModified,
+              payloadBytes: Number(result && result.payloadBytes) || 0,
+              endpoint: endpoint.name,
+            });
+          }
 
-        return result;
-      }).finally(function () {
-        if (timeoutId) clearTimeout(timeoutId);
-        delete endpointInFlight[endpoint.name];
-      });
+          return result;
+        })
+        .finally(function () {
+          if (timeoutId) clearTimeout(timeoutId);
+          delete endpointInFlight[endpoint.name];
+        });
 
       endpointInFlight[endpoint.name] = endpointRequest;
 
@@ -610,7 +626,10 @@
 
       const hasPayload = Object.prototype.hasOwnProperty.call(result, "payload");
       const payload = hasPayload ? result.payload : null;
-      const hasCachedPayload = Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
+      const hasCachedPayload = Object.prototype.hasOwnProperty.call(
+        endpointPayloadCache,
+        endpointName,
+      );
       const isNotModified = isEndpointNotModified(result);
 
       state.responseMeta[endpointName] = result.meta || null;
@@ -648,7 +667,11 @@
           state.responseFingerprints[endpointName],
         )
       ) {
-        renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
+        renderEndpointPanel(
+          endpointName,
+          state.data[endpointName],
+          state.responseMeta[endpointName],
+        );
       }
 
       if (
@@ -703,9 +726,15 @@
       const responseFingerprints = {};
 
       runTargets.forEach(function (endpoint) {
-        const hasCachedPayload = Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpoint.name);
+        const hasCachedPayload = Object.prototype.hasOwnProperty.call(
+          endpointPayloadCache,
+          endpoint.name,
+        );
         data[endpoint.name] = hasCachedPayload ? endpointPayloadCache[endpoint.name] : null;
-        responseMeta[endpoint.name] = Object.prototype.hasOwnProperty.call(endpointMetaCache, endpoint.name)
+        responseMeta[endpoint.name] = Object.prototype.hasOwnProperty.call(
+          endpointMetaCache,
+          endpoint.name,
+        )
           ? endpointMetaCache[endpoint.name]
           : null;
         responseFingerprints[endpoint.name] = Object.prototype.hasOwnProperty.call(
@@ -768,10 +797,7 @@
               });
             }
 
-            if (
-              shouldRecordPerf &&
-              Number.isFinite(tickPaintStartMs)
-            ) {
+            if (shouldRecordPerf && Number.isFinite(tickPaintStartMs)) {
               const publishTickPaint = function () {
                 const paintAt = nowMs();
                 const deltaMs = paintAt - tickPaintStartMs;
@@ -848,7 +874,8 @@
               }
 
               const hasAnyData = results.some(function (entry) {
-                if (entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) return false;
+                if (entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName)
+                  return false;
                 return endpointResultHasUsableData(entry.value.endpointName, entry.value.result);
               });
 
@@ -860,43 +887,51 @@
                     }
                     if (entry.status !== "fulfilled") return false;
 
-                      return endpointResultHasFreshData(
-                        entry.value.endpointName,
-                        entry.value && entry.value.result,
-                      );
-                    });
+                    return endpointResultHasFreshData(
+                      entry.value.endpointName,
+                      entry.value && entry.value.result,
+                    );
+                  });
 
-              const runEndpointSlo = results.reduce(function (accumulator, entry) {
-                if (!entry || entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) {
-                  accumulator.errorEndpoints += 1;
+              const runEndpointSlo = results.reduce(
+                function (accumulator, entry) {
+                  if (
+                    !entry ||
+                    entry.status !== "fulfilled" ||
+                    !entry.value ||
+                    !entry.value.endpointName
+                  ) {
+                    accumulator.errorEndpoints += 1;
+                    return accumulator;
+                  }
+
+                  const endpointName = entry.value.endpointName;
+                  const result = entry.value.result;
+
+                  if (endpointResultHasFreshData(endpointName, result)) {
+                    accumulator.freshEndpoints += 1;
+                  }
+
+                  if (endpointResultIsStaleFallback(endpointName, result)) {
+                    accumulator.staleEndpoints += 1;
+                  }
+
+                  const endpointStatus = endpointFetchStatus(result);
+                  if (endpointStatus === "timeout") {
+                    accumulator.timeoutEndpoints += 1;
+                  } else if (endpointStatus === "error" && !isEndpointNotModified(result)) {
+                    accumulator.errorEndpoints += 1;
+                  }
+
                   return accumulator;
-                }
-
-                const endpointName = entry.value.endpointName;
-                const result = entry.value.result;
-
-                if (endpointResultHasFreshData(endpointName, result)) {
-                  accumulator.freshEndpoints += 1;
-                }
-
-                if (endpointResultIsStaleFallback(endpointName, result)) {
-                  accumulator.staleEndpoints += 1;
-                }
-
-                const endpointStatus = endpointFetchStatus(result);
-                if (endpointStatus === "timeout") {
-                  accumulator.timeoutEndpoints += 1;
-                } else if (endpointStatus === "error" && !isEndpointNotModified(result)) {
-                  accumulator.errorEndpoints += 1;
-                }
-
-                return accumulator;
-              }, {
-                freshEndpoints: 0,
-                staleEndpoints: 0,
-                timeoutEndpoints: 0,
-                errorEndpoints: 0,
-              });
+                },
+                {
+                  freshEndpoints: 0,
+                  staleEndpoints: 0,
+                  timeoutEndpoints: 0,
+                  errorEndpoints: 0,
+                },
+              );
 
               if (shouldFetchCold && coldRefreshCompleted) {
                 lastColdRefreshAt = Date.now();
@@ -961,7 +996,7 @@
                     errorEndpoints: runEndpointSlo.errorEndpoints,
                   });
                 });
-              })
+            })
             .catch(function () {
               finalizeRun({
                 hasAnyData: 0,
@@ -1023,11 +1058,15 @@
             url: endpointUrl,
           });
         },
+        endpointFetchStatus: endpointFetchStatus,
       },
     };
   }
 
   window.HUDApp.data = {
     createDataController,
+    _test: {
+      endpointFetchStatus: endpointFetchStatus,
+    },
   };
 })();
