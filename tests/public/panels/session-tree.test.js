@@ -100,9 +100,28 @@ describe("sessionTree.render", () => {
     expect(document.getElementById("tree-count").textContent).toBe("0");
   });
 
-  it("handles non-array input without throwing and reports zero count", () => {
-    expect(() => HUD.sessionTree.render("invalid")).not.toThrow();
+  it("handles null input without throwing and reports zero count", () => {
+    expect(() => HUD.sessionTree.render(null)).not.toThrow();
     expect(document.getElementById("tree-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".tree-node").length).toBe(0);
+  });
+
+  it("handles undefined input without throwing and reports zero count", () => {
+    expect(() => HUD.sessionTree.render(undefined)).not.toThrow();
+    expect(document.getElementById("tree-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".tree-node").length).toBe(0);
+  });
+
+  it("handles string input without throwing and reports zero count", () => {
+    expect(() => HUD.sessionTree.render("not-an-array")).not.toThrow();
+    expect(document.getElementById("tree-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".tree-node").length).toBe(0);
+  });
+
+  it("handles object input without throwing and reports zero count", () => {
+    expect(() => HUD.sessionTree.render({})).not.toThrow();
+    expect(document.getElementById("tree-count").textContent).toBe("0");
+    expect(document.querySelectorAll(".tree-node").length).toBe(0);
   });
 
   it("uses correct status dot classes", () => {

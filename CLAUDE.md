@@ -44,6 +44,7 @@ All frontend code is in `public/`. No build step — served directly by Express 
 - **`index.html`** — Single page with all panel markup. Loads scripts at bottom.
 - **`app.js`** — Entry point. Initializes panels, runs `fetchAll()` to hydrate UI, sets up WebSocket for tick-based refresh, falls back to 15s polling.
 - **`public/panels/`** — One JS file per dashboard panel (`agents.js`, `sessions.js`, `cron.js`, `system.js`, `models.js`, `activity.js`, `spawn.js`, `session-tree.js`). Each registers on the global `HUD` namespace (e.g., `HUD.agents.render(data)`).
+- **Null-safe panel rendering:** All panel `render(data)` methods guard against null/non-array input with `Array.isArray` checks before DOM access.
 - **`public/chat-*.js`** — Chat pane modules: `chat-pane.js` (pane open/close), `chat-messages.js` (message list rendering), `chat-message.js` (single message), `chat-markdown.js` (markdown rendering via marked + DOMPurify), `chat-tool-blocks.js` (tool use/result rendering), `chat-progressive-render.js` (streaming render), `chat-ws-handler.js` (WebSocket message routing), `chat-ws-batcher.js` (batches rapid WS messages), `chat-input.js` (input box).
 - **`public/styles/`** — CSS split per component. `main.css` imports others via `@import`. `base.css` has CSS variables and the cyberpunk theme.
 - **`public/vendor/`** — Vendored `marked.min.js` and `purify.min.js`.

@@ -42,15 +42,15 @@ HUD.sessions = (function () {
   }
 
   function render(sessions) {
-    const safeSessions = Array.isArray(sessions) ? sessions : [];
-    for (const s of safeSessions) {
+    if (!Array.isArray(sessions)) sessions = [];
+    for (const s of sessions) {
       if (!s.sessionKey)
         throw new Error("sessions.render requires canonical sessionKey for each session");
     }
-    $("#session-count").textContent = safeSessions.length;
+    $("#session-count").textContent = sessions.length;
     
     const sessionsList = $("#sessions-list");
-    const html = buildSessionsHTML(safeSessions);
+    const html = buildSessionsHTML(sessions);
     const temp = document.createElement("div");
     temp.innerHTML = html;
     

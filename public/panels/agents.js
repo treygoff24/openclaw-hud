@@ -16,8 +16,8 @@ HUD.agents = (function () {
   }
 
   function buildAgentsHTML(agents) {
-    const safeAgents = Array.isArray(agents) ? agents : [];
-    const filtered = safeAgents.filter((a) => a.id.toLowerCase().includes(agentFilter));
+    if (!Array.isArray(agents)) agents = [];
+    const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
     const now = Date.now();
     let activeCount = 0;
     
@@ -40,7 +40,7 @@ HUD.agents = (function () {
       })
       .join("");
     
-    return { html, filteredCount: filtered.length, activeCount, totalCount: safeAgents.length };
+    return { html, filteredCount: filtered.length, activeCount, totalCount: agents.length };
   }
 
   function updateAgentsList() {
@@ -63,9 +63,9 @@ HUD.agents = (function () {
   }
 
   function render(agents) {
-    const safeAgents = Array.isArray(agents) ? agents : [];
-    window._agents = safeAgents;
-    const { html, filteredCount, activeCount, totalCount } = buildAgentsHTML(safeAgents);
+    if (!Array.isArray(agents)) agents = [];
+    window._agents = agents;
+    const { html, filteredCount, activeCount, totalCount } = buildAgentsHTML(agents);
     
     const agentsList = $("#agents-list");
     const temp = document.createElement("div");
