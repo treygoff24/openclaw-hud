@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 document.body.innerHTML = '<span id="session-count"></span><div id="sessions-list"></div>';
 window.HUD = window.HUD || {};
@@ -9,16 +9,40 @@ window.escapeHtml = function (s) {
   d.textContent = String(s);
   return d.innerHTML;
 };
-// Mock makeFocusable for keyboard accessibility
-window.makeFocusable = function (el, handler) {
-  el.tabIndex = 0;
-  el.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      handler();
+
+window.morphdom = function (current, next) {
+  const existing = Array.from(current.children);
+  const incoming = Array.from(next.children);
+  const sharedCount = Math.min(existing.length, incoming.length);
+
+  for (let i = 0; i < sharedCount; i++) {
+    const target = existing[i];
+    const source = incoming[i];
+    const sourceAttrs = Array.from(source.attributes);
+    const sourceAttrNames = new Set(sourceAttrs.map((attr) => attr.name));
+
+    sourceAttrs.forEach((attr) => target.setAttribute(attr.name, attr.value));
+    Array.from(target.attributes).forEach((attr) => {
+      if (!sourceAttrNames.has(attr.name)) {
+        target.removeAttribute(attr.name);
+      }
+    });
+    target.innerHTML = source.innerHTML;
+  }
+
+  if (incoming.length > existing.length) {
+    for (let i = sharedCount; i < incoming.length; i++) {
+      current.appendChild(incoming[i]);
     }
-  });
+  } else if (existing.length > incoming.length) {
+    for (let i = existing.length - 1; i >= incoming.length; i--) {
+      current.removeChild(existing[i]);
+    }
+  }
 };
+
+// Use real focus helper implementation for keyboard behavior
+await import("../../../public/a11y/focus-trap.js");
 
 // Load utils for HUD.utils.timeAgo
 await import("../../../public/utils.js");
@@ -29,6 +53,10 @@ describe("sessions.render", () => {
   beforeEach(() => {
     document.getElementById("session-count").textContent = "";
     document.getElementById("sessions-list").innerHTML = "";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("renders session count", () => {
@@ -176,5 +204,38 @@ describe("sessions.render", () => {
         { agentId: "bot", sessionId: "xyz", label: "lbl", status: "active", updatedAt: Date.now() },
       ]);
     }).toThrow("sessions.render requires canonical sessionKey for each session");
+  });
+
+  it("does not stack makeFocusable listeners on rerender", () => {
+    HUD.sessions.render([
+      {
+        agentId: "bot",
+        sessionId: "s1",
+        sessionKey: "agent:bot:s1",
+        status: "active",
+        updatedAt: Date.now(),
+      },
+    ]);
+
+    const row = document.querySelector(".session-row");
+    const addListenerSpy = vi.spyOn(row, "addEventListener");
+
+    HUD.sessions.render([
+      {
+        agentId: "bot",
+        sessionId: "s1",
+        sessionKey: "agent:bot:s1",
+        status: "active",
+        updatedAt: Date.now(),
+      },
+    ]);
+
+    const keydownCalls = addListenerSpy.mock.calls.filter((call) => call[0] === "keydown").length;
+    const focusCalls = addListenerSpy.mock.calls.filter((call) => call[0] === "focus").length;
+    const blurCalls = addListenerSpy.mock.calls.filter((call) => call[0] === "blur").length;
+
+    expect(keydownCalls).toBe(0);
+    expect(focusCalls).toBe(0);
+    expect(blurCalls).toBe(0);
   });
 });

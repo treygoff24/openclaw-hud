@@ -207,6 +207,57 @@ describe("makeFocusable utility", () => {
       expect(callback).toHaveBeenCalled();
     }
   });
+
+  it("should attach key/focus/blur listeners only once across repeated calls", () => {
+    const element = createMockElement({ tagName: "DIV" });
+    const callback = vi.fn();
+
+    makeFocusable(element, callback);
+    makeFocusable(element, callback);
+
+    const keydownCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "keydown");
+    const focusCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "focus");
+    const blurCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "blur");
+
+    expect(keydownCalls).toHaveLength(1);
+    expect(focusCalls).toHaveLength(1);
+    expect(blurCalls).toHaveLength(1);
+  });
+
+  it("should activate callback exactly once on Enter after repeated makeFocusable calls", () => {
+    const element = createMockElement({ tagName: "DIV" });
+    const callback = vi.fn();
+
+    makeFocusable(element, callback);
+    makeFocusable(element, callback);
+
+    const keydownHandlers = element.addEventListener.mock.calls
+      .filter((call) => call[0] === "keydown")
+      .map((call) => call[1]);
+    const event = { key: "Enter", preventDefault: vi.fn() };
+
+    keydownHandlers.forEach((handler) => handler(event));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("should invoke fallback click exactly once on Space after repeated makeFocusable calls", () => {
+    const element = createMockElement({ tagName: "DIV", click: vi.fn() });
+
+    makeFocusable(element);
+    makeFocusable(element);
+
+    const keydownHandlers = element.addEventListener.mock.calls
+      .filter((call) => call[0] === "keydown")
+      .map((call) => call[1]);
+    const event = { key: " ", preventDefault: vi.fn() };
+
+    keydownHandlers.forEach((handler) => handler(event));
+
+    expect(element.click).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("Keyboard Navigation", () => {

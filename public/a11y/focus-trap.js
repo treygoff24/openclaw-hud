@@ -132,21 +132,40 @@
       }
     }
 
+    const stateKey = "__makeFocusableState__";
+    const existing = element[stateKey] || null;
+
+    if (existing) {
+      existing.onActivate = onActivate || null;
+      return;
+    }
+
+    const state = {
+      onActivate: onActivate || null,
+    };
+
     // Add keyboard handler
-    element.addEventListener("keydown", function (e) {
+    state.keydownHandler = function (e) {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        if (onActivate) onActivate(e);
+        if (state.onActivate) state.onActivate(e);
         else element.click();
       }
-    });
+    };
 
     // Add focus visible class support
-    element.addEventListener("focus", function () {
+    state.focusHandler = function () {
       element.classList.add("focus-visible");
-    });
-    element.addEventListener("blur", function () {
+    };
+
+    state.blurHandler = function () {
       element.classList.remove("focus-visible");
-    });
+    };
+
+    element[stateKey] = state;
+
+    element.addEventListener("keydown", state.keydownHandler);
+    element.addEventListener("focus", state.focusHandler);
+    element.addEventListener("blur", state.blurHandler);
   };
 })();
