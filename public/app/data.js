@@ -425,13 +425,23 @@
       );
     }
 
-    function fetchEndpoint(runFetch, endpoint) {
+    function fetchEndpoint(runFetch, endpoint, requestContext) {
+      const providedRunId =
+        requestContext && Object.prototype.hasOwnProperty.call(requestContext, "runId")
+          ? requestContext.runId
+          : null;
+      const includePerfHeader =
+        requestContext && Object.prototype.hasOwnProperty.call(requestContext, "shouldRecordPerf")
+          ? Boolean(requestContext.shouldRecordPerf)
+          : null;
+
       if (endpointInFlight[endpoint.name]) return endpointInFlight[endpoint.name];
 
       const controller = typeof AbortController === "function" ? new AbortController() : null;
       let timeoutId = null;
       let timedOut = false;
-      const shouldRecordPerf = Boolean(resolvePerfMonitor());
+      const shouldRecordPerf =
+        includePerfHeader === null ? Boolean(resolvePerfMonitor()) : includePerfHeader;
       const fetchStartedAt = shouldRecordPerf ? nowMs() : null;
 
       const timeoutPromise = new Promise(function (resolve) {
@@ -452,11 +462,20 @@
 
       const requestOptions = {};
       if (controller) requestOptions.signal = controller.signal;
+      const requestHeaders = Object.create(null);
       const cachedETag = endpointETagCache[endpoint.name];
       if (typeof cachedETag === "string" && cachedETag !== "") {
-        requestOptions.headers = {
-          "If-None-Match": cachedETag,
-        };
+        requestHeaders["If-None-Match"] = cachedETag;
+      }
+      if (providedRunId != null && String(providedRunId) !== "") {
+        requestHeaders["x-hud-run-id"] = String(providedRunId);
+      }
+      requestHeaders["x-hud-source"] = "hud";
+      if (shouldRecordPerf) {
+        requestHeaders["x-hud-perf"] = "1";
+      }
+      if (Object.keys(requestHeaders).length > 0) {
+        requestOptions.headers = requestHeaders;
       }
 
       const hasOptions = Object.keys(requestOptions).length > 0;
@@ -798,7 +817,10 @@
 
         try {
           const endpointTasks = runTargets.map(function (endpoint) {
-            return fetchEndpoint(runFetch, endpoint).then(function (result) {
+            return fetchEndpoint(runFetch, endpoint, {
+              runId: perfRunId,
+              shouldRecordPerf: shouldRecordPerf,
+            }).then(function (result) {
               if (shouldMarkEndpointFetched(result)) {
                 markEndpointFetched(endpoint.name);
               }
@@ -909,7 +931,10 @@
                 });
               }
 
-              return fetchEndpoint(runFetch, monthlyEndpoint)
+              return fetchEndpoint(runFetch, monthlyEndpoint, {
+                runId: perfRunId,
+                shouldRecordPerf: shouldRecordPerf,
+              })
                 .then(function (monthlyResult) {
                   applyMonthlyPayload(state, runId, monthlyResult);
                   return finalizeRun({

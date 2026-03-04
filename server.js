@@ -6,10 +6,12 @@ const { setupWebSocket } = require("./ws/log-streaming");
 const { GatewayWS } = require("./lib/gateway-ws");
 const { buildModelAliasPayload, getGatewayConfig, prewarmModelAliasMapCache } = require("./lib/helpers");
 const { resolveMethodScopes } = require("./lib/gateway-compat/client");
+const { createApiTailTelemetryMiddleware } = require("./lib/api-tail-telemetry");
 const { applySecurityHeaders } = require("./lib/security-headers");
 const { validateWsUpgradeRequest } = require("./lib/ws-origin-guard");
 const healthRouter = require("./routes/health");
 const spawnRouter = require("./routes/spawn");
+const diagPerfRouter = require("./routes/diag-perf");
 
 const app = express();
 const server = http.createServer(app);
@@ -250,6 +252,10 @@ app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
 }));
 
+const apiTailTelemetry = createApiTailTelemetryMiddleware({
+  appendPerfEvents: diagPerfRouter.appendSanitizedPerfEvents,
+});
+
 // Routes
 healthRouter.setHealthStateProvider(() => {
   let websocketClients = 0;
@@ -262,6 +268,7 @@ healthRouter.setHealthStateProvider(() => {
   };
 });
 app.use(healthRouter);
+app.use("/api", apiTailTelemetry);
 app.use(require("./routes/config"));
 app.use(require("./routes/agents"));
 app.use(require("./routes/sessions"));
@@ -269,7 +276,7 @@ app.use(require("./routes/cron"));
 app.use(spawnRouter);
 app.use(require("./routes/model-usage"));
 app.use(require("./routes/activity"));
-app.use(require("./routes/diag-perf"));
+app.use(diagPerfRouter);
 
 function runStartupProbe() {
   return runSpawnPreflight()

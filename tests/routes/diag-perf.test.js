@@ -221,6 +221,63 @@ describe("perf diagnostics route contract", () => {
     });
   });
 
+  it("appendSanitizedPerfEvents sanitizes events before appending", async () => {
+    const appendBatch = vi.fn(async () => ({ written: 2, bytes: 256 }));
+    const events = [
+      {
+        ts: "2026-03-03T18:00:00.000Z",
+        source: "hud-system",
+        runId: "run-helper",
+        apiKey: "sk-secret",
+        nested: {
+          authorization: "Bearer hidden",
+        },
+        summary: {
+          "apiTail.request": {
+            status: { count: 1, sum: 200, min: 200, max: 200, last: 200 },
+          },
+          "__proto__": {
+            polluted: { count: 1, sum: 1, min: 1, max: 1, last: 1 },
+          },
+        },
+      },
+    ];
+
+    const router = loadDiagPerfRouter();
+    router.setPerfLogWriter({ appendBatch });
+
+    const summary = await router.appendSanitizedPerfEvents(events);
+
+    expect(summary).toMatchObject({ accepted: 1, written: 2, bytes: 256 });
+    expect(appendBatch).toHaveBeenCalledTimes(1);
+    const [[writtenEvents]] = appendBatch.mock.calls;
+    expect(writtenEvents).toHaveLength(1);
+    expect(writtenEvents[0]).toMatchObject({
+      ts: "2026-03-03T18:00:00.000Z",
+      source: "hud-system",
+      runId: "run-helper",
+    });
+    expect(writtenEvents[0]).not.toHaveProperty("apiKey");
+    expect(writtenEvents[0]).not.toHaveProperty("nested");
+    expect(writtenEvents[0]).not.toHaveProperty("__proto__");
+    expect(writtenEvents[0].summary["apiTail.request"].status).toMatchObject({
+      count: 1,
+      sum: 200,
+      min: 200,
+      max: 200,
+      last: 200,
+    });
+    resetDiagPerfModuleCache();
+  });
+
+  it("appendSanitizedPerfEvents rejects non-array input", async () => {
+    const router = loadDiagPerfRouter();
+    await expect(router.appendSanitizedPerfEvents({ a: 1 })).rejects.toThrow(
+      "perf event batch must be an array",
+    );
+    resetDiagPerfModuleCache();
+  });
+
   it("GET /api/diag/perf/export returns a stable summary envelope", async () => {
     const exporter = {
       buildSummary: vi.fn(async () => ({

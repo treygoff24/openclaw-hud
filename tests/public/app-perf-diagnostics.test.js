@@ -1420,6 +1420,103 @@ describe("data controller perf instrumentation", () => {
     expect(record).not.toHaveBeenCalled();
   });
 
+  it("adds HUD correlation request headers for instrumented fetch cycles", async () => {
+    const record = vi.fn();
+    const requests = [];
+    const endpointPayloads = {
+      "/api/agents": [],
+      "/api/sessions": [],
+      "/api/cron": [],
+      "/api/config": {},
+      "/api/model-usage/live-weekly": { weekly: { total: 1 } },
+      "/api/models": [],
+      "/api/activity": [],
+      "/api/session-tree": { nodes: [] },
+      "/api/model-usage/monthly": { month: "2026-03" },
+    };
+
+    const fetchImpl = vi.fn((url, options = {}) => {
+      requests.push({ url: url, headers: options && options.headers ? options.headers : null });
+      return Promise.resolve(createMockJsonResponse(endpointPayloads[url] ?? []));
+    });
+
+    const getHeaderValue = function (headers, name) {
+      if (!headers) return "";
+      if (typeof headers.get === "function") {
+        return headers.get(name) || "";
+      }
+      return headers[name] || "";
+    };
+
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+    };
+    await import("../../public/app/data.js");
+
+    const { controller } = createDataControllerPerfHarness({ fetchImpl });
+    await controller.fetchAll({ includeCold: true, runId: "manual-run-1" });
+
+    const urls = [
+      "/api/agents",
+      "/api/sessions",
+      "/api/cron",
+      "/api/config",
+      "/api/model-usage/live-weekly",
+      "/api/models",
+      "/api/activity",
+      "/api/session-tree",
+      "/api/model-usage/monthly",
+    ];
+
+    urls.forEach((url) => {
+      const request = requests.find((entry) => entry.url === url);
+      expect(request).toBeDefined();
+      expect(request.headers).toBeTruthy();
+      expect(getHeaderValue(request.headers, "x-hud-source")).toBe("hud");
+      expect(getHeaderValue(request.headers, "x-hud-run-id")).toBe("manual-run-1");
+      expect(getHeaderValue(request.headers, "x-hud-perf")).toBe("1");
+    });
+  });
+
+  it("adds run-id and source headers even when perf monitor is disabled", async () => {
+    const requests = [];
+
+    const fetchImpl = vi.fn((url, options = {}) => {
+      requests.push({ url: url, headers: options && options.headers ? options.headers : null });
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+
+    const getHeaderValue = function (headers, name) {
+      if (!headers) return "";
+      if (typeof headers.get === "function") {
+        return headers.get(name) || "";
+      }
+      return headers[name] || "";
+    };
+
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => false,
+        record: vi.fn(),
+      },
+    };
+    await import("../../public/app/data.js");
+
+    const { controller } = createDataControllerPerfHarness({ fetchImpl });
+    await controller.fetchAll({ includeCold: true, runId: "disabled-run-2" });
+
+    expect(requests.length).toBeGreaterThan(0);
+    requests.forEach((request) => {
+      const headers = request.headers;
+      expect(getHeaderValue(headers, "x-hud-source")).toBe("hud");
+      expect(getHeaderValue(headers, "x-hud-run-id")).toBe("disabled-run-2");
+      expect(getHeaderValue(headers, "x-hud-perf")).toBe("");
+    });
+  });
+
   it("records fetchAll and endpoint perf event keys when perf monitor is enabled", async () => {
     const record = vi.fn();
     window.HUDApp = {

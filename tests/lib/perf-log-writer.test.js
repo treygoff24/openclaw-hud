@@ -316,6 +316,73 @@ describe("perf log writer rotation", () => {
     expect(persisted).not.toHaveProperty("extraMetrics");
   });
 
+  it("persists bounded API-tail fields and strips unbounded payloads", async () => {
+    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
+
+    const writer = createPerfLogWriter({
+      dir: TMP_ROOT,
+      baseName: "hud-perf",
+      maxBytes: 2048,
+      maxFiles: 3,
+    });
+
+    const longEndpoint = `/api/${"x".repeat(512)}`;
+    const longMethod = `VERYLONGHTTPMETHOD-${"m".repeat(128)}`;
+    const longWorkload = `models-${"w".repeat(256)}`;
+    const longCacheName = `cache-${"c".repeat(256)}`;
+    const longCacheKey = `key-${"k".repeat(256)}`;
+    const longRequestId = `req-${"r".repeat(1024)}`;
+
+    await writer.appendBatch([
+      {
+        ts: "2026-03-03T21:10:00.000Z",
+        endpoint: longEndpoint,
+        method: longMethod,
+        status: 204,
+        workload: longWorkload,
+        requestId: longRequestId,
+        queueMsProxy: 15.7,
+        etagHit: 1,
+        bytesOut: 4096.9,
+        totalMs: -15.2,
+        cacheState: {
+          state: "hit",
+          cacheName: longCacheName,
+          key: longCacheKey,
+          ageMs: 12.2,
+          ttlMs: 44.8,
+          nested: { shouldDrop: true },
+        },
+        summary: {
+          "apiTail.request": {
+            status: { count: 1, sum: 204, min: 204, max: 204, last: 204 },
+          },
+        },
+      },
+    ]);
+
+    const [segmentPath] = writer.readSegmentPaths();
+    const persisted = JSON.parse(fs.readFileSync(segmentPath, "utf8").trim());
+
+    expect(persisted.endpoint).toBe(longEndpoint.slice(0, 256));
+    expect(persisted.method).toBe(longMethod.slice(0, 16));
+    expect(persisted.status).toBe(204);
+    expect(persisted.workload).toBe(longWorkload.slice(0, 128));
+    expect(persisted.requestId).toBe(longRequestId.slice(0, 128));
+    expect(persisted.queueMsProxy).toBe(15.7);
+    expect(persisted.etagHit).toBe(true);
+    expect(persisted.bytesOut).toBe(4096);
+    expect(persisted.totalMs).toBe(0);
+    expect(persisted.cacheState).toMatchObject({
+      state: "hit",
+      cacheName: longCacheName.slice(0, 128),
+      key: longCacheKey.slice(0, 128),
+      ageMs: 12,
+      ttlMs: 44,
+    });
+    expect(persisted.cacheState).not.toHaveProperty("nested");
+  });
+
   it("does not throw during writer creation when target perf directory cannot be created", async () => {
     const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
     const blockedPath = path.join(TMP_ROOT, "openclaw-home-file");

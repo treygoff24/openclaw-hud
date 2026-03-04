@@ -769,6 +769,17 @@ router.get("/api/model-usage", async (req, res) => {
   const body = JSON.stringify(usage);
   timing.serializeMs = performance.now() - serializeStartMs;
 
+  res.locals.apiTailTelemetry = {
+    workload: "model-usage",
+    phases: {
+      diskReadMs: timing.diskReadMs,
+      parseMs: timing.parseMs,
+      computeMs: timing.computeMs,
+      serializeMs: timing.serializeMs,
+    },
+    cacheState: result.cacheState,
+  };
+
   writeEndpointHeaders(res, timing, result.cacheState);
   res.type("json").send(body);
 });

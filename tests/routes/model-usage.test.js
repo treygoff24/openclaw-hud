@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
+const { createApiTailTelemetryMiddleware } = require("../../lib/api-tail-telemetry");
 
 helpers.OPENCLAW_HOME = "/mock/home";
 helpers.safeReaddir = vi.fn(() => []);
@@ -10,9 +11,16 @@ helpers.safeRead = vi.fn(() => null);
 const originalLegacyModelUsageCacheTtlMs = process.env.HUD_MODEL_USAGE_CACHE_TTL_MS;
 
 function createApp() {
+  return createAppWithTelemetry();
+}
+
+function createAppWithTelemetry({ telemetry } = {}) {
   delete require.cache[require.resolve("../../routes/model-usage")];
   const router = require("../../routes/model-usage");
   const app = express();
+  if (telemetry) {
+    app.use("/api", telemetry);
+  }
   app.use(router);
   return app;
 }
@@ -59,6 +67,53 @@ describe("model-usage route seam", () => {
     expect(res.status).toBe(200);
     expect(res.body["openai/gpt-5"].totalTokens).toBe(15);
     expect(res.body["openai/gpt-5"].agents["agent-a"].totalTokens).toBe(15);
+  });
+
+  it("adds api-tail telemetry hook metadata for /api/model-usage", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const telemetry = createApiTailTelemetryMiddleware({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+    const app = createAppWithTelemetry({ telemetry });
+
+    helpers.safeReaddir.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents") return ["agent-a"];
+      if (fp === "/mock/home/agents/agent-a/sessions") return ["sess-1.jsonl"];
+      return [];
+    });
+    helpers.safeRead.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents/agent-a/sessions/sess-1.jsonl") {
+        return JSON.stringify({
+          type: "message",
+          message: {
+            model: "openai/gpt-5",
+            usage: {
+              input: 10,
+              output: 5,
+              totalTokens: 15,
+              cost: { total: 0.01 },
+            },
+          },
+        });
+      }
+      return null;
+    });
+
+    const res = await request(app).get("/api/model-usage").set("x-request-id", "usage-1");
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event).toMatchObject({
+      endpoint: "/api/model-usage",
+      workload: "model-usage",
+      requestId: "usage-1",
+    });
+    expect(event.summary["apiTail.phase.computeMs"].durationMs.sum).toBeGreaterThanOrEqual(0);
+    expect(event.summary["apiTail.cache"].cacheMiss.sum).toBe(1);
   });
 
   it("server wires dedicated model-usage route module", async () => {

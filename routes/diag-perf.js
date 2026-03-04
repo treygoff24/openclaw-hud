@@ -464,6 +464,25 @@ function setPerfExporter(nextExporter) {
   throw new Error('perfExporter must expose buildSummary()');
 }
 
+async function appendSanitizedPerfEvents(rawEvents) {
+  if (!Array.isArray(rawEvents)) {
+    throw new Error('perf event batch must be an array');
+  }
+
+  const events = sanitizePerfEventBatch(
+    rawEvents.filter((event) => event && typeof event === 'object'),
+  );
+
+  if (perfLogWriter && perfLogWriter.isAvailable === false) {
+    const unavailable = new Error(perfLogWriter.unavailableReason || 'Performance log writer unavailable');
+    unavailable.code = 'E_PERF_LOG_WRITER_UNAVAILABLE';
+    throw unavailable;
+  }
+
+  const summary = await perfLogWriter.appendBatch(events);
+  return Object.assign({ accepted: events.length }, summary || {});
+}
+
 function validatePerfPayload(body) {
   if (!body || typeof body !== 'object') {
     return { ok: false, error: 'Invalid payload: expected object' };
@@ -518,10 +537,10 @@ router.post(PERF_ROUTE_PATH, express.json(), async (req, res) => {
   }
 
   try {
-    const summary = await perfLogWriter.appendBatch(sanitizedEvents);
+    const summary = await appendSanitizedPerfEvents(sanitizedEvents);
     return res.status(202).json({
       ok: true,
-      accepted: sanitizedEvents.length,
+      accepted: summary.accepted,
       written: summary?.written,
       bytes: summary?.bytes,
     });
@@ -636,7 +655,7 @@ router.post(PERF_SYSTEM_ROUTE_PATH, express.json(), async (req, res) => {
   }
 
   try {
-    const summary = await perfLogWriter.appendBatch(mapped.events);
+    const summary = await appendSanitizedPerfEvents(mapped.events);
     return res.status(202).json({
       ok: true,
       accepted: mapped.events.length,
@@ -675,5 +694,6 @@ router.post(PERF_SYSTEM_ROUTE_PATH, express.json(), async (req, res) => {
 
 router.setPerfLogWriter = setPerfLogWriter;
 router.setPerfExporter = setPerfExporter;
+router.appendSanitizedPerfEvents = appendSanitizedPerfEvents;
 
 module.exports = router;

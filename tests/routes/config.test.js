@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 
 const helpers = require("../../lib/helpers");
+const { createApiTailTelemetryMiddleware } = require("../../lib/api-tail-telemetry");
 
 helpers.OPENCLAW_HOME = "/mock/home";
 helpers.safeJSON5 = vi.fn();
@@ -17,7 +18,7 @@ function mockConfigSources({ primary = null, legacy = null }) {
   });
 }
 
-function createApp() {
+function createApp({ telemetry } = {}) {
   delete require.cache[require.resolve("../../routes/config")];
   delete require.cache[require.resolve("../../routes/spawn")];
 
@@ -26,6 +27,9 @@ function createApp() {
 
   const router = require("../../routes/config");
   const app = express();
+  if (telemetry) {
+    app.use("/api", telemetry);
+  }
   app.use(router);
   return { app, spawnRouter };
 }
@@ -155,6 +159,43 @@ describe("GET /api/models", () => {
     expect(res.status).toBe(200);
     expect(spawnRouter.setCachedModels).toHaveBeenCalledTimes(1);
     expect(spawnRouter.setCachedModels).toHaveBeenCalledWith(res.body);
+  });
+
+  it("adds api-tail telemetry hook metadata for /api/models", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const telemetry = createApiTailTelemetryMiddleware({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+    const created = createApp({ telemetry });
+    const app = created.app;
+
+    mockConfigSources({
+      primary: {
+        agents: {
+          defaults: {
+            models: {
+              "openai/gpt-5": { alias: "gpt5" },
+            },
+          },
+        },
+      },
+    });
+
+    const res = await request(app).get("/api/models").set("x-request-id", "cfg-1");
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event).toMatchObject({
+      endpoint: "/api/models",
+      workload: "models",
+      requestId: "cfg-1",
+    });
+    expect(event.summary["apiTail.phase.diskReadMs"].durationMs.sum).toBeGreaterThanOrEqual(0);
+    expect(event.summary["apiTail.cache"].cacheMiss.sum).toBe(1);
   });
 
   it("derives alias from model id tail when alias is absent", async () => {
