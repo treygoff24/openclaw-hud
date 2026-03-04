@@ -43,7 +43,7 @@
     "specgate:validate": "specgate validate"
   },
   "dependencies": {
-    "express": "4.22.1",
+    "express": "5.2.1",
     "json5": "2.2.3",
     "ws": "8.19.0"
   },
