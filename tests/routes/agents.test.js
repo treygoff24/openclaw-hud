@@ -206,13 +206,21 @@ describe("GET /api/agents", () => {
 
   it("coalesces concurrent /api/agents requests to one sessions.json read", async () => {
     const now = Date.now();
-    writeSessionsFile("agent-a", { main: { sessionId: "s1", updatedAt: now, model: "anthropic/claude-sonnet-4" } });
+    writeSessionsFile("agent-a", {
+      main: { sessionId: "s1", updatedAt: now, model: "anthropic/claude-sonnet-4" },
+    });
     const readSpy = vi.spyOn(fs.promises, "readFile");
 
     const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent-a"]) });
-    await Promise.all([request(app).get("/api/agents"), request(app).get("/api/agents"), request(app).get("/api/agents")]);
+    await Promise.all([
+      request(app).get("/api/agents"),
+      request(app).get("/api/agents"),
+      request(app).get("/api/agents"),
+    ]);
 
-    const sessionReads = readSpy.mock.calls.filter(([file]) => String(file).includes("sessions.json"));
+    const sessionReads = readSpy.mock.calls.filter(([file]) =>
+      String(file).includes("sessions.json"),
+    );
     expect(sessionReads).toHaveLength(1);
     readSpy.mockRestore();
   });
@@ -265,5 +273,52 @@ describe("GET /api/agents", () => {
     await handler(req, res);
     expect(res.statusCode).toBe(200);
     expect(nowSpy).toHaveBeenCalledTimes(1);
+  });
+
+  describe("ETag support", () => {
+    it("returns ETag header with GET /api/agents", async () => {
+      writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: Date.now() } });
+      const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+      const res = await request(app).get("/api/agents");
+      expect(res.status).toBe(200);
+      expect(res.headers.etag).toBeDefined();
+      expect(res.headers.etag).toMatch(/^"?/);
+    });
+
+    it("returns 304 when If-None-Match matches current ETag", async () => {
+      writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: Date.now() } });
+      const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+
+      // First request to get the ETag
+      const firstRes = await request(app).get("/api/agents");
+      const etag = firstRes.headers.etag;
+
+      // Second request with matching ETag
+      const secondRes = await request(app).get("/api/agents").set("If-None-Match", etag);
+      expect(secondRes.status).toBe(304);
+    });
+
+    it("returns 200 with new ETag when If-None-Match is stale", async () => {
+      // Use a different agent ID for the second write to avoid cache issues
+      writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: Date.now() } });
+      const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+
+      // First request to get the ETag
+      const firstRes = await request(app).get("/api/agents");
+      const etag = firstRes.headers.etag;
+
+      // Clear session cache and modify the data to make ETag stale
+      sessionCache.clearSessionCache();
+      writeSessionsFile("agent1", {
+        s1: { sessionId: "s1", updatedAt: Date.now() },
+        s2: { sessionId: "s2", updatedAt: Date.now() },
+      });
+
+      // Second request with stale ETag
+      const secondRes = await request(app).get("/api/agents").set("If-None-Match", etag);
+      expect(secondRes.status).toBe(200);
+      expect(secondRes.headers.etag).toBeDefined();
+      expect(secondRes.headers.etag).not.toBe(etag);
+    });
   });
 });

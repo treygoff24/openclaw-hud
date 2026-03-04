@@ -139,7 +139,8 @@ describe("GET /api/sessions", () => {
   it("limits results to 100 sessions", async () => {
     const now = Date.now();
     const sessions = {};
-    for (let i = 0; i < 150; i++) sessions[`k${i}`] = { sessionId: `s${i}`, updatedAt: now - i * 1000 };
+    for (let i = 0; i < 150; i++)
+      sessions[`k${i}`] = { sessionId: `s${i}`, updatedAt: now - i * 1000 };
     writeSessionsFile("a1", sessions);
     const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
@@ -232,7 +233,9 @@ describe("GET /api/sessions", () => {
     const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
     await Promise.all([request(app).get("/api/sessions"), request(app).get("/api/session-tree")]);
 
-    const sessionsReads = readSpy.mock.calls.filter(([file]) => String(file).includes("sessions.json"));
+    const sessionsReads = readSpy.mock.calls.filter(([file]) =>
+      String(file).includes("sessions.json"),
+    );
     expect(sessionsReads).toHaveLength(1);
     readSpy.mockRestore();
   });
@@ -663,9 +666,18 @@ describe("GET /api/session-tree", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(getCachedSessionEntries).toHaveBeenCalledTimes(3);
 
-    deferredByAgent.a1.resolve({ sessions: [{ key: "a1-root", sessionKey: "agent:a1:root", updatedAt: now }], invalid: [] });
-    deferredByAgent.a2.resolve({ sessions: [{ key: "a2-root", sessionKey: "agent:a2:root", updatedAt: now - 1 }], invalid: [] });
-    deferredByAgent.a3.resolve({ sessions: [{ key: "a3-root", sessionKey: "agent:a3:root", updatedAt: now - 2 }], invalid: [] });
+    deferredByAgent.a1.resolve({
+      sessions: [{ key: "a1-root", sessionKey: "agent:a1:root", updatedAt: now }],
+      invalid: [],
+    });
+    deferredByAgent.a2.resolve({
+      sessions: [{ key: "a2-root", sessionKey: "agent:a2:root", updatedAt: now - 1 }],
+      invalid: [],
+    });
+    deferredByAgent.a3.resolve({
+      sessions: [{ key: "a3-root", sessionKey: "agent:a3:root", updatedAt: now - 2 }],
+      invalid: [],
+    });
 
     await pending;
     expect(res.statusCode).toBe(200);
@@ -708,5 +720,62 @@ describe("GET /api/session-tree", () => {
 
     expect(second.status).toBe(304);
     expect(second.body).toEqual({});
+  });
+});
+
+describe("GET /api/sessions ETag support", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearAgentsDir();
+    sessionCache.clearSessionCache();
+    fs.writeFileSync(path.join(TMPDIR, "openclaw.json"), "{}");
+    helpers.getModelAliasMap = originalGetModelAliasMap;
+  });
+
+  it("returns ETag header with GET /api/sessions", async () => {
+    const now = Date.now();
+    writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: now } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+    const res = await request(app).get("/api/sessions");
+    expect(res.status).toBe(200);
+    expect(res.headers.etag).toBeDefined();
+    expect(res.headers.etag).toMatch(/^"?/);
+  });
+
+  it("returns 304 when If-None-Match matches current ETag", async () => {
+    const now = Date.now();
+    writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: now } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+
+    // First request to get the ETag
+    const firstRes = await request(app).get("/api/sessions");
+    const etag = firstRes.headers.etag;
+
+    // Second request with matching ETag
+    const secondRes = await request(app).get("/api/sessions").set("If-None-Match", etag);
+    expect(secondRes.status).toBe(304);
+  });
+
+  it("returns 200 with new ETag when If-None-Match is stale", async () => {
+    const now = Date.now();
+    writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: now } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+
+    // First request to get the ETag
+    const firstRes = await request(app).get("/api/sessions");
+    const etag = firstRes.headers.etag;
+
+    // Clear session cache and modify the data to make ETag stale
+    sessionCache.clearSessionCache();
+    writeSessionsFile("agent1", {
+      s1: { sessionId: "s1", updatedAt: now },
+      s2: { sessionId: "s2", updatedAt: now },
+    });
+
+    // Second request with stale ETag
+    const secondRes = await request(app).get("/api/sessions").set("If-None-Match", etag);
+    expect(secondRes.status).toBe(200);
+    expect(secondRes.headers.etag).toBeDefined();
+    expect(secondRes.headers.etag).not.toBe(etag);
   });
 });
