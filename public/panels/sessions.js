@@ -42,6 +42,7 @@ HUD.sessions = (function () {
   }
 
   function render(sessions) {
+    if (!Array.isArray(sessions)) sessions = [];
     for (const s of sessions) {
       if (!s.sessionKey)
         throw new Error("sessions.render requires canonical sessionKey for each session");
