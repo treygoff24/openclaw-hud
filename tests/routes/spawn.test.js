@@ -393,6 +393,21 @@ describe("POST /api/spawn", () => {
     expect(res.body.error).toContain("spawn response missing session/run identifiers");
   });
 
+  it("accepts gateway success payloads without result.details wrapper", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ result: { childSessionKey: "key-789", runId: "run-101" } }),
+      json: async () => ({ result: { childSessionKey: "key-789", runId: "run-101" } }),
+    });
+
+    const res = await request(createApp()).post("/api/spawn").send(validBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.sessionKey).toBe("key-789");
+    expect(res.body.runId).toBe("run-101");
+  });
+
   it("fails closed when gateway host is not local loopback", async () => {
     helpers.getGatewayConfig.mockReturnValue({
       host: "198.51.100.44",

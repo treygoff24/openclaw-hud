@@ -147,6 +147,7 @@ function resolveGatewaySuccessPayload(parsedBody) {
   if (!parsedBody || typeof parsedBody !== "object") return {};
   if (parsedBody?.result?.details) return parsedBody.result.details;
   if (parsedBody?.details) return parsedBody.details;
+  if (parsedBody?.result && typeof parsedBody.result === "object") return parsedBody.result;
   return parsedBody;
 }
 
