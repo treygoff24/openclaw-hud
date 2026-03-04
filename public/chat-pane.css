@@ -251,9 +251,7 @@
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 4px;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   flex-shrink: 0;
 }
 .chat-send-btn:hover {
@@ -392,10 +390,7 @@
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 3px;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   margin-right: 8px;
 }
 .chat-export-btn:hover {
@@ -559,11 +554,7 @@
   gap: 4px;
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  transition:
-    opacity 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease,
-    background-color 0.2s ease;
+  transition: opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
   opacity: 0.6;
 }
 .code-block-wrapper:hover .code-copy-btn {
@@ -675,11 +666,7 @@
   gap: 4px;
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  transition:
-    opacity 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease,
-    background-color 0.2s ease;
+  transition: opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
   opacity: 0.5;
   flex-shrink: 0;
 }
@@ -957,10 +944,7 @@
   cursor: pointer;
   padding: 6px 10px;
   border-radius: 4px;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   flex-shrink: 0;
   display: flex;
   align-items: center;

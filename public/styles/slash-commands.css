@@ -150,9 +150,7 @@
   line-height: 1;
   padding: 2px 6px;
   border-radius: 3px;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .hint-close:hover {

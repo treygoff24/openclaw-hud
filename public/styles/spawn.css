@@ -9,9 +9,7 @@
   color: var(--cyan);
   cursor: pointer;
   text-transform: uppercase;
-  transition:
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .spawn-btn:hover {
   background: rgba(0, 229, 255, 0.2);
@@ -47,9 +45,7 @@
   letter-spacing: 3px;
   font-weight: bold;
   min-width: 140px;
-  transition:
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .hud-btn-launch:hover:not(:disabled) {
   background: rgba(0, 229, 255, 0.25);
