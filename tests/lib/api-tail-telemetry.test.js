@@ -34,6 +34,55 @@ function createApp({ appendPerfEvents, sampleRate = 0, slowRequestMs = 500, rand
     };
     res.send("models");
   });
+    app.get("/api/metrics", (_req, res) => {
+      res.locals.apiTailTelemetry = {
+        metrics: {
+          metricCount: 12,
+          averageRows: 8,
+        },
+        workload: "metrics",
+      };
+      res.send("metrics");
+    });
+    app.get("/api/counters", (_req, res) => {
+      res.locals.apiTailTelemetry = {
+        counters: {
+          cacheHit: 2,
+          cacheMiss: 3,
+        },
+        workload: "counters",
+      };
+      res.send("counters");
+    });
+  app.get("/api/metrics-invalid", (_req, res) => {
+    res.locals.apiTailTelemetry = {
+      metrics: {
+        validCount: 7,
+        invalidString: "not-a-number",
+        invalidObject: {},
+        invalidArray: [1, 2, 3],
+        invalidBool: false,
+        invalidNull: null,
+      },
+      workload: "metrics",
+    };
+    res.send("metrics-invalid");
+  });
+  app.get("/api/metrics-and-phases", (_req, res) => {
+    res.locals.apiTailTelemetry = {
+      phases: {
+        diskReadMs: 11,
+        parseMs: 5,
+      },
+      metrics: {
+        metricCount: 12,
+      },
+      workload: "metrics-and-phases",
+      cacheState: { state: "miss", cacheName: "api-metrics", key: "metrics" },
+      queueMsProxy: 4,
+    };
+    res.send("metrics-and-phases");
+  });
   app.get("/api/etag", (req, res) => {
     res.set("ETag", '"abc"');
     res.locals.apiTailTelemetry = {
@@ -218,5 +267,85 @@ describe("api tail telemetry middleware", () => {
     const event = appendPerfEvents.mock.calls[0][0][0];
     expect(event.bytesOut).toBe(11);
     expect(event.summary["apiTail.request"].bytesOut.sum).toBe(11);
+  });
+
+  it("emits route-provided metrics map entries into event.summary", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const app = createApp({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+
+    const res = await request(app).get("/api/metrics");
+    expect(res.status).toBe(200);
+    await waitForTelemetryFlush();
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event.workload).toBe("metrics");
+    expect(event.summary["apiTail.metric.metricCount"].count.sum).toBe(12);
+    expect(event.summary["apiTail.metric.averageRows"].count.sum).toBe(8);
+  });
+
+  it("supports legacy counters map for event.summary emission", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const app = createApp({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+
+    const res = await request(app).get("/api/counters");
+    expect(res.status).toBe(200);
+    await waitForTelemetryFlush();
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event.workload).toBe("counters");
+    expect(event.summary["apiTail.metric.cacheHit"].count.sum).toBe(2);
+    expect(event.summary["apiTail.metric.cacheMiss"].count.sum).toBe(3);
+  });
+
+  it("ignores invalid metric values in route-provided metrics", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const app = createApp({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+
+    const res = await request(app).get("/api/metrics-invalid");
+    expect(res.status).toBe(200);
+    await waitForTelemetryFlush();
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event.summary["apiTail.metric.validCount"].count.sum).toBe(7);
+    expect(event.summary["apiTail.metric.invalidString"]).toBeUndefined();
+    expect(event.summary["apiTail.metric.invalidObject"]).toBeUndefined();
+    expect(event.summary["apiTail.metric.invalidArray"]).toBeUndefined();
+    expect(event.summary["apiTail.metric.invalidBool"]).toBeUndefined();
+    expect(event.summary["apiTail.metric.invalidNull"]).toBeUndefined();
+  });
+
+  it("preserves phase summary emission when metrics are also provided", async () => {
+    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+    const app = createApp({
+      appendPerfEvents,
+      sampleRate: 1,
+      slowRequestMs: 500,
+    });
+
+    const res = await request(app).get("/api/metrics-and-phases");
+    expect(res.status).toBe(200);
+    await waitForTelemetryFlush();
+
+    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+    const event = appendPerfEvents.mock.calls[0][0][0];
+    expect(event.summary["apiTail.phase.diskReadMs"].durationMs.sum).toBe(11);
+    expect(event.summary["apiTail.phase.parseMs"].durationMs.sum).toBe(5);
+    expect(event.summary["apiTail.metric.metricCount"].count.sum).toBe(12);
+    expect(event.summary["apiTail.cache"].cacheMiss.sum).toBe(1);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+const { createApiTailTelemetryMiddleware } = require("../../lib/api-tail-telemetry");
 
 const usageRpc = require("../../lib/usage-rpc");
 const pricing = require("../../lib/pricing");
@@ -23,9 +24,45 @@ const originalMonthUsageMaxDurationMs = process.env.HUD_USAGE_MONTH_MAX_DURATION
 const originalMonthUsageMemoTtlMs = process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
 
 function createApp() {
+  return createAppWithTelemetry();
+}
+
+function waitForTelemetryFlush() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function createAppWithTelemetry({
+  onTelemetry,
+  appendPerfEvents,
+  sampleRate = 1,
+  slowRequestMs = 500,
+} = {}) {
   delete require.cache[require.resolve("../../routes/model-usage")];
   const router = require("../../routes/model-usage");
   const app = express();
+  if (appendPerfEvents) {
+    app.use(
+      createApiTailTelemetryMiddleware({
+        appendPerfEvents,
+        sampleRate,
+        slowRequestMs,
+      }),
+    );
+  }
+  if (typeof onTelemetry === "function") {
+    app.use((req, res, next) => {
+      res.on("finish", () => {
+        if (req.path === "/api/model-usage/live-weekly") {
+          onTelemetry(
+            res.locals?.apiTailTelemetry
+              ? JSON.parse(JSON.stringify(res.locals.apiTailTelemetry))
+              : null,
+          );
+        }
+      });
+      return next();
+    });
+  }
   app.use(router);
   return app;
 }
@@ -469,6 +506,102 @@ describe("GET /api/model-usage/live-weekly", () => {
     expect(second.body.meta.generatedAt).toBe(first.body.meta.generatedAt);
   });
 
+  it("records model-usage-live-weekly telemetry on cache miss and hit paths", async () => {
+    process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
+    let nowValue = 20_000;
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockImplementation(() => {
+      const current = nowValue;
+      nowValue += 50;
+      return current;
+    });
+
+    const observed = [];
+    const observedApiTailTelemetry = [];
+    const app = createAppWithTelemetry({
+      onTelemetry: (payload) => {
+        observed.push(payload);
+      },
+      appendPerfEvents: (events) => {
+        observedApiTailTelemetry.push(events?.[0]);
+      },
+    });
+
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
+          },
+        ],
+      },
+    });
+
+    const missResponse = await request(app).get("/api/model-usage/live-weekly");
+    const missTelemetry = observed.at(-1);
+    await waitForTelemetryFlush();
+    const missApiTailTelemetry = observedApiTailTelemetry.at(-1);
+
+    expect(missResponse.status).toBe(200);
+    expect(missTelemetry).toMatchObject({
+      workload: "model-usage-live-weekly",
+      cacheState: expect.objectContaining({ state: "miss" }),
+      phases: {
+        cacheLookupMs: expect.any(Number),
+        gatewayFetchMs: expect.any(Number),
+        normalizeMs: expect.any(Number),
+        pricingRepriceMs: expect.any(Number),
+        aliasMapMs: expect.any(Number),
+        summaryMs: expect.any(Number),
+        etagSerializeMs: expect.any(Number),
+      },
+      counters: expect.objectContaining({
+        cacheMiss: 1,
+        cacheHit: 0,
+        gatewayCalls: 1,
+        windowCount: 1,
+      }),
+    });
+
+    const hitResponse = await request(app).get("/api/model-usage/live-weekly");
+    const hitTelemetry = observed.at(-1);
+    await waitForTelemetryFlush();
+    const hitApiTailTelemetry = observedApiTailTelemetry.at(-1);
+
+    expect(missApiTailTelemetry?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
+    expect(missApiTailTelemetry?.summary?.["apiTail.metric.gatewayCalls"]?.count?.sum).toBe(1);
+
+    expect(hitResponse.status).toBe(200);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
+    expect(hitTelemetry).toMatchObject({
+      workload: "model-usage-live-weekly",
+      cacheState: expect.objectContaining({ state: "hit" }),
+      phases: {
+        cacheLookupMs: expect.any(Number),
+        etagSerializeMs: expect.any(Number),
+      },
+      counters: expect.objectContaining({
+        cacheHit: 1,
+        cacheMiss: 0,
+        gatewayCalls: 0,
+      }),
+    });
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.cacheHit"]?.count?.sum).toBe(1);
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(0);
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.gatewayCalls"]?.count?.sum).toBe(0);
+    expect(hitTelemetry.phases.gatewayFetchMs).toBe(0);
+  });
+
   it("refreshes cached live-weekly response after TTL expiry", async () => {
     process.env.HUD_USAGE_CACHE_TTL_MS = "1000";
     const nowSpy = vi.spyOn(Date, "now");
@@ -565,14 +698,27 @@ describe("GET /api/model-usage/live-weekly", () => {
       },
     });
 
-    const app = createApp();
+    const observedApiTailTelemetry = [];
+    const app = createAppWithTelemetry({
+      appendPerfEvents: (events) => {
+        observedApiTailTelemetry.push(events?.[0]);
+      },
+    });
     const first = await request(app).get("/api/model-usage/live-weekly");
     const second = await request(app).get("/api/model-usage/live-weekly?refresh=1");
+    await waitForTelemetryFlush();
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(2);
     expect(second.body.meta.generatedAt).not.toBe(first.body.meta.generatedAt);
+    expect(observedApiTailTelemetry.at(0)).toMatchObject({
+      cacheState: expect.objectContaining({ state: "miss" }),
+    });
+    expect(observedApiTailTelemetry.at(1)).toMatchObject({
+      cacheState: expect.objectContaining({ state: "disabled" }),
+    });
+    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
   });
 
   it("surfaces gateway error when sessions.usage is unavailable (no fallback payload)", async () => {

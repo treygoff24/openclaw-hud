@@ -22,7 +22,7 @@ const { readWeeklyHistory, readWeeklySnapshot } = require("../lib/usage-archive"
 const { normalizeModelRow, collectUsageRows } = require("../lib/usage-normalize");
 const {
   generateMonthCacheKey,
-  readFreshMonthCache,
+  readMonthCacheEntry,
   writeMonthCache,
   getMonthCacheTtlMs,
 } = require("../lib/month-usage-cache");
@@ -47,6 +47,26 @@ const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
 
 function toTimingValue(value) {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function toCounterValue(value) {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+}
+
+function buildModelUsageTelemetry({
+  workload,
+  cacheState,
+  phases,
+  counters,
+}) {
+  return {
+    workload: String(workload || ""),
+    phases,
+    cacheState,
+    counters,
+  };
 }
 
 function writeEndpointHeaders(res, timing, cacheState) {
@@ -522,6 +542,7 @@ function maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload }) {
     liveWeeklyCache = {
       cacheKey,
       expiresAtMs: nowMs + ttlMs,
+      createdAtMs: nowMs,
       payload,
     };
   } else {
@@ -818,29 +839,97 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
     pricingFingerprint,
     sessionsLimit,
   });
-
-  if (
+  const telemetry = {
+    cacheState: {
+      state: refresh ? "disabled" : ttlMs > 0 ? "miss" : "disabled",
+      cacheName: "model-usage-live-weekly",
+      key: cacheKey,
+      ttlMs: toTimingValue(ttlMs),
+      ageMs: 0,
+    },
+    phases: {
+      cacheLookupMs: 0,
+      gatewayFetchMs: 0,
+      normalizeMs: 0,
+      pricingRepriceMs: 0,
+      aliasMapMs: 0,
+      summaryMs: 0,
+      etagSerializeMs: 0,
+    },
+    counters: {
+      cacheHit: 0,
+      cacheMiss: 0,
+      gatewayCalls: 0,
+      windowCount: 1,
+      truncationWindows: 0,
+      sessionsReturned: 0,
+      cacheWriteAttempted: 0,
+      cacheWriteSuccess: 0,
+      sessionsLimit,
+    },
+  };
+  const cacheLookupStartMs = performance.now();
+  const cacheHit =
     !refresh &&
     liveWeeklyCache &&
     nowMs < liveWeeklyCache.expiresAtMs &&
-    liveWeeklyCache.cacheKey === cacheKey
-  ) {
-    return sendJsonWithETag(
+    liveWeeklyCache.cacheKey === cacheKey;
+  telemetry.phases.cacheLookupMs = performance.now() - cacheLookupStartMs;
+
+  const sendTelemetryPayload = (payload) => {
+    const etagSerializeStartMs = performance.now();
+    const response = sendJsonWithETag(
       req,
       res,
-      addRequestContextToMeta(liveWeeklyCache.payload, requestContext),
+      addRequestContextToMeta(payload, requestContext),
       stripVolatileModelUsageMeta,
     );
+    telemetry.phases.etagSerializeMs = performance.now() - etagSerializeStartMs;
+    return response;
+  };
+
+  if (
+    cacheHit
+  ) {
+    telemetry.counters.cacheHit = 1;
+    telemetry.counters.cacheMiss = 0;
+    telemetry.cacheState.state = "hit";
+    telemetry.cacheState.ageMs = toTimingValue(
+      nowMs - (liveWeeklyCache.createdAtMs || Math.max(nowMs - ttlMs, 0)),
+    );
+    telemetry.counters.sessionsReturned = toCounterValue(
+      liveWeeklyCache.payload?.meta?.sessionsUsage?.sessionsReturned,
+    );
+    telemetry.counters.truncationWindows = toCounterValue(
+      liveWeeklyCache.payload?.meta?.sessionsUsage?.sessionsMayBeTruncated,
+    );
+
+    res.locals.apiTailTelemetry = buildModelUsageTelemetry({
+      workload: "model-usage-live-weekly",
+      cacheState: telemetry.cacheState,
+      phases: telemetry.phases,
+      counters: telemetry.counters,
+    });
+
+    return sendTelemetryPayload(liveWeeklyCache.payload);
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
+  telemetry.cacheState.state = refresh ? "disabled" : ttlMs > 0 ? "miss" : telemetry.cacheState.state;
+  telemetry.counters.cacheMiss = 1;
+  telemetry.counters.cacheHit = 0;
 
   try {
+    const gatewayStartMs = performance.now();
     const weeklyWindowUsage = await requestUsageWindow({
       window: liveWindow,
       tz,
       sessionsLimit,
     });
+    telemetry.phases.gatewayFetchMs = performance.now() - gatewayStartMs;
+    telemetry.counters.gatewayCalls = 1;
+    telemetry.counters.sessionsReturned = toCounterValue(weeklyWindowUsage.sessionsReturned);
+    telemetry.counters.truncationWindows = toCounterValue(weeklyWindowUsage.sessionsMayBeTruncated);
     const maybeTruncated = weeklyWindowUsage.sessionsMayBeTruncated;
     if (maybeTruncated) {
       console.warn("[model-usage/live-weekly] sessions.usage result may be truncated by limit", {
@@ -850,19 +939,27 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
       });
     }
 
-    const pricingCatalog = loadPricingCatalog();
-    const weeklyBreakdown = buildUsageBreakdown(
-      normalizeUsageRows(weeklyWindowUsage.usageRows),
-      pricingCatalog,
-    );
+    const normalizeStartMs = performance.now();
+    const normalizedRows = normalizeUsageRows(weeklyWindowUsage.usageRows);
+    telemetry.phases.normalizeMs = performance.now() - normalizeStartMs;
 
+    const pricingStartMs = performance.now();
+    const pricingCatalog = loadPricingCatalog();
+    const weeklyBreakdown = buildUsageBreakdown(normalizedRows, pricingCatalog);
+    telemetry.phases.pricingRepriceMs = performance.now() - pricingStartMs;
+
+    const aliasMapStartMs = performance.now();
     const modelAliases = getModelAliasMap();
+    telemetry.phases.aliasMapMs = performance.now() - aliasMapStartMs;
+
+    const summaryStartMs = performance.now();
     const summary = buildLiveWeeklySummary({
       weeklyTotals: weeklyBreakdown.totals,
       monthTotals: { totalCost: 0 },
       monthModels: [],
       aliasMap: modelAliases,
     });
+    telemetry.phases.summaryMs = performance.now() - summaryStartMs;
 
     const responsePayload = buildLiveWeeklyResponsePayload({
       weeklyBreakdown,
@@ -879,13 +976,18 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
     });
 
     maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload: responsePayload });
+    telemetry.counters.cacheWriteAttempted = ttlMs > 0 ? 1 : 0;
+    telemetry.counters.cacheWriteSuccess = toCounterValue(ttlMs > 0);
+    telemetry.counters.windowCount = 1;
 
-    return sendJsonWithETag(
-      req,
-      res,
-      addRequestContextToMeta(responsePayload, requestContext),
-      stripVolatileModelUsageMeta,
-    );
+    res.locals.apiTailTelemetry = buildModelUsageTelemetry({
+      workload: "model-usage-live-weekly",
+      cacheState: telemetry.cacheState,
+      phases: telemetry.phases,
+      counters: telemetry.counters,
+    });
+
+    return sendTelemetryPayload(responsePayload);
   } catch (err) {
     const unavailableReasonByCode = {
       GATEWAY_TOKEN_MISSING: "gateway-token-missing",
@@ -975,27 +1077,104 @@ router.get("/api/model-usage/monthly", async (req, res) => {
     monthMaxWindows,
     monthMaxDurationMs,
   });
+  const telemetry = {
+    cacheState: {
+      state: refresh ? "disabled" : "miss",
+      cacheName: "model-usage-monthly",
+      key: cacheKey,
+      ttlMs: toTimingValue(diskTtlMs),
+      ageMs: 0,
+    },
+    phases: {
+      cacheLookupMs: 0,
+      gatewayFetchMs: 0,
+      normalizeMs: 0,
+      pricingRepriceMs: 0,
+      aliasMapMs: 0,
+      summaryMs: 0,
+      etagSerializeMs: 0,
+      cacheWriteMs: 0,
+    },
+    counters: {
+      cacheHit: 0,
+      cacheMiss: 0,
+      gatewayCalls: 0,
+      windowCount: 0,
+      windowsSplit: 0,
+      truncationWindows: 0,
+      truncatedSingleDayWindows: 0,
+      partialWindows: 0,
+      cacheWriteAttempted: 0,
+      cacheWriteSuccess: 0,
+      sessionsLimit,
+    },
+  };
+  const cacheLookupStartMs = performance.now();
 
   // Check disk cache first (if not refreshing)
-  if (!refresh) {
-    const cachedPayload = readFreshMonthCache(cacheKey, nowMs, diskTtlMs);
-    if (cachedPayload) {
+  const cachedMonthEntry = refresh ? null : readMonthCacheEntry(cacheKey);
+  telemetry.phases.cacheLookupMs = performance.now() - cacheLookupStartMs;
+  if (cachedMonthEntry && Number.isFinite(cachedMonthEntry.timestamp)) {
+    telemetry.cacheState.ageMs = toTimingValue(nowMs - cachedMonthEntry.timestamp);
+  }
+
+  if (cachedMonthEntry && Number.isFinite(cachedMonthEntry.timestamp)) {
+    const ageMs = nowMs - cachedMonthEntry.timestamp;
+    if (ageMs >= 0 && ageMs < diskTtlMs) {
+      const cachedPayload =
+        cachedMonthEntry && typeof cachedMonthEntry.payload === "object" && cachedMonthEntry.payload !== null
+          ? cachedMonthEntry.payload
+          : {};
+      telemetry.cacheState.state = "hit";
+      telemetry.counters.cacheHit = 1;
       const responsePayload = Object.assign({}, cachedPayload, {
         meta: Object.assign({}, cachedPayload.meta, {
           source: "disk-cache",
           servedAt: new Date(nowMs).toISOString(),
         }),
       });
-      return sendJsonWithETag(
+      telemetry.counters.cacheMiss = 0;
+      telemetry.counters.cacheWriteAttempted = 0;
+      telemetry.counters.cacheWriteSuccess = 0;
+      telemetry.counters.windowCount = 0;
+      telemetry.counters.gatewayCalls = 0;
+      telemetry.counters.windowsSplit = toCounterValue(responsePayload.meta?.sessionsUsage?.windowsSplit);
+      telemetry.counters.truncationWindows = toCounterValue(
+        responsePayload.meta?.sessionsUsage?.truncatedWindows,
+      );
+      telemetry.counters.truncatedSingleDayWindows = toCounterValue(
+        responsePayload.meta?.sessionsUsage?.truncatedSingleDayWindows,
+      );
+      telemetry.counters.partialWindows = toCounterValue(
+        responsePayload.meta?.sessionsUsage?.isPartial,
+      );
+
+      res.locals.apiTailTelemetry = buildModelUsageTelemetry({
+        workload: "model-usage-monthly",
+        cacheState: telemetry.cacheState,
+        phases: telemetry.phases,
+        counters: telemetry.counters,
+      });
+
+      const etagSerializeStartMs = performance.now();
+      const response = sendJsonWithETag(
         req,
         res,
         addRequestContextToMeta(responsePayload, requestContext),
         stripVolatileModelUsageMeta,
       );
+      telemetry.phases.etagSerializeMs = performance.now() - etagSerializeStartMs;
+      return response;
+    }
+
+    if (ageMs >= diskTtlMs) {
+      telemetry.cacheState.state = "stale";
     }
   }
 
   try {
+    telemetry.counters.cacheMiss = refresh || telemetry.counters.cacheHit === 0 ? 1 : 0;
+    const gatewayStartMs = performance.now();
     const monthCollection = await collectMonthToDateUsageRows({
       monthWindow,
       tz,
@@ -1004,19 +1183,38 @@ router.get("/api/model-usage/monthly", async (req, res) => {
       maxWindows: monthMaxWindows,
       maxDurationMs: monthMaxDurationMs,
     });
+    telemetry.phases.gatewayFetchMs = performance.now() - gatewayStartMs;
+    telemetry.counters.gatewayCalls = toCounterValue(monthCollection?.diagnostics?.windowsRequested);
+    telemetry.counters.windowCount = toCounterValue(monthCollection?.diagnostics?.windowsRequested);
+    telemetry.counters.windowsSplit = toCounterValue(monthCollection?.diagnostics?.windowsSplit);
+    telemetry.counters.truncationWindows = toCounterValue(monthCollection?.diagnostics?.truncatedWindows);
+    telemetry.counters.truncatedSingleDayWindows = toCounterValue(
+      monthCollection?.diagnostics?.truncatedSingleDayWindows,
+    );
+    telemetry.counters.partialWindows = toCounterValue(monthCollection?.diagnostics?.isPartial);
 
+    const normalizeStartMs = performance.now();
+    const normalizedRows = normalizeUsageRows(monthCollection.usageRows);
+    telemetry.phases.normalizeMs = performance.now() - normalizeStartMs;
     const pricingCatalog = loadPricingCatalog();
+    const pricingStartMs = performance.now();
     const monthBreakdown = buildUsageBreakdown(
-      aggregateUsageRowsByModel(normalizeUsageRows(monthCollection.usageRows)),
+      aggregateUsageRowsByModel(normalizedRows),
       pricingCatalog,
     );
+    telemetry.phases.pricingRepriceMs = performance.now() - pricingStartMs;
 
+    const aliasMapStartMs = performance.now();
     const modelAliases = getModelAliasMap();
+    telemetry.phases.aliasMapMs = performance.now() - aliasMapStartMs;
+
+    const summaryStartMs = performance.now();
     const summary = buildMonthlySummary({
       monthTotals: monthBreakdown.totals,
       monthModels: monthBreakdown.models,
       aliasMap: modelAliases,
     });
+    telemetry.phases.summaryMs = performance.now() - summaryStartMs;
 
     const responsePayload = buildMonthlyResponsePayload({
       monthBreakdown,
@@ -1029,14 +1227,29 @@ router.get("/api/model-usage/monthly", async (req, res) => {
     });
 
     // Write to disk cache
-    writeMonthCache(cacheKey, responsePayload);
+    telemetry.counters.cacheWriteAttempted = 1;
+    const cacheWriteStartMs = performance.now();
+    const cacheWriteResult = writeMonthCache(cacheKey, responsePayload);
+    telemetry.phases.cacheWriteMs = performance.now() - cacheWriteStartMs;
+    telemetry.counters.cacheWriteSuccess = toCounterValue(cacheWriteResult ? 1 : 0);
 
-    return sendJsonWithETag(
+    res.locals.apiTailTelemetry = buildModelUsageTelemetry({
+      workload: "model-usage-monthly",
+      cacheState: telemetry.cacheState,
+      phases: telemetry.phases,
+      counters: telemetry.counters,
+    });
+
+    const etagSerializeStartMs = performance.now();
+    const response = sendJsonWithETag(
       req,
       res,
       addRequestContextToMeta(responsePayload, requestContext),
       stripVolatileModelUsageMeta,
     );
+    telemetry.phases.etagSerializeMs = performance.now() - etagSerializeStartMs;
+
+    return response;
   } catch (err) {
     const unavailableReasonByCode = {
       GATEWAY_TOKEN_MISSING: "gateway-token-missing",

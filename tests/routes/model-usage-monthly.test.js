@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 import fs from "fs";
 import path from "path";
+const { createApiTailTelemetryMiddleware } = require("../../lib/api-tail-telemetry");
 
 const usageRpc = require("../../lib/usage-rpc");
 const pricing = require("../../lib/pricing");
@@ -25,9 +26,45 @@ const originalMonthUsageMemoTtlMs = process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
 const originalMonthUsageDiskTtlMs = process.env.HUD_USAGE_MONTH_DISK_TTL_MS;
 
 function createApp() {
+  return createAppWithTelemetry();
+}
+
+function waitForTelemetryFlush() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function createAppWithTelemetry({
+  onTelemetry,
+  appendPerfEvents,
+  sampleRate = 1,
+  slowRequestMs = 500,
+} = {}) {
   delete require.cache[require.resolve("../../routes/model-usage")];
   const router = require("../../routes/model-usage");
   const app = express();
+  if (appendPerfEvents) {
+    app.use(
+      createApiTailTelemetryMiddleware({
+        appendPerfEvents,
+        sampleRate,
+        slowRequestMs,
+      }),
+    );
+  }
+  if (typeof onTelemetry === "function") {
+    app.use((req, res, next) => {
+      res.on("finish", () => {
+        if (req.path === "/api/model-usage/monthly") {
+          onTelemetry(
+            res.locals?.apiTailTelemetry
+              ? JSON.parse(JSON.stringify(res.locals.apiTailTelemetry))
+              : null,
+          );
+        }
+      });
+      return next();
+    });
+  }
   app.use(router);
   return app;
 }
@@ -203,7 +240,108 @@ describe("GET /api/model-usage/monthly", () => {
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(callCount);
   });
 
+  it("captures model-usage-monthly telemetry on cache miss and hit paths", async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        aggregates: {
+          byModel: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 1200,
+                output: 800,
+                cacheRead: 100,
+                cacheWrite: 80,
+                totalTokens: 2180,
+                totalCost: 7.25,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    let nowValue = 40_000;
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockImplementation(() => {
+      const current = nowValue;
+      nowValue += 100;
+      return current;
+    });
+
+    const observed = [];
+    const observedApiTailTelemetry = [];
+    const app = createAppWithTelemetry({
+      onTelemetry: (payload) => {
+        observed.push(payload);
+      },
+      appendPerfEvents: (events) => {
+        observedApiTailTelemetry.push(events?.[0]);
+      },
+    });
+
+    const missResponse = await request(app).get("/api/model-usage/monthly");
+    const missTelemetry = observed.at(-1);
+    await waitForTelemetryFlush();
+    const missApiTailTelemetry = observedApiTailTelemetry.at(-1);
+
+    expect(missResponse.status).toBe(200);
+    expect(missTelemetry).toMatchObject({
+      workload: "model-usage-monthly",
+      cacheState: expect.objectContaining({ state: "miss" }),
+      phases: {
+        cacheLookupMs: expect.any(Number),
+        gatewayFetchMs: expect.any(Number),
+        normalizeMs: expect.any(Number),
+        pricingRepriceMs: expect.any(Number),
+        aliasMapMs: expect.any(Number),
+        summaryMs: expect.any(Number),
+        cacheWriteMs: expect.any(Number),
+        etagSerializeMs: expect.any(Number),
+      },
+      counters: expect.objectContaining({
+        cacheMiss: 1,
+        cacheHit: 0,
+        gatewayCalls: expect.any(Number),
+        cacheWriteAttempted: 1,
+        cacheWriteSuccess: 1,
+      }),
+    });
+
+    const hitResponse = await request(app).get("/api/model-usage/monthly");
+    const hitTelemetry = observed.at(-1);
+    await waitForTelemetryFlush();
+    const hitApiTailTelemetry = observedApiTailTelemetry.at(-1);
+
+    expect(missApiTailTelemetry?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
+    expect(missApiTailTelemetry?.summary?.["apiTail.metric.cacheWriteSuccess"]?.count?.sum).toBe(1);
+
+    expect(hitResponse.status).toBe(200);
+    expect(hitResponse.body.meta.source).toBe("disk-cache");
+    expect(hitTelemetry).toMatchObject({
+      workload: "model-usage-monthly",
+      cacheState: expect.objectContaining({ state: "hit" }),
+      counters: expect.objectContaining({
+        cacheHit: 1,
+        cacheMiss: 0,
+        gatewayCalls: expect.any(Number),
+      }),
+      phases: expect.objectContaining({
+        cacheLookupMs: expect.any(Number),
+        etagSerializeMs: expect.any(Number),
+      }),
+    });
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.cacheHit"]?.count?.sum).toBe(1);
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(0);
+    expect(hitApiTailTelemetry?.summary?.["apiTail.metric.gatewayCalls"]?.count?.sum).toBe(0);
+    expect(hitTelemetry.counters.gatewayCalls).toBe(0);
+    expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(1);
+  });
+
   it("refresh=1 bypasses disk cache and fetches fresh data", async () => {
+    const observedApiTailTelemetry = [];
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
@@ -224,26 +362,35 @@ describe("GET /api/model-usage/monthly", () => {
       },
     });
 
-    const app = createApp();
+    const appWithTelemetry = createAppWithTelemetry({
+      appendPerfEvents: (events) => {
+        observedApiTailTelemetry.push(events?.[0]);
+      },
+    });
     
     // First request
-    await request(app).get("/api/model-usage/monthly");
+    await request(appWithTelemetry).get("/api/model-usage/monthly");
     const callCountAfterFirst = usageRpc.requestSessionsUsage.mock.calls.length;
     
     // Second request with refresh
-    const res2 = await request(app).get("/api/model-usage/monthly?refresh=1");
+    const res2 = await request(appWithTelemetry).get("/api/model-usage/monthly?refresh=1");
+    await waitForTelemetryFlush();
     expect(res2.status).toBe(200);
     expect(res2.body.meta.source).toBe("sessions.usage+config-reprice");
     
     // Gateway should be called again
     expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThan(callCountAfterFirst);
+    expect(observedApiTailTelemetry.at(1)).toMatchObject({
+      cacheState: expect.objectContaining({ state: "disabled" }),
+    });
+    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
   });
 
   it("handles expired disk cache by fetching fresh data", async () => {
-    // Use readFreshMonthCache mock to simulate expired cache
+    // Use readMonthCacheEntry mock to simulate expired cache
     const cacheModule = require("../../lib/month-usage-cache");
-    const originalReadFresh = cacheModule.readFreshMonthCache;
-    cacheModule.readFreshMonthCache = vi.fn(() => null);
+    const originalReadMonthCacheEntry = cacheModule.readMonthCacheEntry;
+    cacheModule.readMonthCacheEntry = vi.fn(() => null);
     
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
@@ -280,7 +427,7 @@ describe("GET /api/model-usage/monthly", () => {
     expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThan(callCountAfterFirst);
     
     // Restore
-    cacheModule.readFreshMonthCache = originalReadFresh;
+    cacheModule.readMonthCacheEntry = originalReadMonthCacheEntry;
   });
 
   it("returns error when gateway is unavailable", async () => {
