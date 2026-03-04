@@ -334,4 +334,68 @@ describe("GET /api/model-usage/monthly", () => {
       truncatedWindows: expect.any(Number),
     });
   });
+
+  it("returns 304 when If-None-Match matches monthly ETag", async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 3000,
+              output: 2000,
+              cacheRead: 500,
+              cacheWrite: 200,
+              totalTokens: 5700,
+              totalCost: 12.5,
+            },
+          },
+        ],
+      },
+    });
+
+    const first = await request(createApp()).get("/api/model-usage/monthly");
+    const etag = first.headers.etag;
+
+    const second = await request(createApp())
+      .get("/api/model-usage/monthly")
+      .set("If-None-Match", etag);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+  });
+
+  it("keeps monthly ETag stable across per-request metadata fields", async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 3000,
+              output: 2000,
+              cacheRead: 500,
+              cacheWrite: 200,
+              totalTokens: 5700,
+              totalCost: 12.5,
+            },
+          },
+        ],
+      },
+    });
+
+    const first = await request(createApp()).get("/api/model-usage/monthly");
+    const etag = first.headers.etag;
+    const second = await request(createApp())
+      .get("/api/model-usage/monthly")
+      .set("If-None-Match", etag);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(304);
+  });
 });

@@ -8,6 +8,7 @@ const {
   safeJSON5,
   stripSecrets,
 } = require("../lib/helpers");
+const crypto = require("crypto");
 const { mapGatewayError } = require("../lib/gateway-compat/error-map");
 const { requireLocalOrigin } = require("../lib/gateway-compat/origin-policy");
 const {
@@ -23,6 +24,36 @@ const {
 const router = Router();
 
 const JOB_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+function parseIfNoneMatchHeader(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/^W\//, ""));
+}
+
+function isIfNoneMatch(req, etag) {
+  const ifNoneMatch = req?.headers?.["if-none-match"] || req?.get?.("if-none-match");
+  const candidates = parseIfNoneMatchHeader(ifNoneMatch);
+  const normalizedEtag = String(etag || "").replace(/^W\//, "");
+  return candidates.includes(normalizedEtag);
+}
+
+function buildStableEtag(payload) {
+  const serialized = JSON.stringify(payload);
+  const digest = crypto.createHash("sha256").update(serialized).digest("base64url");
+  return `"${digest}"`;
+}
+
+function sendJsonWithETag(req, res, payload) {
+  const etag = buildStableEtag(payload);
+  res.set("ETag", etag);
+  if (isIfNoneMatch(req, etag)) {
+    return res.sendStatus(304);
+  }
+  return res.json(payload);
+}
 
 function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
@@ -126,18 +157,19 @@ router.get("/api/cron", async (req, res) => {
       return enrichCronJobReadModel(Object.assign({}, job, { payload: payloadModel }), defaultModel);
     });
 
-    return res.json(Object.assign({}, normalized, {
+    const responsePayload = Object.assign({}, normalized, {
       jobs,
       meta: Object.assign({}, normalized.meta, {
         gatewayAvailable: true,
         diagnostics: [],
       }),
-    }));
+    });
+    return sendJsonWithETag(req, res, responsePayload);
   } catch (err) {
     const mapped = mapGatewayError(err || {});
     if (shouldFallbackToLocal(mapped)) {
       const fallback = readCronJobsFromDisk(mapped);
-      return res.json(fallback);
+      return sendJsonWithETag(req, res, fallback);
     }
     return sendGatewayError(res, err);
   }

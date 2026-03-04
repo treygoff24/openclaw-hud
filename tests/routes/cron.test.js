@@ -132,6 +132,25 @@ describe("GET /api/cron", () => {
     expect(res.body.code).toBe("BAD_REQUEST");
     expect(cronGateway.listCronJobs).toHaveBeenCalled();
   });
+
+  it("returns 304 when If-None-Match matches /api/cron ETag", async () => {
+    setGatewayListResult({
+      jobs: [{ id: "job-1", name: "Nightly" }],
+      total: 1,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
+      nextOffset: null,
+    });
+
+    const first = await request(createApp()).get("/api/cron");
+    const etag = first.headers.etag;
+
+    const second = await request(createApp()).get("/api/cron").set("If-None-Match", etag);
+
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+  });
 });
 
 describe("POST /api/cron", () => {

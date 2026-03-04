@@ -59,6 +59,10 @@
     let queuedColdFetch = null;
     let lastColdRefreshAt = 0;
     let cachedMonthlyFingerprint = null;
+    let endpointPayloadCache = Object.create(null);
+    let endpointMetaCache = Object.create(null);
+    let endpointETagCache = Object.create(null);
+    let endpointInFlight = Object.create(null);
     let endpointLastFetchAt = Object.create(null);
     let endpointRenderFingerprints = Object.create(null);
     let endpointLastRenderedPayloads = Object.create(null);
@@ -189,9 +193,10 @@
     }
 
     function shouldMarkEndpointFetched(result) {
-      if (!result || !Object.prototype.hasOwnProperty.call(result, "payload")) return false;
-      if (result.payload === null || result.payload === undefined) return false;
-      return isSuccessfulFetchMeta(result.meta);
+      if (!result || !isSuccessfulFetchMeta(result.meta)) return false;
+      if (isEndpointNotModified(result)) return true;
+      if (!Object.prototype.hasOwnProperty.call(result, "payload")) return false;
+      return result.payload !== null && result.payload !== undefined;
     }
 
     function shouldFetchColdEndpoints(includeColdRequest) {
@@ -216,6 +221,22 @@
       }
     }
 
+    function isEndpointNotModified(result) {
+      const status = Number(result && result.meta && result.meta.status);
+      return status === 304 || String(result && result.meta && result.meta.statusText).toLowerCase() === "not modified";
+    }
+
+    function extractResponseETag(response) {
+      if (!response || !response.headers || typeof response.headers.get !== "function") return "";
+      return (
+        response.headers.get("if-none-match") ||
+        response.headers.get("If-None-Match") ||
+        response.headers.get("etag") ||
+        response.headers.get("ETag") ||
+        ""
+      );
+    }
+
     function shouldRenderEndpointPayload(endpointName, payload, providedFingerprint) {
       if (payload === null || payload === undefined) {
         return true;
@@ -236,6 +257,13 @@
       endpointRenderFingerprints[endpointName] = nextFingerprint;
       endpointLastRenderedPayloads[endpointName] = payload;
       return true;
+    }
+
+    function endpointResultHasFreshData(endpointName, result) {
+      const payload = result && Object.prototype.hasOwnProperty.call(result, "payload") ? result.payload : null;
+      if (payload !== null && payload !== undefined) return true;
+      if (!isEndpointNotModified(result)) return false;
+      return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
     }
 
     function modelUsageWithMonthly(state) {
@@ -321,6 +349,8 @@
     }
 
     function fetchEndpoint(runFetch, endpoint) {
+      if (endpointInFlight[endpoint.name]) return endpointInFlight[endpoint.name];
+
       const controller = typeof AbortController === "function" ? new AbortController() : null;
       let timeoutId = null;
       let timedOut = false;
@@ -346,13 +376,34 @@
         }, endpointTimeoutMs);
       });
 
+      const requestOptions = {};
+      if (controller) requestOptions.signal = controller.signal;
+      const cachedETag = endpointETagCache[endpoint.name];
+      if (typeof cachedETag === "string" && cachedETag !== "") {
+        requestOptions.headers = {
+          "If-None-Match": cachedETag,
+        };
+      }
+
+      const hasOptions = Object.keys(requestOptions).length > 0;
       const fetchPromise = Promise.resolve()
         .then(function () {
-          return controller
-            ? runFetch(endpoint.url, { signal: controller.signal })
-            : runFetch(endpoint.url);
+          return hasOptions ? runFetch(endpoint.url, requestOptions) : runFetch(endpoint.url);
         })
         .then(function (response) {
+          const responseETag = extractResponseETag(response);
+          if (responseETag) {
+            endpointETagCache[endpoint.name] = responseETag;
+          }
+
+          if (Number(response && response.status) === 304) {
+            return {
+              payload: null,
+              payloadFingerprint: null,
+              meta: extractResponseMeta(response, null),
+            };
+          }
+
           if (response && typeof response.text === "function") {
             return response
               .text()
@@ -419,7 +470,7 @@
           };
         });
 
-      return Promise.race([fetchPromise, timeoutPromise]).then(function (result) {
+      const endpointRequest = Promise.race([fetchPromise, timeoutPromise]).then(function (result) {
         const status = endpointFetchStatus(result);
 
         if (shouldRecordPerf) {
@@ -440,18 +491,36 @@
         return result;
       }).finally(function () {
         if (timeoutId) clearTimeout(timeoutId);
+        delete endpointInFlight[endpoint.name];
       });
+
+      endpointInFlight[endpoint.name] = endpointRequest;
+
+      return endpointRequest;
     }
 
     function applyEndpointResult(runId, state, endpointName, result) {
       if (runId !== latestFetchRunId) return;
 
-      state.data[endpointName] = Object.prototype.hasOwnProperty.call(result, "payload")
-        ? result.payload
-        : null;
+      const hasPayload = Object.prototype.hasOwnProperty.call(result, "payload");
+      const payload = hasPayload ? result.payload : null;
+      const hasCachedPayload = Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
+      const isNotModified = isEndpointNotModified(result);
+
       state.responseMeta[endpointName] = result.meta || null;
-      state.responseFingerprints[endpointName] =
-        typeof result.payloadFingerprint === "string" ? result.payloadFingerprint : null;
+      endpointMetaCache[endpointName] = state.responseMeta[endpointName];
+
+      if ((payload === null || payload === undefined || isNotModified) && hasCachedPayload) {
+        state.data[endpointName] = endpointPayloadCache[endpointName];
+        state.responseFingerprints[endpointName] = endpointRenderFingerprints[endpointName] || null;
+      } else {
+        state.data[endpointName] = payload;
+        state.responseFingerprints[endpointName] =
+          typeof result.payloadFingerprint === "string" ? result.payloadFingerprint : null;
+        if (payload !== null && payload !== undefined) {
+          endpointPayloadCache[endpointName] = payload;
+        }
+      }
 
       window._endpointResponseMeta = state.responseMeta;
       if (endpointName === "models") {
@@ -486,7 +555,7 @@
         onChatRestore(state.data.sessions);
       }
 
-      if (state.data[endpointName] !== null) {
+      if (endpointResultHasFreshData(endpointName, result)) {
         state.hasAnyData = true;
         if (!state.connectionSetConnected) {
           state.connectionSetConnected = true;
@@ -528,9 +597,17 @@
       const responseFingerprints = {};
 
       runTargets.forEach(function (endpoint) {
-        data[endpoint.name] = null;
-        responseMeta[endpoint.name] = null;
-        responseFingerprints[endpoint.name] = null;
+        const hasCachedPayload = Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpoint.name);
+        data[endpoint.name] = hasCachedPayload ? endpointPayloadCache[endpoint.name] : null;
+        responseMeta[endpoint.name] = Object.prototype.hasOwnProperty.call(endpointMetaCache, endpoint.name)
+          ? endpointMetaCache[endpoint.name]
+          : null;
+        responseFingerprints[endpoint.name] = Object.prototype.hasOwnProperty.call(
+          endpointRenderFingerprints,
+          endpoint.name,
+        )
+          ? endpointRenderFingerprints[endpoint.name]
+          : null;
       });
 
       const state = {
@@ -578,13 +655,9 @@
             .then(function (results) {
               if (runId !== latestFetchRunId) return;
 
-              const hasAnyData = results.some(function (result) {
-                return (
-                  result.status === "fulfilled" &&
-                  result.value &&
-                  result.value.result &&
-                  result.value.result.payload !== null
-                );
+              const hasAnyData = results.some(function (entry) {
+                if (entry.status !== "fulfilled" || !entry.value || !entry.value.endpointName) return false;
+                return endpointResultHasFreshData(entry.value.endpointName, entry.value.result);
               });
 
               const coldRefreshCompleted = !shouldFetchCold
@@ -593,10 +666,12 @@
                     if (coldEndpointNames.indexOf(entry.value && entry.value.endpointName) === -1) {
                       return true;
                     }
-                    return entry.status === "fulfilled" &&
-                      entry.value &&
-                      entry.value.result &&
-                      entry.value.result.payload !== null;
+                    if (entry.status !== "fulfilled") return false;
+
+                    return endpointResultHasFreshData(
+                      entry.value.endpointName,
+                      entry.value && entry.value.result,
+                    );
                   });
 
               if (shouldFetchCold && coldRefreshCompleted) {
@@ -679,6 +754,27 @@
 
     return {
       fetchAll,
+      _test: {
+        fetchEndpoint: function (endpointName, endpointUrl) {
+          if (
+            typeof endpointName !== "string" ||
+            typeof endpointUrl !== "string" ||
+            !endpointName ||
+            !endpointUrl
+          ) {
+            return Promise.resolve({
+              payload: null,
+              payloadFingerprint: null,
+              meta: createFailureMeta("invalid-test-endpoint"),
+            });
+          }
+
+          return fetchEndpoint(getFetch(), {
+            name: endpointName,
+            url: endpointUrl,
+          });
+        },
+      },
     };
   }
 

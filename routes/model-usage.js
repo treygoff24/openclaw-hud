@@ -41,6 +41,55 @@ const DEFAULT_MONTH_USAGE_MAX_DURATION_MS = 7000;
 const MIN_MONTH_USAGE_MAX_DURATION_MS = 100;
 const MAX_MONTH_USAGE_MAX_DURATION_MS = 120000;
 
+function parseIfNoneMatchHeader(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((headerValue) => headerValue.replace(/^W\//, ""));
+}
+
+function isIfNoneMatch(req, etag) {
+  const ifNoneMatch = req?.headers?.["if-none-match"] || req?.get?.("if-none-match");
+  const candidates = parseIfNoneMatchHeader(ifNoneMatch);
+  const normalizedEtag = String(etag || "").replace(/^W\//, "");
+  return candidates.includes(normalizedEtag);
+}
+
+function buildStableEtag(payload) {
+  const serialized = JSON.stringify(payload);
+  const digest = crypto.createHash("sha256").update(serialized).digest("base64url");
+  return `"${digest}"`;
+}
+
+function stripVolatileModelUsageMeta(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const stablePayload = JSON.parse(JSON.stringify(payload));
+  if (stablePayload && stablePayload.meta && typeof stablePayload.meta === "object") {
+    const {
+      requestId: _requestId,
+      requestTimestamp: _requestTimestamp,
+      generatedAt: _generatedAt,
+      now: _now,
+      servedAt: _servedAt,
+      source: _source,
+      ...stableMeta
+    } = stablePayload.meta;
+    stablePayload.meta = stableMeta;
+  }
+  return stablePayload;
+}
+
+function sendJsonWithETag(req, res, payload, stablePayloadTransformer = (value) => value) {
+  const etagPayload = stablePayloadTransformer(payload);
+  const etag = buildStableEtag(etagPayload);
+  res.set("ETag", etag);
+  if (isIfNoneMatch(req, etag)) {
+    return res.sendStatus(304);
+  }
+  return res.json(payload);
+}
+
 
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
@@ -680,7 +729,12 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
     nowMs < liveWeeklyCache.expiresAtMs &&
     liveWeeklyCache.cacheKey === cacheKey
   ) {
-    return res.json(addRequestContextToMeta(liveWeeklyCache.payload, requestContext));
+    return sendJsonWithETag(
+      req,
+      res,
+      addRequestContextToMeta(liveWeeklyCache.payload, requestContext),
+      stripVolatileModelUsageMeta,
+    );
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
@@ -730,7 +784,12 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
 
     maybeStoreLiveWeeklyCache({ ttlMs, nowMs, cacheKey, payload: responsePayload });
 
-    res.json(addRequestContextToMeta(responsePayload, requestContext));
+    return sendJsonWithETag(
+      req,
+      res,
+      addRequestContextToMeta(responsePayload, requestContext),
+      stripVolatileModelUsageMeta,
+    );
   } catch (err) {
     const unavailableReasonByCode = {
       GATEWAY_TOKEN_MISSING: "gateway-token-missing",
@@ -831,7 +890,12 @@ router.get("/api/model-usage/monthly", async (req, res) => {
           servedAt: new Date(nowMs).toISOString(),
         }),
       });
-      return res.json(addRequestContextToMeta(responsePayload, requestContext));
+      return sendJsonWithETag(
+        req,
+        res,
+        addRequestContextToMeta(responsePayload, requestContext),
+        stripVolatileModelUsageMeta,
+      );
     }
   }
 
@@ -871,7 +935,12 @@ router.get("/api/model-usage/monthly", async (req, res) => {
     // Write to disk cache
     writeMonthCache(cacheKey, responsePayload);
 
-    res.json(addRequestContextToMeta(responsePayload, requestContext));
+    return sendJsonWithETag(
+      req,
+      res,
+      addRequestContextToMeta(responsePayload, requestContext),
+      stripVolatileModelUsageMeta,
+    );
   } catch (err) {
     const unavailableReasonByCode = {
       GATEWAY_TOKEN_MISSING: "gateway-token-missing",

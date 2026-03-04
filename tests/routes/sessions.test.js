@@ -693,4 +693,20 @@ describe("GET /api/session-tree", () => {
     expect(res.statusCode).toBe(200);
     expect(nowSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("returns 304 when If-None-Match matches session-tree ETag", async () => {
+    const now = Date.now();
+    writeSessionsFile("a1", {
+      main: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
+      child: { sessionId: "c", updatedAt: now, spawnedBy: "main", spawnDepth: 1 },
+    });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const first = await request(app).get("/api/session-tree");
+    const etag = first.headers.etag;
+
+    const second = await request(app).get("/api/session-tree").set("If-None-Match", etag);
+
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import crypto from "crypto";
 
 const helpers = require("../../lib/helpers");
 helpers.OPENCLAW_HOME = "/mock/home";
@@ -228,5 +229,75 @@ describe("GET /api/activity", () => {
     });
     const res = await request(app).get("/api/activity");
     expect(res.body[0].content).toBe("exec");
+  });
+
+  it("returns an ETag header for activity payloads", async () => {
+    const { app } = createApp({
+      safeReaddirAsync: vi.fn(async () => ["a1"]),
+      getCachedSessions: vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } })),
+      tailLines: vi.fn(async () => [
+        JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "cached" }),
+      ]),
+    });
+    const res = await request(app).get("/api/activity");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.etag).toBeTruthy();
+    expect(typeof res.headers.etag).toBe("string");
+  });
+
+  it("returns 304 when If-None-Match matches activity ETag", async () => {
+    const { app } = createApp({
+      safeReaddirAsync: vi.fn(async () => ["a1"]),
+      getCachedSessions: vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } })),
+      tailLines: vi.fn(async () => [
+        JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "cached" }),
+      ]),
+    });
+    const first = await request(app).get("/api/activity");
+    const etag = first.headers.etag;
+
+    const second = await request(app).get("/api/activity").set("If-None-Match", etag);
+
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+  });
+
+  it("applies If-None-Match during in-flight recompute", async () => {
+    const payload = [
+      {
+        agentId: "agent1",
+        sessionKey: "s1",
+        type: "msg",
+        role: undefined,
+        timestamp: "2025-01-01T00:00:00Z",
+        content: "shared",
+        toolName: undefined,
+      },
+    ];
+    const expectedEtag = `"${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(payload))
+      .digest("base64url")}"`;
+
+    const { app } = createApp({
+      safeReaddirAsync: vi.fn(async () => ["agent1"]),
+      getCachedSessions: vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } })),
+      tailLines: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return [JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "shared" })];
+      }),
+    });
+
+    const inFlight = request(app).get("/api/activity");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const conditional = request(app).get("/api/activity").set("If-None-Match", expectedEtag);
+
+    const [first, second] = await Promise.all([inFlight, conditional]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+    expect(first.body).toEqual(payload);
   });
 });

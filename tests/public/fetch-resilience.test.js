@@ -80,6 +80,27 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
+function createEndpointResponse(payload, options) {
+  const opts = options || {};
+  const status = Number.isFinite(opts.status) && opts.status > 0 ? Math.floor(opts.status) : 200;
+  const etag = opts.etag || "";
+  return {
+    ok: Boolean(opts.ok !== undefined ? opts.ok : status >= 200 && status < 400),
+    status: status,
+    statusText: opts.statusText || (status === 304 ? "Not Modified" : "OK"),
+    headers: {
+      get: (key) => {
+        const header = String(key || "").toLowerCase();
+        if (header === "x-request-id") return opts.requestId || "";
+        if (header === "etag") return etag;
+        return "";
+      },
+    },
+    text: opts.text ? () => Promise.resolve(opts.text) : () => Promise.resolve(JSON.stringify(payload)),
+    json: () => Promise.resolve(payload),
+  };
+}
+
 const defaultPayloadFetch = vi.fn(() => Promise.resolve(createResolvedResponse([])));
 window.fetch = defaultPayloadFetch;
 
@@ -303,6 +324,260 @@ describe("fetchAll resilient fetching", () => {
     expect(secondFetchResolved).toBe(true);
     expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(1);
     expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(1);
+  });
+
+  it("coalesces concurrent endpoint requests so hot endpoints are fetched once", async () => {
+    const sessionsDeferred = createDeferred();
+    const agentsDeferred = createDeferred();
+    const fetchCalls = [];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-stable",
+        agentId: "agent-alpha",
+        sessionId: "session-stable",
+        status: "active",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+      },
+    ];
+    const agentsPayload = [
+      {
+        id: "agent-alpha",
+        sessions: sessionsPayload,
+        sessionCount: 1,
+        activeSessions: 1,
+      },
+    ];
+    let sessionsPayloadResolved = false;
+
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      if (url === "/api/sessions") {
+        return sessionsPayloadResolved
+          ? Promise.resolve(createEndpointResponse(sessionsPayload, { status: 200 }))
+          : sessionsDeferred.promise;
+      }
+      if (url === "/api/agents") {
+        return sessionsPayloadResolved
+          ? Promise.resolve(createEndpointResponse(agentsPayload, { status: 200 }))
+          : agentsDeferred.promise;
+      }
+      return Promise.resolve(createEndpointResponse([]));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+    const firstRefresh = modelUsageController.fetchAll();
+    await Promise.resolve();
+    const secondRefresh = modelUsageController.fetchAll();
+    await Promise.resolve();
+
+    const sessionCalls = fetchCalls.filter((url) => url === "/api/sessions").length;
+    const agentCalls = fetchCalls.filter((url) => url === "/api/agents").length;
+    expect(sessionCalls).toBe(1);
+    expect(agentCalls).toBe(1);
+
+    sessionsPayloadResolved = true;
+    sessionsDeferred.resolve(createEndpointResponse(sessionsPayload, { status: 200 }));
+    agentsDeferred.resolve(createEndpointResponse(agentsPayload, { status: 200 }));
+    await firstRefresh;
+    await secondRefresh;
+
+    expect(fetchCalls.filter((url) => url === "/api/sessions").length).toBe(1);
+    expect(fetchCalls.filter((url) => url === "/api/agents").length).toBe(1);
+  });
+
+  it("counts an all-304 refresh cycle as connected when cache already exists", async () => {
+    const setConnectionStatus = vi.fn();
+    const requestCounts = Object.create(null);
+    const fetchCalls = [];
+
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      requestCounts[url] = (requestCounts[url] || 0) + 1;
+
+      const isInitialRequest = requestCounts[url] === 1;
+      if (url === "/api/models") {
+        return isInitialRequest
+          ? Promise.resolve(createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }))
+          : Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+
+      if (url === "/api/model-usage/monthly") {
+        return isInitialRequest
+          ? Promise.resolve(createEndpointResponse({ month: "2026-02" }))
+          : Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+
+      return isInitialRequest
+        ? Promise.resolve(createEndpointResponse([{ id: "seed" }], { status: 200 }))
+        : Promise.resolve(createEndpointResponse("", { status: 304 }));
+    });
+
+    const modelUsageController = createColdAndModelUsageController({
+      setConnectionStatus,
+    });
+
+    await modelUsageController.fetchAll({ includeCold: true });
+
+    setConnectionStatus.mockClear();
+    await modelUsageController.fetchAll({ includeCold: true });
+
+    expect(setConnectionStatus).toHaveBeenCalledWith(true);
+    expect(fetchCalls.filter((url) => url === "/api/agents")).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === "/api/sessions")).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(2);
+  });
+
+  it("advances cold-refresh watermark when cold endpoint returns 304 with cache", async () => {
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const requestCounts = Object.create(null);
+
+    window.fetch = vi.fn((url) => {
+      requestCounts[url] = (requestCounts[url] || 0) + 1;
+
+      if (url === "/api/models") {
+        if (requestCounts[url] === 1) {
+          return Promise.resolve(createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }));
+        }
+        return Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+
+      if (url === "/api/model-usage/monthly") {
+        return Promise.resolve(createEndpointResponse({ month: "2026-02" }));
+      }
+
+      return Promise.resolve(createEndpointResponse([]));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+    await modelUsageController.fetchAll({ includeCold: true });
+    now = 1;
+    await modelUsageController.fetchAll({ includeCold: true });
+
+    now = 60 * 1000;
+    await modelUsageController.fetchAll();
+
+    expect(
+      window.fetch.mock.calls.filter((call) => call[0] === "/api/models").length,
+    ).toBe(2);
+
+    dateNowSpy.mockRestore();
+  });
+
+  it("still runs monthly follow-up when cold endpoint responds 304", async () => {
+    const requestCounts = Object.create(null);
+
+    window.fetch = vi.fn((url) => {
+      requestCounts[url] = (requestCounts[url] || 0) + 1;
+
+      if (url === "/api/models") {
+        if (requestCounts[url] === 1) {
+          return Promise.resolve(createEndpointResponse(["gpt-4"], { status: 200, etag: '"models-v1"' }));
+        }
+        return Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+
+      if (url === "/api/model-usage/monthly") {
+        return Promise.resolve(createEndpointResponse({ month: "2026-02" }));
+      }
+
+      return Promise.resolve(createEndpointResponse([]));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+
+    await modelUsageController.fetchAll({ includeCold: true });
+    await modelUsageController.fetchAll({ includeCold: true });
+
+    expect(
+      window.fetch.mock.calls.filter((call) => call[0] === "/api/model-usage/monthly").length,
+    ).toBe(2);
+  });
+
+  it("preserves stale payload on 304 and avoids extra render work", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-a",
+        agentId: "agent-alpha",
+        sessionId: "session-a",
+        status: "active",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        label: "Session A",
+      },
+    ];
+    let sessionsCallCount = 0;
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        sessionsCallCount += 1;
+        if (sessionsCallCount === 1) {
+          return Promise.resolve(createEndpointResponse(sessionsPayload, {
+            status: 200,
+            etag: '"sessions-v1"',
+          }));
+        }
+        return Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+
+      return Promise.resolve(createEndpointResponse([], { status: 200 }));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+
+    await modelUsageController.fetchAll();
+    expect(sessionsRenderSpy).toHaveBeenCalledTimes(1);
+
+    sessionsRenderSpy.mockClear();
+    await modelUsageController.fetchAll();
+
+    expect(sessionsRenderSpy).toHaveBeenCalledTimes(0);
+    expect(sessionsCallCount).toBe(2);
+    sessionsRenderSpy.mockRestore();
+  });
+
+  it("sends If-None-Match when an ETag is known and keeps cached payload on unchanged response", async () => {
+    const agentsRenderSpy = vi.spyOn(HUD.agents, "render");
+    const agentsPayload = [
+      {
+        id: "agent-alpha",
+        sessions: [],
+        sessionCount: 0,
+        activeSessions: 0,
+      },
+    ];
+    let agentCallCount = 0;
+
+    window.fetch = vi.fn((url, options = {}) => {
+      if (url === "/api/agents") {
+        agentCallCount += 1;
+        if (agentCallCount === 1) {
+          return Promise.resolve(createEndpointResponse(agentsPayload, {
+            status: 200,
+            etag: '"agent-v1"',
+          }));
+        }
+
+        if (options && options.headers && typeof options.headers.get === "function") {
+          expect(options.headers.get("If-None-Match")).toBe('"agent-v1"');
+        } else {
+          expect(options.headers).toMatchObject({ "If-None-Match": '"agent-v1"' });
+        }
+
+        return Promise.resolve(createEndpointResponse("", { status: 304 }));
+      }
+      return Promise.resolve(createEndpointResponse([], { status: 200 }));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+
+    await modelUsageController.fetchAll();
+    await modelUsageController.fetchAll();
+
+    expect(agentCallCount).toBe(2);
+    expect(agentsRenderSpy).toHaveBeenCalledTimes(1);
+    agentsRenderSpy.mockRestore();
   });
 
   it("does not advance the cold-refresh timestamp when cold refresh fails", async () => {

@@ -637,4 +637,37 @@ describe("GET /api/model-usage/live-weekly", () => {
     expect(res.body.models).toEqual([]);
     expect(res.body.totals.totalTokens).toBe(0);
   });
+
+  it("returns 304 when If-None-Match matches live-weekly ETag", async () => {
+    usageRpc.requestSessionsUsage.mockResolvedValue({
+      ok: true,
+      result: {
+        rows: [
+          {
+            provider: "openai",
+            model: "gpt-5",
+            totals: {
+              input: 10,
+              output: 5,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 15,
+              totalCost: 1,
+            },
+          },
+        ],
+      },
+    });
+
+    const first = await request(createApp()).get("/api/model-usage/live-weekly");
+    const etag = first.headers.etag;
+
+    const second = await request(createApp())
+      .get("/api/model-usage/live-weekly")
+      .set("If-None-Match", etag);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(304);
+    expect(second.body).toEqual({});
+  });
 });

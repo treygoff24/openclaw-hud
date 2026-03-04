@@ -424,13 +424,11 @@ describe("modal close on Escape", () => {
 
 describe("fetch error handling", () => {
   it("handles fetch failure in fetchAll", async () => {
-    const renderSpies = {
-      agents: vi.spyOn(HUD.agents, "render"),
-    };
-    window.fetch = vi.fn(() => Promise.reject(new Error("network")));
-    await HUD.fetchAll();
-    expect(renderSpies.agents).toHaveBeenCalled();
-    renderSpies.agents.mockRestore();
+    const { controller, HUD } = createDataControllerHarness({
+      fetchImpl: vi.fn(() => Promise.reject(new Error("network"))),
+    });
+    await controller.fetchAll();
+    expect(HUD.agents.render).toHaveBeenCalled();
   });
 });
 
@@ -797,6 +795,25 @@ describe("data controller progressive endpoint loading", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(initialRequestedEndpoints.length + 1);
   });
 
+  it("coalesces concurrent endpoint fetches through the endpoint in-flight map", async () => {
+    const deferred = createDeferred();
+    const fetchImpl = vi.fn(() => deferred.promise);
+    const { controller } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 50,
+    });
+
+    const first = controller._test.fetchEndpoint("sessions", "/api/sessions");
+    const second = controller._test.fetchEndpoint("sessions", "/api/sessions");
+
+    await flushAsyncWork();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    deferred.resolve(createMockJsonResponse([]));
+    await first;
+    await second;
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches cold model endpoints less frequently than hot endpoints", async () => {
     let now = 0;
     const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -881,7 +898,7 @@ describe("data controller progressive endpoint loading", () => {
 
     await controller.fetchAll({ includeCold: true });
 
-    expect(modelsRenderSpy).toHaveBeenCalledTimes(3);
+    expect(modelsRenderSpy).toHaveBeenCalledTimes(2);
     modelsRenderSpy.mockRestore();
   });
 

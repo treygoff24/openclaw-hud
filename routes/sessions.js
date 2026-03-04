@@ -8,6 +8,7 @@ const {
 } = require("../lib/helpers");
 const { tailLines } = require("../lib/tail-reader");
 const { getCachedSessionEntries } = require("../lib/session-cache");
+const crypto = require("crypto");
 
 const router = Router();
 const sessionsDeps = {
@@ -17,6 +18,36 @@ const sessionsDeps = {
   canonicalizeRelationshipKey,
   getCachedSessionEntries,
 };
+
+function parseIfNoneMatchHeader(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/^W\//, ""));
+}
+
+function isIfNoneMatch(req, etag) {
+  const ifNoneMatch = req?.headers?.["if-none-match"] || req?.get?.("if-none-match");
+  const candidates = parseIfNoneMatchHeader(ifNoneMatch);
+  const normalizedEtag = String(etag || "").replace(/^W\//, "");
+  return candidates.includes(normalizedEtag);
+}
+
+function buildStableEtag(payload) {
+  const serialized = JSON.stringify(payload);
+  const digest = crypto.createHash("sha256").update(serialized).digest("base64url");
+  return `"${digest}"`;
+}
+
+function sendJsonWithETag(req, res, payload) {
+  const etag = buildStableEtag(payload);
+  res.set("ETag", etag);
+  if (isIfNoneMatch(req, etag)) {
+    return res.sendStatus(304);
+  }
+  return res.json(payload);
+}
 
 function setSessionsDependencies(overrides = {}) {
   Object.assign(sessionsDeps, overrides);
@@ -170,7 +201,7 @@ router.get("/api/session-tree", async (req, res) => {
   const now = Date.now();
   const filtered = result.filter((s) => s.updatedAt && now - s.updatedAt < ONE_DAY);
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  res.json(filtered);
+  sendJsonWithETag(req, res, filtered);
 });
 
 router.__setDependencies = setSessionsDependencies;

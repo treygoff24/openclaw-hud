@@ -3,6 +3,7 @@ const { Router } = require("express");
 const { OPENCLAW_HOME, safeReaddirAsync } = require("../lib/helpers");
 const { getCachedSessions } = require("../lib/session-cache");
 const { tailLines } = require("../lib/tail-reader");
+const crypto = require("crypto");
 
 const router = Router();
 const ACTIVITY_CACHE_TTL_MS = 5000;
@@ -13,6 +14,36 @@ const activityDeps = {
   getCachedSessions,
   tailLines,
 };
+
+function parseIfNoneMatchHeader(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/^W\//, ""));
+}
+
+function isIfNoneMatch(req, etag) {
+  const ifNoneMatch = req?.headers?.["if-none-match"] || req?.get?.("if-none-match");
+  const candidates = parseIfNoneMatchHeader(ifNoneMatch);
+  const normalizedEtag = String(etag || "").replace(/^W\//, "");
+  return candidates.includes(normalizedEtag);
+}
+
+function buildStableEtag(payload) {
+  const serialized = JSON.stringify(payload);
+  const digest = crypto.createHash("sha256").update(serialized).digest("base64url");
+  return `"${digest}"`;
+}
+
+function sendJsonWithETag(req, res, payload) {
+  const etag = buildStableEtag(payload);
+  res.set("ETag", etag);
+  if (isIfNoneMatch(req, etag)) {
+    return res.sendStatus(304);
+  }
+  return res.json(payload);
+}
 
 function setActivityDependencies(overrides = {}) {
   Object.assign(activityDeps, overrides);
@@ -62,12 +93,12 @@ async function loadActivityPayload() {
 router.get("/api/activity", async (req, res) => {
   const now = Date.now();
   if (activityCache && activityCache.expiresAt > now) {
-    return res.json(activityCache.payload);
+    return sendJsonWithETag(req, res, activityCache.payload);
   }
 
   if (activityInflight) {
     const payload = await activityInflight;
-    return res.json(payload);
+    return sendJsonWithETag(req, res, payload);
   }
 
   const inFlight = (async () => {
@@ -82,7 +113,7 @@ router.get("/api/activity", async (req, res) => {
 
   try {
     const payload = await inFlight;
-    return res.json(payload);
+    return sendJsonWithETag(req, res, payload);
   } finally {
     activityInflight = null;
   }
