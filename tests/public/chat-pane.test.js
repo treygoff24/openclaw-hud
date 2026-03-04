@@ -514,6 +514,28 @@ describe("handleChatWsMessage — chat-event deltas", () => {
     expect(document.getElementById("chat-send-btn").style.display).not.toBe("none");
   });
 
+  it("preserves previously rendered assistant text for a gap final event with empty payload", () => {
+    mockWs();
+    window.openChatPane("a", "s", "", "agent:a:s");
+    window.handleChatWsMessage({
+      type: "chat-history-result",
+      sessionKey: "agent:a:s",
+      messages: [],
+    });
+    window.handleChatWsMessage({
+      type: "chat-event",
+      payload: { sessionKey: "agent:a:s", runId: "r1", state: "delta", seq: 1, message: "Hello" },
+    });
+    window.handleChatWsMessage({
+      type: "chat-event",
+      payload: { sessionKey: "agent:a:s", runId: "r1", state: "final", seq: 3, message: [] },
+    });
+
+    const finalMsg = document.querySelector(".chat-msg.assistant.final");
+    expect(finalMsg).not.toBeNull();
+    expect(finalMsg.querySelector(".chat-msg-content").textContent).toBe("Hello");
+  });
+
   it("handles error state", () => {
     mockWs();
     window.openChatPane("a", "s", "", "agent:a:s");
@@ -1088,5 +1110,66 @@ describe("ChatState message cache", () => {
     window.ChatState.setMessages("not-an-array");
 
     expect(window.ChatState.currentMessages).toEqual([]);
+  });
+});
+
+describe("stream event text overwrite protection", () => {
+  beforeEach(resetState);
+
+  it("keeps existing assistant stream text when a later final event has empty payload", () => {
+    window.ChatState.currentSession = {
+      agentId: "agent1",
+      sessionId: "session1",
+      sessionKey: "agent:agent1:session1",
+    };
+
+    window.ChatWsStreamEvents.handleChatEvent({
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "delta",
+        seq: 1,
+        message: { content: [{ type: "text", text: "streamed" }] },
+      },
+      type: "chat-event",
+    });
+
+    window.ChatWsStreamEvents.handleChatEvent({
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-1",
+        state: "final",
+        seq: 3,
+        message: { content: [] },
+      },
+      type: "chat-event",
+    });
+
+    const finalMessage = document.querySelector(".chat-msg.assistant.final");
+    expect(finalMessage).not.toBeNull();
+    expect(finalMessage.querySelector(".chat-msg-content").textContent).toBe("streamed");
+  });
+
+  it("does not invent text when stream has only empty payloads", () => {
+    window.ChatState.currentSession = {
+      agentId: "agent1",
+      sessionId: "session1",
+      sessionKey: "agent:agent1:session1",
+    };
+
+    window.ChatWsStreamEvents.handleChatEvent({
+      payload: {
+        sessionKey: "agent:agent1:session1",
+        runId: "run-empty",
+        state: "final",
+        seq: 1,
+        message: { content: [] },
+      },
+      type: "chat-event",
+    });
+
+    const finalMessage = document.querySelector(".chat-msg.assistant.final");
+    expect(finalMessage).not.toBeNull();
+    expect(finalMessage.querySelector(".chat-msg-content").textContent).toBe("");
   });
 });
