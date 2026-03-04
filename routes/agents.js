@@ -20,25 +20,29 @@ function setAgentsDependencies(overrides = {}) {
 router.get("/api/agents", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
   const allEntries = await agentsDeps.safeReaddirAsync(agentsDir);
-  const agents = [];
-  for (const f of allEntries) {
+  const candidateAgents = await Promise.all(allEntries.map(async (entry) => {
     try {
-      const stat = await fs.promises.stat(path.join(agentsDir, f));
-      if (stat.isDirectory()) agents.push(f);
+      const stat = await fs.promises.stat(path.join(agentsDir, entry));
+      return stat.isDirectory() ? entry : null;
     } catch {
-      // skip entries that can't be stat'd
+      return null;
     }
-  }
+  }));
+  const agents = candidateAgents.filter(Boolean);
 
-  const result = [];
-  for (const id of agents) {
+  const now = Date.now();
+  const result = await Promise.all(agents.map(async (id) => {
     const { sessions: sessionList } = await agentsDeps.getCachedSessionEntries(id);
     const sorted = [...sessionList].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    const activeSessions = sessionList.filter(
-      (s) => s.updatedAt && Date.now() - s.updatedAt < 3600000,
-    ).length;
-    result.push({ id, sessions: sorted, sessionCount: sessionList.length, activeSessions });
-  }
+    let activeSessions = 0;
+    for (const session of sessionList) {
+      if (session.updatedAt && now - session.updatedAt < 3600000) {
+        activeSessions += 1;
+      }
+    }
+    return { id, sessions: sorted, sessionCount: sessionList.length, activeSessions };
+  }));
+
   result.sort((a, b) => {
     const aMax = a.sessions[0]?.updatedAt || 0;
     const bMax = b.sessions[0]?.updatedAt || 0;

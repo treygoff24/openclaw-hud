@@ -395,7 +395,7 @@ describe("fetchAll resilient fetching", () => {
     }
   });
 
-  it("applies per-endpoint minimum intervals for heavy endpoints and bypasses cadence on explicit cold refresh", async () => {
+  it("keeps heavy endpoints on hot cadence by default and still fetches them on explicit cold refresh", async () => {
     let now = 0;
     const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchCalls = [];
@@ -416,15 +416,15 @@ describe("fetchAll resilient fetching", () => {
       now = 5000;
       await controller.fetchAll();
 
-      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(1);
-      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(1);
+      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(2);
+      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(2);
       expect(fetchCalls.filter((url) => url === "/api/agents")).toHaveLength(2);
 
       now = 6000;
       await controller.fetchAll({ includeCold: true });
 
-      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(2);
-      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(2);
+      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(3);
+      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(3);
     } finally {
       dateNowSpy.mockRestore();
     }
@@ -458,7 +458,7 @@ describe("fetchAll resilient fetching", () => {
     }
   });
 
-  it("does not apply heavy-endpoint cooldown when response metadata is invalid", async () => {
+  it("does not downshift heavy-endpoint cadence after successful responses", async () => {
     let now = 0;
     const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     let activityCalls = 0;
@@ -466,9 +466,7 @@ describe("fetchAll resilient fetching", () => {
     window.fetch = vi.fn((url) => {
       if (url === "/api/activity") {
         activityCalls += 1;
-        return Promise.resolve({
-          json: () => Promise.resolve([]),
-        });
+        return Promise.resolve(createResolvedResponse([]));
       }
       return Promise.resolve(createResolvedResponse([]));
     });
@@ -486,7 +484,7 @@ describe("fetchAll resilient fetching", () => {
     }
   });
 
-  it("uses stable response metadata to skip no-op rerender when payload is unchanged", async () => {
+  it("ignores unstable response metadata and skips no-op rerender when payload is unchanged", async () => {
     const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
     const onChatRestore = vi.fn();
     const setConnectionStatus = vi.fn();
@@ -510,7 +508,10 @@ describe("fetchAll resilient fetching", () => {
           status: 200,
           statusText: "OK",
           headers: {
-            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+            get: (key) =>
+              String(key).toLowerCase() === "x-request-id"
+                ? "dynamic-sessions-request-" + sessionsRequestCount
+                : "",
           },
           json: () => Promise.resolve(lastSessionsPayload),
         });
@@ -718,6 +719,70 @@ describe("fetchAll resilient fetching", () => {
       expect(window._allSessions).toBe(lastSessionsPayload);
       expect(setConnectionStatus).toHaveBeenCalled();
     } finally {
+      stringifySpy.mockRestore();
+      sessionsRenderSpy.mockRestore();
+    }
+  });
+
+  it("reuses fetch-path response fingerprint to avoid payload stringify during render dedupe", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const onChatRestore = vi.fn();
+    const setConnectionStatus = vi.fn();
+    const sessionsPayload = [{
+      sessionKey: "agent-alpha::session-fingerprint",
+      agentId: "agent-alpha",
+      sessionId: "session-fingerprint",
+      updatedAt: "2026-03-03T18:00:00.000Z",
+      status: "active",
+      label: "Session Fingerprint",
+      fingerprintMarker: "sessions-fingerprint-marker",
+    }];
+    const sessionsText = JSON.stringify(sessionsPayload);
+    const sessionsJson = vi.fn(() => Promise.resolve(sessionsPayload));
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => 1);
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {
+            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "dynamic-request-id" : ""),
+          },
+          text: () => Promise.resolve(sessionsText),
+          json: sessionsJson,
+        });
+      }
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    try {
+      const controller = HUDApp.data.createDataController({
+        HUD: HUD,
+        renderPanelSafe: window.renderPanelSafe,
+        setConnectionStatus,
+        onChatRestore,
+      });
+
+      await controller.fetchAll();
+      await controller.fetchAll();
+
+      const payloadStringifyCalls = stringifySpy.mock.calls.filter(
+        ([value]) =>
+          Array.isArray(value) &&
+          value[0] &&
+          value[0].fingerprintMarker === "sessions-fingerprint-marker",
+      );
+
+      expect(sessionsRenderSpy).toHaveBeenCalledTimes(1);
+      expect(payloadStringifyCalls).toHaveLength(0);
+      expect(sessionsJson).not.toHaveBeenCalled();
+      expect(onChatRestore).toHaveBeenCalledTimes(1);
+      expect(setConnectionStatus).toHaveBeenCalled();
+    } finally {
+      dateNowSpy.mockRestore();
       stringifySpy.mockRestore();
       sessionsRenderSpy.mockRestore();
     }

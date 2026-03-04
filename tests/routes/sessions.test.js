@@ -30,20 +30,64 @@ function clearAgentsDir() {
   fs.mkdirSync(agentsDir, { recursive: true });
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createApp(overrides = {}) {
+  const router = createRouter(overrides);
+  const app = express();
+  app.use(router);
+  return app;
+}
+
+function createRouter(overrides = {}) {
   delete require.cache[require.resolve("../../routes/sessions")];
   const router = require("../../routes/sessions");
   const deps = {
     safeReaddirAsync: vi.fn(async () => []),
     safeReadAsync: vi.fn(async () => null),
+    tailLines: vi.fn(async () => []),
     getCachedSessionEntries: sessionCache.getCachedSessionEntries,
     canonicalizeRelationshipKey: helpers.canonicalizeRelationshipKey,
     ...overrides,
   };
   router.__setDependencies?.(deps);
-  const app = express();
-  app.use(router);
-  return app;
+  return router;
+}
+
+function getRouteHandler(router, method, routePath) {
+  const layer = router.stack.find(
+    (entry) => entry.route && entry.route.path === routePath && entry.route.methods[method],
+  );
+  if (!layer) throw new Error(`Route not found: ${method.toUpperCase()} ${routePath}`);
+  return layer.route.stack[0].handle;
+}
+
+function createMockRes() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    set(key, value) {
+      this.headers[String(key).toLowerCase()] = value;
+      return this;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
 }
 
 describe("GET /api/sessions", () => {
@@ -192,6 +236,57 @@ describe("GET /api/sessions", () => {
     expect(sessionsReads).toHaveLength(1);
     readSpy.mockRestore();
   });
+
+  it("starts per-agent reads in parallel for /api/sessions", async () => {
+    const now = Date.now();
+    const deferredByAgent = {
+      a1: createDeferred(),
+      a2: createDeferred(),
+      a3: createDeferred(),
+    };
+    const getCachedSessionEntries = vi.fn((agentId) => deferredByAgent[agentId].promise);
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["a1", "a2", "a3"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/sessions");
+    const req = {};
+    const res = createMockRes();
+
+    const pending = handler(req, res);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(getCachedSessionEntries).toHaveBeenCalledTimes(3);
+
+    deferredByAgent.a1.resolve({ sessions: [{ key: "a1-main", updatedAt: now }], invalid: [] });
+    deferredByAgent.a2.resolve({ sessions: [{ key: "a2-main", updatedAt: now - 1 }], invalid: [] });
+    deferredByAgent.a3.resolve({ sessions: [{ key: "a3-main", updatedAt: now - 2 }], invalid: [] });
+
+    await pending;
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveLength(3);
+  });
+
+  it("computes current time once per /api/sessions request for recency filtering", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const getCachedSessionEntries = vi.fn(async (agentId) => ({
+      sessions: [
+        { key: `${agentId}-recent`, updatedAt: 99_999, sessionKey: `agent:${agentId}:recent` },
+        { key: `${agentId}-old`, updatedAt: 1, sessionKey: `agent:${agentId}:old` },
+      ],
+      invalid: [],
+    }));
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["a1", "a2"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/sessions");
+    const req = {};
+    const res = createMockRes();
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(nowSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("GET /api/session-log/:agentId/:sessionId", () => {
@@ -217,7 +312,7 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
 
   it("returns empty array when log file does not exist", async () => {
     const app = createApp({
-      safeReadAsync: vi.fn(async () => null),
+      tailLines: vi.fn(async () => []),
       safeReaddirAsync: vi.fn(async () => ["agent1"]),
     });
     const res = await request(app).get("/api/session-log/agent1/sess1");
@@ -228,7 +323,7 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
   it("returns parsed JSONL entries limited to last N lines", async () => {
     const lines = Array.from({ length: 100 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
     const app = createApp({
-      safeReadAsync: vi.fn(async () => lines.join("\n")),
+      tailLines: vi.fn(async () => lines.slice(-10)),
       safeReaddirAsync: vi.fn(async () => []),
     });
     const res = await request(app).get("/api/session-log/agent1/sess1?limit=10");
@@ -237,22 +332,40 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
   });
 
   it("defaults to 50 entries when no limit specified", async () => {
-    const lines = Array.from({ length: 80 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
+    const lines = Array.from({ length: 50 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
+    const tailLines = vi.fn(async () => lines);
     const app = createApp({
-      safeReadAsync: vi.fn(async () => lines.join("\n")),
+      tailLines,
       safeReaddirAsync: vi.fn(async () => []),
     });
     const res = await request(app).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(50);
+    expect(tailLines).toHaveBeenCalledWith(expect.any(String), 50);
   });
 
   it("skips malformed JSON lines gracefully", async () => {
     const app = createApp({
-      safeReadAsync: vi.fn(async () => '{"valid":true}\nnot-json\n{"also":"valid"}'),
+      tailLines: vi.fn(async () => ['{"valid":true}', "not-json", '{"also":"valid"}']),
       safeReaddirAsync: vi.fn(async () => []),
     });
     const res = await request(app).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(2);
+  });
+
+  it("uses tail reader for positive limits and avoids full log reads", async () => {
+    const tailLines = vi.fn(async () => ['{"idx":98}', '{"idx":99}']);
+    const safeReadAsync = vi.fn(async () => '{"idx":0}');
+    const app = createApp({
+      tailLines,
+      safeReadAsync,
+      safeReaddirAsync: vi.fn(async () => []),
+    });
+
+    const res = await request(app).get("/api/session-log/agent1/sess1?limit=2");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ idx: 98 }, { idx: 99 }]);
+    expect(tailLines).toHaveBeenCalledTimes(1);
+    expect(safeReadAsync).not.toHaveBeenCalled();
   });
 });
 
@@ -528,5 +641,56 @@ describe("GET /api/session-tree", () => {
     expect(sub.sessionAlias).toBe("sub-task");
     expect(sub.modelLabel).toBe("gpt4o");
     expect(sub.fullSlug).toBe("agent:agent-a:sub-task");
+  });
+
+  it("starts per-agent reads in parallel for /api/session-tree", async () => {
+    const now = Date.now();
+    const deferredByAgent = {
+      a1: createDeferred(),
+      a2: createDeferred(),
+      a3: createDeferred(),
+    };
+    const getCachedSessionEntries = vi.fn((agentId) => deferredByAgent[agentId].promise);
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["a1", "a2", "a3"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/session-tree");
+    const req = {};
+    const res = createMockRes();
+
+    const pending = handler(req, res);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(getCachedSessionEntries).toHaveBeenCalledTimes(3);
+
+    deferredByAgent.a1.resolve({ sessions: [{ key: "a1-root", sessionKey: "agent:a1:root", updatedAt: now }], invalid: [] });
+    deferredByAgent.a2.resolve({ sessions: [{ key: "a2-root", sessionKey: "agent:a2:root", updatedAt: now - 1 }], invalid: [] });
+    deferredByAgent.a3.resolve({ sessions: [{ key: "a3-root", sessionKey: "agent:a3:root", updatedAt: now - 2 }], invalid: [] });
+
+    await pending;
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveLength(3);
+  });
+
+  it("computes current time once per /api/session-tree request for recency filtering", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const getCachedSessionEntries = vi.fn(async (agentId) => ({
+      sessions: [
+        { key: `${agentId}-recent`, sessionKey: `agent:${agentId}:recent`, updatedAt: 99_999 },
+        { key: `${agentId}-old`, sessionKey: `agent:${agentId}:old`, updatedAt: 1 },
+      ],
+      invalid: [],
+    }));
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["a1", "a2"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/session-tree");
+    const req = {};
+    const res = createMockRes();
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(nowSpy).toHaveBeenCalledTimes(1);
   });
 });

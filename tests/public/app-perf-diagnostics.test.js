@@ -733,6 +733,54 @@ describe("disabled perf mode fast paths", () => {
     expect(encodeSpy).not.toHaveBeenCalled();
   });
 
+  it("ws onmessage avoids perf timing clock work when perf monitor is disabled", async () => {
+    const now = vi.fn(() => 1234);
+    const ws = {
+      readyState: window.WebSocket ? window.WebSocket.CONNECTING : 0,
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    const WebSocketMock = vi.fn(function MockWebSocket() {
+      return ws;
+    });
+    WebSocketMock.OPEN = 1;
+    WebSocketMock.CONNECTING = 0;
+    window.WebSocket = WebSocketMock;
+
+    const fetchAll = vi.fn();
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => false,
+        record: vi.fn(),
+      },
+    };
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: vi.fn(),
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll,
+      setConnectionStatus: vi.fn(),
+      setGatewayUptimeSnapshot: vi.fn(),
+      startPolling: vi.fn(),
+      stopPolling: vi.fn(),
+      wsUrlFactory: () => "ws://hud.test/ws",
+      now,
+    });
+    wsController.connect();
+
+    expect(typeof ws.onmessage).toBe("function");
+    ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+
+    expect(fetchAll).toHaveBeenCalledWith({ includeCold: false });
+    expect(now).not.toHaveBeenCalled();
+  });
+
   it("renderPanelSafe does not schedule post-paint RAF when perf monitor is disabled", async () => {
     const rafSpy = vi.fn();
     globalThis.requestAnimationFrame = rafSpy;

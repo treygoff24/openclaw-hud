@@ -37,7 +37,24 @@ function clearAgentsDir() {
   fs.mkdirSync(agentsDir, { recursive: true });
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createApp(overrides = {}) {
+  const router = createRouter(overrides);
+  const app = express();
+  app.use(router);
+  return app;
+}
+
+function createRouter(overrides = {}) {
   delete require.cache[require.resolve("../../routes/agents")];
   const router = require("../../routes/agents");
   const deps = {
@@ -46,9 +63,35 @@ function createApp(overrides = {}) {
     ...overrides,
   };
   router.__setDependencies?.(deps);
-  const app = express();
-  app.use(router);
-  return app;
+  return router;
+}
+
+function getRouteHandler(router, method, routePath) {
+  const layer = router.stack.find(
+    (entry) => entry.route && entry.route.path === routePath && entry.route.methods[method],
+  );
+  if (!layer) throw new Error(`Route not found: ${method.toUpperCase()} ${routePath}`);
+  return layer.route.stack[0].handle;
+}
+
+function createMockRes() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    set(key, value) {
+      this.headers[String(key).toLowerCase()] = value;
+      return this;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
 }
 
 describe("GET /api/agents", () => {
@@ -172,5 +215,55 @@ describe("GET /api/agents", () => {
     const sessionReads = readSpy.mock.calls.filter(([file]) => String(file).includes("sessions.json"));
     expect(sessionReads).toHaveLength(1);
     readSpy.mockRestore();
+  });
+
+  it("starts per-agent session lookups in parallel", async () => {
+    const deferredByAgent = {
+      "agent-a": createDeferred(),
+      "agent-b": createDeferred(),
+      "agent-c": createDeferred(),
+    };
+    const getCachedSessionEntries = vi.fn((agentId) => deferredByAgent[agentId].promise);
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["agent-a", "agent-b", "agent-c"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/agents");
+    const req = {};
+    const res = createMockRes();
+
+    const pending = handler(req, res);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(getCachedSessionEntries).toHaveBeenCalledTimes(3);
+
+    deferredByAgent["agent-a"].resolve({ sessions: [{ updatedAt: 3 }], invalid: [] });
+    deferredByAgent["agent-b"].resolve({ sessions: [{ updatedAt: 2 }], invalid: [] });
+    deferredByAgent["agent-c"].resolve({ sessions: [{ updatedAt: 1 }], invalid: [] });
+
+    await pending;
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveLength(3);
+  });
+
+  it("computes current time once per /api/agents request when counting active sessions", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const getCachedSessionEntries = vi.fn(async (agentId) => ({
+      sessions: [
+        { sessionId: `${agentId}-active`, updatedAt: 9_500 },
+        { sessionId: `${agentId}-inactive`, updatedAt: 1_000 },
+      ],
+      invalid: [],
+    }));
+    const router = createRouter({
+      safeReaddirAsync: vi.fn(async () => ["agent-a", "agent-b"]),
+      getCachedSessionEntries,
+    });
+    const handler = getRouteHandler(router, "get", "/api/agents");
+    const req = {};
+    const res = createMockRes();
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(nowSpy).toHaveBeenCalledTimes(1);
   });
 });

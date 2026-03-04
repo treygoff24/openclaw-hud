@@ -6,12 +6,14 @@ const {
   safeReadAsync,
   canonicalizeRelationshipKey,
 } = require("../lib/helpers");
+const { tailLines } = require("../lib/tail-reader");
 const { getCachedSessionEntries } = require("../lib/session-cache");
 
 const router = Router();
 const sessionsDeps = {
   safeReaddirAsync,
   safeReadAsync,
+  tailLines,
   canonicalizeRelationshipKey,
   getCachedSessionEntries,
 };
@@ -55,23 +57,40 @@ function mergeCanonicalSessionEntry(allSessions, candidate) {
   }
 }
 
+function parseSessionLogLines(lines) {
+  const entries = [];
+  for (const line of lines) {
+    try {
+      entries.push(JSON.parse(line));
+    } catch {}
+  }
+  return entries;
+}
+
 router.get("/api/sessions", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
   const agents = await sessionsDeps.safeReaddirAsync(agentsDir);
   const all = [];
   const invalid = [];
-  for (const agentId of agents) {
-    const { sessions, invalid: invalidEntries } = await sessionsDeps.getCachedSessionEntries(agentId);
+
+  const perAgent = await Promise.all(agents.map(async (agentId) => ({
+    agentId,
+    ...(await sessionsDeps.getCachedSessionEntries(agentId)),
+  })));
+
+  for (const entry of perAgent) {
+    const invalidEntries = Array.isArray(entry.invalid) ? entry.invalid : [];
     if (invalidEntries.length) {
       invalid.push(...invalidEntries);
     }
-    for (const val of sessions) {
+    for (const val of entry.sessions) {
       all.push(val);
     }
   }
 
   attachSessionWarningHeaders(res, "/api/sessions", invalid);
-  const recent = all.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
+  const now = Date.now();
+  const recent = all.filter((s) => s.updatedAt && now - s.updatedAt < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(recent.slice(0, 100));
 });
@@ -83,16 +102,15 @@ router.get("/api/session-log/:agentId/:sessionId", async (req, res) => {
   }
   const limit = parseInt(req.query.limit) || 50;
   const logFile = path.join(OPENCLAW_HOME, "agents", agentId, "sessions", `${sessionId}.jsonl`);
+  if (Number.isFinite(limit) && limit > 0) {
+    const lines = await sessionsDeps.tailLines(logFile, limit);
+    return res.json(parseSessionLogLines(lines));
+  }
+
   const raw = await sessionsDeps.safeReadAsync(logFile);
   if (!raw) return res.json([]);
   const lines = raw.trim().split("\n").filter(Boolean);
-  const entries = [];
-  for (const line of lines.slice(-limit)) {
-    try {
-      entries.push(JSON.parse(line));
-    } catch {}
-  }
-  res.json(entries);
+  return res.json(parseSessionLogLines(lines.slice(-limit)));
 });
 
 router.get("/api/session-tree", async (req, res) => {
@@ -101,15 +119,20 @@ router.get("/api/session-tree", async (req, res) => {
   const allSessions = {};
   const invalid = [];
 
-  for (const agentId of agents) {
-    const { sessions, invalid: invalidEntries } = await sessionsDeps.getCachedSessionEntries(agentId);
+  const perAgent = await Promise.all(agents.map(async (agentId) => ({
+    agentId,
+    ...(await sessionsDeps.getCachedSessionEntries(agentId)),
+  })));
+
+  for (const entry of perAgent) {
+    const invalidEntries = Array.isArray(entry.invalid) ? entry.invalid : [];
     if (invalidEntries.length) {
       invalid.push(...invalidEntries);
     }
-    for (const val of sessions) {
+    for (const val of entry.sessions) {
       mergeCanonicalSessionEntry(allSessions, {
         ...val,
-        canonicalSpawnedBy: sessionsDeps.canonicalizeRelationshipKey(agentId, val.spawnedBy),
+        canonicalSpawnedBy: sessionsDeps.canonicalizeRelationshipKey(entry.agentId, val.spawnedBy),
       });
     }
   }
@@ -144,7 +167,8 @@ router.get("/api/session-tree", async (req, res) => {
     };
   });
 
-  const filtered = result.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
+  const now = Date.now();
+  const filtered = result.filter((s) => s.updatedAt && now - s.updatedAt < ONE_DAY);
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(filtered);
 });

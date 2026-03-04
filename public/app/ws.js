@@ -233,12 +233,12 @@
           inboundMessageBytes += inboundBytes;
         }
 
-        const parseStart = nowMs();
+        const parseStart = shouldRecord ? nowMs() : 0;
         let data;
         try {
           data = JSON.parse(event.data);
         } catch (error) {
-          const parseMs = normalizeDurationMs(nowMs() - parseStart);
+          const parseMs = shouldRecord ? normalizeDurationMs(nowMs() - parseStart) : 0;
           if (shouldRecord) {
             recordPerf({
               name: "ws.message.parse_error",
@@ -254,23 +254,24 @@
           });
           return;
         }
-        const parseMs = normalizeDurationMs(nowMs() - parseStart);
+        const parseMs = shouldRecord ? normalizeDurationMs(nowMs() - parseStart) : 0;
 
-        const dispatchStart = nowMs();
-        if (data.type === "tick") {
+        const messageType = data && data.type;
+        const dispatchStart = shouldRecord ? nowMs() : 0;
+        if (messageType === "tick") {
           scheduleTickRefresh();
         }
-        if (data.type === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
+        if (messageType === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
           setGatewayUptimeSnapshot(data.uptimeMs);
         }
         if (window.handleChatWsMessage) {
           window.handleChatWsMessage(data);
         }
-        const dispatchMs = normalizeDurationMs(nowMs() - dispatchStart);
+        const dispatchMs = shouldRecord ? normalizeDurationMs(nowMs() - dispatchStart) : 0;
 
         if (shouldRecord) {
           recordPerf({
-            name: createMessageMetricName(data && data.type),
+            name: createMessageMetricName(messageType),
             payloadBytes: inboundBytes,
             parseMs: parseMs,
             dispatchMs: dispatchMs,

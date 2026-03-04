@@ -4,10 +4,6 @@
   window.HUDApp = window.HUDApp || {};
   const DEFAULT_ENDPOINT_TIMEOUT_MS = 8000;
   const COLD_REFRESH_INTERVAL_MS = 60 * 1000;
-  const HEAVY_ENDPOINT_MIN_INTERVAL_MS = Object.freeze({
-    activity: 10 * 1000,
-    "session-tree": 10 * 1000,
-  });
   function resolvePerfMonitor() {
     const monitor = window.HUDApp && window.HUDApp.perfMonitor;
     if (!monitor) return null;
@@ -52,6 +48,10 @@
       Number.isFinite(opts.endpointTimeoutMs) && opts.endpointTimeoutMs > 0
         ? Math.floor(opts.endpointTimeoutMs)
         : DEFAULT_ENDPOINT_TIMEOUT_MS;
+    const configuredEndpointMinIntervals =
+      opts.endpointMinIntervalMs && typeof opts.endpointMinIntervalMs === "object"
+        ? opts.endpointMinIntervalMs
+        : null;
 
     let hasAttemptedChatSessionRestore = false;
     let latestFetchRunId = 0;
@@ -61,7 +61,6 @@
     let cachedMonthlyFingerprint = null;
     let endpointLastFetchAt = Object.create(null);
     let endpointRenderFingerprints = Object.create(null);
-    let endpointRenderMetaSignatures = Object.create(null);
     let endpointLastRenderedPayloads = Object.create(null);
 
     // Cached monthly data survives across tick-based fetchAll() calls so the
@@ -148,7 +147,8 @@
     }
 
     function resolveEndpointMinIntervalMs(endpointName) {
-      const interval = HEAVY_ENDPOINT_MIN_INTERVAL_MS[endpointName];
+      if (!configuredEndpointMinIntervals) return 0;
+      const interval = configuredEndpointMinIntervals[endpointName];
       if (!Number.isFinite(interval) || interval <= 0) return 0;
       return Math.floor(interval);
     }
@@ -216,59 +216,18 @@
       }
     }
 
-    function endpointMetaSignature(endpointMeta) {
-      if (!endpointMeta || typeof endpointMeta !== "object") return null;
-      const requestId = typeof endpointMeta.requestId === "string" ? endpointMeta.requestId : "";
-      const timestamp = typeof endpointMeta.timestamp === "string" ? endpointMeta.timestamp : "";
-      if (!requestId && !timestamp) return null;
-      const status = Number.isFinite(endpointMeta.status) ? endpointMeta.status : 0;
-      const ok = endpointMeta.ok ? 1 : 0;
-      return requestId + "|" + timestamp + "|" + status + "|" + ok;
-    }
-
-    function shouldRenderEndpointPayload(endpointName, payload, endpointMeta) {
+    function shouldRenderEndpointPayload(endpointName, payload, providedFingerprint) {
       if (payload === null || payload === undefined) {
         return true;
       }
 
-      const metaSignature = endpointMetaSignature(endpointMeta);
-      if (metaSignature !== null) {
-        const previousMetaSignature = endpointRenderMetaSignatures[endpointName];
-        if (previousMetaSignature !== metaSignature) {
-          const nextFingerprint = payloadFingerprint(payload);
-          endpointRenderMetaSignatures[endpointName] = metaSignature;
-          endpointLastRenderedPayloads[endpointName] = payload;
-          if (nextFingerprint === null) {
-            delete endpointRenderFingerprints[endpointName];
-          } else {
-            endpointRenderFingerprints[endpointName] = nextFingerprint;
-          }
-          return true;
-        }
-
+      const nextFingerprint =
+        typeof providedFingerprint === "string" ? providedFingerprint : payloadFingerprint(payload);
+      if (nextFingerprint === null) {
         const previousPayload = endpointLastRenderedPayloads[endpointName];
-        const nextFingerprint = payloadFingerprint(payload);
-        if (nextFingerprint === null) {
-          return previousPayload !== payload;
-        }
-
-        let previousFingerprint = endpointRenderFingerprints[endpointName];
-        if (typeof previousFingerprint !== "string" && previousPayload !== undefined) {
-          previousFingerprint = payloadFingerprint(previousPayload);
-          endpointRenderFingerprints[endpointName] = previousFingerprint;
-        }
-
-        if (previousFingerprint === nextFingerprint) {
-          return false;
-        }
-
-        endpointRenderFingerprints[endpointName] = nextFingerprint;
         endpointLastRenderedPayloads[endpointName] = payload;
-        return true;
+        return previousPayload !== payload;
       }
-
-      const nextFingerprint = payloadFingerprint(payload);
-      if (nextFingerprint === null) return true;
 
       if (endpointRenderFingerprints[endpointName] === nextFingerprint) {
         return false;
@@ -296,7 +255,10 @@
 
     function renderModelUsagePanel(state) {
       const payload = modelUsageWithMonthly(state);
-      if (!shouldRenderEndpointPayload("model-usage", payload, state.responseMeta["model-usage"])) return;
+      const modelUsageFingerprint = cachedMonthlyPayload
+        ? null
+        : state.responseFingerprints["model-usage"];
+      if (!shouldRenderEndpointPayload("model-usage", payload, modelUsageFingerprint)) return;
       renderEndpointPanel("model-usage", payload, state.responseMeta["model-usage"]);
     }
 
@@ -378,6 +340,7 @@
           );
           resolve({
             payload: null,
+            payloadFingerprint: null,
             meta: createFailureMeta("timeout"),
           });
         }, endpointTimeoutMs);
@@ -390,11 +353,44 @@
             : runFetch(endpoint.url);
         })
         .then(function (response) {
+          if (response && typeof response.text === "function") {
+            return response
+              .text()
+              .then(function (rawBody) {
+                const rawText = typeof rawBody === "string" ? rawBody : "";
+                try {
+                  const payload = JSON.parse(rawText);
+                  return {
+                    payload,
+                    payloadFingerprint: rawText,
+                    meta: extractResponseMeta(response, payload),
+                  };
+                } catch (err) {
+                  console.warn("Endpoint " + endpoint.name + " JSON parse failed:", err);
+                  return {
+                    payload: null,
+                    payloadFingerprint: null,
+                    meta: extractResponseMeta(response, null),
+                  };
+                }
+              })
+              .catch(function (err) {
+                console.warn("Endpoint " + endpoint.name + " JSON parse failed:", err);
+                return {
+                  payload: null,
+                  payloadFingerprint: null,
+                  meta: extractResponseMeta(response, null),
+                };
+              });
+          }
+
           return response
             .json()
             .then(function (payload) {
+              const fingerprint = payloadFingerprint(payload);
               return {
                 payload,
+                payloadFingerprint: fingerprint,
                 meta: extractResponseMeta(response, payload),
               };
             })
@@ -402,6 +398,7 @@
               console.warn("Endpoint " + endpoint.name + " JSON parse failed:", err);
               return {
                 payload: null,
+                payloadFingerprint: null,
                 meta: extractResponseMeta(response, null),
               };
             });
@@ -410,12 +407,14 @@
           if (timedOut || err?.name === "AbortError") {
             return {
               payload: null,
+              payloadFingerprint: null,
               meta: createFailureMeta("timeout"),
             };
           }
           console.warn("Endpoint " + endpoint.name + " failed:", err);
           return {
             payload: null,
+            payloadFingerprint: null,
             meta: createFailureMeta(err?.message || "fetch-failed"),
           };
         });
@@ -451,6 +450,8 @@
         ? result.payload
         : null;
       state.responseMeta[endpointName] = result.meta || null;
+      state.responseFingerprints[endpointName] =
+        typeof result.payloadFingerprint === "string" ? result.payloadFingerprint : null;
 
       window._endpointResponseMeta = state.responseMeta;
       if (endpointName === "models") {
@@ -465,7 +466,13 @@
         return;
       }
 
-      if (shouldRenderEndpointPayload(endpointName, state.data[endpointName], state.responseMeta[endpointName])) {
+      if (
+        shouldRenderEndpointPayload(
+          endpointName,
+          state.data[endpointName],
+          state.responseFingerprints[endpointName],
+        )
+      ) {
         renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
       }
 
@@ -518,15 +525,18 @@
       const runFetch = getFetch();
       const data = {};
       const responseMeta = {};
+      const responseFingerprints = {};
 
       runTargets.forEach(function (endpoint) {
         data[endpoint.name] = null;
         responseMeta[endpoint.name] = null;
+        responseFingerprints[endpoint.name] = null;
       });
 
       const state = {
         data,
         responseMeta,
+        responseFingerprints,
         hasAnyData: false,
         connectionSetConnected: false,
       };
