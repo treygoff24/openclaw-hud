@@ -3,6 +3,8 @@ HUD.sessionTree = (function () {
   "use strict";
   const $ = (s) => document.querySelector(s);
   const collapseState = {};
+  const COLLAPSED_TOGGLE_CHAR = "▸";
+  const EXPANDED_TOGGLE_CHAR = "▾";
 
   function buildTreeHTML(sessions) {
     const byKey = {};
@@ -39,7 +41,7 @@ HUD.sessionTree = (function () {
       const kids = children[node.key] || [];
       const hasKids = kids.length > 0;
       const collapsed = collapseState[node.key] === true;
-      const toggleChar = hasKids ? (collapsed ? "▸" : "▾") : " ";
+      const toggleChar = collapsed ? COLLAPSED_TOGGLE_CHAR : EXPANDED_TOGGLE_CHAR;
       const countBadge =
         hasKids && collapsed
           ? `<span class="tree-child-count" aria-label="${kids.length} children">${kids.length}</span>`
@@ -47,10 +49,16 @@ HUD.sessionTree = (function () {
       const ariaExpanded = hasKids ? (collapsed ? "false" : "true") : undefined;
       const fullContext = window.SessionLabels.buildSessionAriaLabel(node, meta);
 
+      const toggle = hasKids
+        ? `<span class="tree-toggle" data-toggle-key="${escapeHtml(
+            node.key,
+          )}" role="button" tabindex="0" aria-label="${collapsed ? "Expand" : "Collapse"}" aria-expanded="${ariaExpanded}">${toggleChar}</span>`
+        : "";
+
       let html = `<div class="tree-node" role="treeitem" ${ariaExpanded ? `aria-expanded="${ariaExpanded}"` : ""} aria-level="${level + 1}">
         <div class="tree-node-content" data-tree-key="${escapeHtml(node.key)}" data-agent="${escapeHtml(node.agentId || "")}" data-session="${escapeHtml(node.sessionId || "")}" data-session-key="${escapeHtml(sessionKey)}" data-label="${escapeHtml(rawLabel)}" title="${escapeHtml(fullContext)}" aria-label="${escapeHtml(fullContext)}" tabindex="0" role="button">
           <span class="tree-indent" aria-hidden="true">${escapeHtml(prefix)}</span>
-          <span class="tree-toggle" data-toggle-key="${escapeHtml(node.key)}" role="button" tabindex="0" aria-label="${collapsed ? "Expand" : "Collapse"}" aria-pressed="${!collapsed}">${toggleChar}</span>
+          ${toggle}
           <div class="${dotClass}" aria-hidden="true"></div>
           <span class="tree-label"><span class="session-label-role">${escapeHtml(meta.roleLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-model">${escapeHtml(meta.modelLabel)}</span><span class="session-label-sep"> · </span><span class="session-label-alias">${escapeHtml(meta.sessionAlias)}</span></span>
           <span class="tree-agent">${escapeHtml(node.agentId || "")}</span>
@@ -97,6 +105,60 @@ HUD.sessionTree = (function () {
     }
   }
 
+  function getTreeNodeElements(key) {
+    const treeBody = $("#tree-body");
+    if (!treeBody) return null;
+
+    const nodeContents = treeBody.querySelectorAll(".tree-node-content[data-tree-key]");
+    const nodeContent = Array.from(nodeContents).find((node) => node.dataset.treeKey === key);
+    if (!nodeContent) return null;
+
+    const treeNode = nodeContent.closest(".tree-node");
+    if (!treeNode) return null;
+
+    return {
+      treeNode,
+      nodeContent,
+      toggle: treeNode.querySelector(".tree-toggle"),
+      children: treeNode.querySelector(".tree-children"),
+    };
+  }
+
+  function applyCollapsedState(key) {
+    const parts = getTreeNodeElements(key);
+    if (!parts) return false;
+
+    const { treeNode, nodeContent, toggle, children } = parts;
+    const hasKids = !!children;
+    const collapsed = collapseState[key] === true;
+    const toggleChar = collapsed ? COLLAPSED_TOGGLE_CHAR : EXPANDED_TOGGLE_CHAR;
+
+    if (nodeContent) {
+      const node = treeNode;
+      if (hasKids) {
+        node.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      } else {
+        node.removeAttribute("aria-expanded");
+      }
+    }
+
+    if (children) {
+      if (collapsed) {
+        children.classList.add("collapsed");
+      } else {
+        children.classList.remove("collapsed");
+      }
+    }
+
+    if (toggle) {
+      toggle.textContent = toggleChar;
+      toggle.setAttribute("aria-label", collapsed ? "Expand" : "Collapse");
+      toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+
+    return true;
+  }
+
   function render(sessions) {
     for (const s of sessions) {
       if (!s.sessionKey)
@@ -109,7 +171,8 @@ HUD.sessionTree = (function () {
 
   function toggleNode(key) {
     collapseState[key] = !collapseState[key];
-    if (window._treeData) updateTree();
+    const applied = applyCollapsedState(key);
+    if (!applied && window._treeData) updateTree();
   }
 
   // Event delegation handler for the tree container
@@ -134,6 +197,23 @@ HUD.sessionTree = (function () {
         openChatPane(agent, session || "", label || "", sessionKey);
       }
     }
+  }
+
+  function getVisibleTreeNodes() {
+    const allNodes = document.querySelectorAll(".tree-node-content");
+    return Array.from(allNodes).filter((node) => !node.closest(".tree-children.collapsed"));
+  }
+
+  function getTreeToggle(treeNode) {
+    return treeNode.querySelector(".tree-toggle");
+  }
+
+  function isExpandedToggle(toggle) {
+    return toggle && toggle.getAttribute("aria-expanded") === "true";
+  }
+
+  function isCollapsedToggle(toggle) {
+    return toggle && toggle.getAttribute("aria-expanded") === "false";
   }
 
   // Keyboard navigation handler for the tree container
@@ -168,9 +248,8 @@ HUD.sessionTree = (function () {
 
       case "ArrowRight":
         e.preventDefault();
-        // Expand if collapsed and has children
-        const toggle = treeNode.querySelector(".tree-toggle");
-        if (toggle && toggle.textContent.includes("▸")) {
+        const toggle = getTreeToggle(treeNode);
+        if (isCollapsedToggle(toggle)) {
           const key = toggle.dataset.toggleKey;
           if (key) toggleNode(key);
         } else {
@@ -185,8 +264,8 @@ HUD.sessionTree = (function () {
       case "ArrowLeft":
         e.preventDefault();
         // Collapse if expanded
-        const toggleLeft = treeNode.querySelector(".tree-toggle");
-        if (toggleLeft && toggleLeft.textContent.includes("▾")) {
+        const toggleLeft = getTreeToggle(treeNode);
+        if (isExpandedToggle(toggleLeft)) {
           const key = toggleLeft.dataset.toggleKey;
           if (key) toggleNode(key);
         } else {
@@ -202,7 +281,7 @@ HUD.sessionTree = (function () {
       case "ArrowDown":
         e.preventDefault();
         // Move to next visible node
-        const allNodes = Array.from(document.querySelectorAll(".tree-node-content"));
+        const allNodes = getVisibleTreeNodes();
         const currentIndex = allNodes.indexOf(nodeContent);
         if (currentIndex < allNodes.length - 1) {
           allNodes[currentIndex + 1].focus();
@@ -212,7 +291,7 @@ HUD.sessionTree = (function () {
       case "ArrowUp":
         e.preventDefault();
         // Move to previous visible node
-        const allNodesUp = Array.from(document.querySelectorAll(".tree-node-content"));
+        const allNodesUp = getVisibleTreeNodes();
         const currentIndexUp = allNodesUp.indexOf(nodeContent);
         if (currentIndexUp > 0) {
           allNodesUp[currentIndexUp - 1].focus();
@@ -221,15 +300,17 @@ HUD.sessionTree = (function () {
 
       case "Home":
         e.preventDefault();
-        const first = document.querySelector(".tree-root > .tree-node > .tree-node-content");
-        if (first) first.focus();
+        const visibleNodesHome = getVisibleTreeNodes();
+        if (visibleNodesHome.length > 0) {
+          visibleNodesHome[0].focus();
+        }
         break;
 
       case "End":
         e.preventDefault();
-        const allNodesEnd = document.querySelectorAll(".tree-node-content");
-        if (allNodesEnd.length > 0) {
-          allNodesEnd[allNodesEnd.length - 1].focus();
+        const visibleNodesEnd = getVisibleTreeNodes();
+        if (visibleNodesEnd.length > 0) {
+          visibleNodesEnd[visibleNodesEnd.length - 1].focus();
         }
         break;
     }

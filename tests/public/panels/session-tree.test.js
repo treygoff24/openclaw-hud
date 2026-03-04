@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 document.body.innerHTML = `
   <span id="tree-count"></span>
@@ -143,6 +143,38 @@ describe("sessionTree.render", () => {
     );
   });
 
+  it("does not render toggles for leaf nodes", () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      {
+        key: "parent",
+        sessionKey: "agent:a:parent",
+        agentId: "a",
+        sessionId: "p",
+        status: "active",
+        updatedAt: now,
+        label: "Parent",
+      },
+      {
+        key: "leaf",
+        sessionKey: "agent:a:leaf",
+        agentId: "a",
+        sessionId: "l",
+        status: "active",
+        updatedAt: now,
+        label: "Leaf",
+        spawnedBy: "parent",
+      },
+    ]);
+
+    const parentToggle = document.querySelector('.tree-toggle[data-toggle-key="parent"]');
+    const leafNodeContent = document.querySelector(
+      '.tree-node-content[data-tree-key="leaf"]',
+    );
+    expect(parentToggle).not.toBeNull();
+    expect(leafNodeContent.querySelector(".tree-toggle")).toBeNull();
+  });
+
   it("keeps full slug in tooltip and aria context", () => {
     const now = Date.now();
     HUD.sessionTree.render([
@@ -193,5 +225,205 @@ describe("sessionTree.toggleNode", () => {
     // Toggle expand
     HUD.sessionTree.toggleNode("parent");
     expect(document.querySelector(".tree-children.collapsed")).toBeNull();
+  });
+
+  it("does not rebuild untouched nodes or trigger full re-render work", () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      {
+        key: "parent-a",
+        sessionKey: "agent:a:parent-a",
+        agentId: "a",
+        sessionId: "a-parent",
+        status: "active",
+        updatedAt: now,
+        label: "Parent A",
+      },
+      {
+        key: "parent-b",
+        sessionKey: "agent:b:parent-b",
+        agentId: "b",
+        sessionId: "b-parent",
+        status: "active",
+        updatedAt: now,
+        label: "Parent B",
+      },
+      {
+        key: "child-a",
+        sessionKey: "agent:a:child-a",
+        agentId: "a",
+        sessionId: "a-child",
+        status: "active",
+        updatedAt: now,
+        label: "Child A",
+        spawnedBy: "parent-a",
+      },
+      {
+        key: "child-b",
+        sessionKey: "agent:b:child-b",
+        agentId: "b",
+        sessionId: "b-child",
+        status: "active",
+        updatedAt: now,
+        label: "Child B",
+        spawnedBy: "parent-b",
+      },
+    ]);
+
+    const untouchedNode = document.querySelector(
+      '.tree-node-content[data-tree-key="child-b"]',
+    );
+    const focusedToggle = document.querySelector(
+      '.tree-toggle[data-toggle-key="parent-a"]',
+    );
+    const timeAgoSpy = vi.spyOn(HUD.utils, "timeAgo");
+    timeAgoSpy.mockClear();
+
+    focusedToggle.focus();
+    HUD.sessionTree.toggleNode("parent-a");
+
+    expect(document.activeElement).toBe(focusedToggle);
+    expect(document.querySelector('.tree-node-content[data-tree-key="child-b"]')).toBe(
+      untouchedNode,
+    );
+    expect(timeAgoSpy).not.toHaveBeenCalled();
+
+    expect(
+      document.querySelector('.tree-toggle[data-toggle-key="parent-a"]').getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(document.querySelector('.tree-toggle[data-toggle-key="parent-a"]').textContent).toBe("▸");
+    const parentNode = document
+      .querySelector('.tree-node-content[data-tree-key="parent-a"]')
+      .closest(".tree-node");
+    expect(parentNode.getAttribute("aria-expanded")).toBe("false");
+
+    timeAgoSpy.mockRestore();
+  });
+
+  it("skips collapsed nodes during ArrowDown navigation", () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      {
+        key: "parent",
+        sessionKey: "agent:a:parent",
+        agentId: "a",
+        sessionId: "p",
+        status: "active",
+        updatedAt: now,
+        label: "Parent",
+      },
+      {
+        key: "child",
+        sessionKey: "agent:a:child",
+        agentId: "a",
+        sessionId: "c",
+        status: "active",
+        updatedAt: now,
+        label: "Child",
+        spawnedBy: "parent",
+      },
+      {
+        key: "sibling",
+        sessionKey: "agent:a:sibling",
+        agentId: "a",
+        sessionId: "s",
+        status: "active",
+        updatedAt: now,
+        label: "Sibling",
+      },
+    ]);
+
+    HUD.sessionTree.toggleNode("parent");
+
+    const parentContent = document.querySelector('.tree-node-content[data-tree-key="parent"]');
+    const siblingContent = document.querySelector('.tree-node-content[data-tree-key="sibling"]');
+
+    parentContent.focus();
+    parentContent.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    );
+
+    expect(document.activeElement).toBe(siblingContent);
+  });
+
+  it("skips collapsed nodes during End navigation", () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      {
+        key: "end-parent",
+        sessionKey: "agent:a:end-parent",
+        agentId: "a",
+        sessionId: "p",
+        status: "active",
+        updatedAt: now,
+        label: "Parent",
+      },
+      {
+        key: "end-child",
+        sessionKey: "agent:a:end-child",
+        agentId: "a",
+        sessionId: "c",
+        status: "active",
+        updatedAt: now,
+        label: "Child",
+        spawnedBy: "end-parent",
+      },
+    ]);
+
+    HUD.sessionTree.toggleNode("end-parent");
+
+    const parentContent = document.querySelector('.tree-node-content[data-tree-key="end-parent"]');
+    const childContent = document.querySelector('.tree-node-content[data-tree-key="end-child"]');
+
+    parentContent.focus();
+    parentContent.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+
+    expect(document.activeElement).toBe(parentContent);
+    expect(document.activeElement).not.toBe(childContent);
+  });
+
+  it("uses aria-expanded toggle semantics for ArrowRight regardless of toggle glyph", () => {
+    const now = Date.now();
+    HUD.sessionTree.render([
+      {
+        key: "parent",
+        sessionKey: "agent:a:parent",
+        agentId: "a",
+        sessionId: "p",
+        status: "active",
+        updatedAt: now,
+        label: "Parent",
+      },
+      {
+        key: "child",
+        sessionKey: "agent:a:child",
+        agentId: "a",
+        sessionId: "c",
+        status: "active",
+        updatedAt: now,
+        label: "Child",
+        spawnedBy: "parent",
+      },
+    ]);
+
+    const toggle = document.querySelector('.tree-toggle[data-toggle-key="parent"]');
+    if (toggle.getAttribute("aria-expanded") === "false") {
+      HUD.sessionTree.toggleNode("parent");
+    }
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    HUD.sessionTree.toggleNode("parent");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    toggle.textContent = "★";
+
+    const parentContent = document.querySelector('.tree-node-content[data-tree-key="parent"]');
+    parentContent.focus();
+    parentContent.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 });
