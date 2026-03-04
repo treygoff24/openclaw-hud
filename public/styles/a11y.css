@@ -96,8 +96,10 @@ button:focus-visible,
 
   /* Pulsing dots */
   .status-dot-green,
-  .status-dot-amber {
+  .status-dot-amber,
+  .status-dot-red {
     animation: none !important;
+    transform: none !important;
   }
 
   /* Streaming message pulse */
