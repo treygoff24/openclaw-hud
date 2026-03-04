@@ -34,12 +34,12 @@ HUD.activity = (function () {
     _previousCount = newCount;
 
     $("#activity-count").textContent = newCount;
-    
+
     const activityFeed = $("#activity-feed");
     const html = buildActivityHTML(events);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(activityFeed, temp, { childrenOnly: true });
     } else {

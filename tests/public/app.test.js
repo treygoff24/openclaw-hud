@@ -488,9 +488,7 @@ describe("WebSocket lifecycle", () => {
   });
 
   it("handles log-entry message", () => {
-    const chatMessageSpy = vi
-      .spyOn(window, "handleChatWsMessage")
-      .mockImplementation(() => {});
+    const chatMessageSpy = vi.spyOn(window, "handleChatWsMessage").mockImplementation(() => {});
     const ws = getLatestWs();
     if (ws.onmessage) ws.onmessage({ data: JSON.stringify({ type: "log-entry", entry: {} }) });
     expect(chatMessageSpy).toHaveBeenCalledWith({ type: "log-entry", entry: {} });

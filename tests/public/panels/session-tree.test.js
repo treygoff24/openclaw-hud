@@ -192,9 +192,7 @@ describe("sessionTree.render", () => {
     ]);
 
     const parentToggle = document.querySelector('.tree-toggle[data-toggle-key="parent"]');
-    const leafNodeContent = document.querySelector(
-      '.tree-node-content[data-tree-key="leaf"]',
-    );
+    const leafNodeContent = document.querySelector('.tree-node-content[data-tree-key="leaf"]');
     expect(parentToggle).not.toBeNull();
     expect(leafNodeContent.querySelector(".tree-toggle")).toBeNull();
   });
@@ -294,12 +292,8 @@ describe("sessionTree.toggleNode", () => {
       },
     ]);
 
-    const untouchedNode = document.querySelector(
-      '.tree-node-content[data-tree-key="child-b"]',
-    );
-    const focusedToggle = document.querySelector(
-      '.tree-toggle[data-toggle-key="parent-a"]',
-    );
+    const untouchedNode = document.querySelector('.tree-node-content[data-tree-key="child-b"]');
+    const focusedToggle = document.querySelector('.tree-toggle[data-toggle-key="parent-a"]');
     const timeAgoSpy = vi.spyOn(HUD.utils, "timeAgo");
     timeAgoSpy.mockClear();
 
@@ -313,9 +307,13 @@ describe("sessionTree.toggleNode", () => {
     expect(timeAgoSpy).not.toHaveBeenCalled();
 
     expect(
-      document.querySelector('.tree-toggle[data-toggle-key="parent-a"]').getAttribute("aria-expanded"),
+      document
+        .querySelector('.tree-toggle[data-toggle-key="parent-a"]')
+        .getAttribute("aria-expanded"),
     ).toBe("false");
-    expect(document.querySelector('.tree-toggle[data-toggle-key="parent-a"]').textContent).toBe("▸");
+    expect(document.querySelector('.tree-toggle[data-toggle-key="parent-a"]').textContent).toBe(
+      "▸",
+    );
     const parentNode = document
       .querySelector('.tree-node-content[data-tree-key="parent-a"]')
       .closest(".tree-node");
@@ -363,9 +361,7 @@ describe("sessionTree.toggleNode", () => {
     const siblingContent = document.querySelector('.tree-node-content[data-tree-key="sibling"]');
 
     parentContent.focus();
-    parentContent.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-    );
+    parentContent.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
 
     expect(document.activeElement).toBe(siblingContent);
   });
@@ -444,9 +440,7 @@ describe("sessionTree.toggleNode", () => {
 
     const parentContent = document.querySelector('.tree-node-content[data-tree-key="parent"]');
     parentContent.focus();
-    parentContent.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
+    parentContent.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
 
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });

@@ -34,14 +34,20 @@ describe("gateway-compat error-map", () => {
   });
 
   it("maps generic invalid request to BAD_REQUEST with 400", () => {
-    const result = normalizeGatewayError({ code: "INVALID_REQUEST", message: "payload missing field" });
+    const result = normalizeGatewayError({
+      code: "INVALID_REQUEST",
+      message: "payload missing field",
+    });
     expect(result.status).toBe(400);
     expect(result.code).toBe("BAD_REQUEST");
     expect(result.reason).toBe("invalid_request");
   });
 
   it("maps explicit UNAVAILABLE and transport-level failures to UNAVAILABLE 503", () => {
-    const gatewayUnavailable = normalizeGatewayError({ code: "UNAVAILABLE", message: "service offline" });
+    const gatewayUnavailable = normalizeGatewayError({
+      code: "UNAVAILABLE",
+      message: "service offline",
+    });
     const connRefused = normalizeGatewayError({ code: "ECONNREFUSED", message: "connect refused" });
     const timeoutCode = normalizeGatewayError({ code: "ETIMEDOUT", message: "timed out" });
 

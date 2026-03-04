@@ -75,12 +75,12 @@ test.describe("Cron CRUD Contract", () => {
     const rows = page.locator(".cron-row-v2");
     await expect(rows).toHaveCount(3);
 
-    await expect(page.locator('.cron-row-v2[data-cron-id="morning-check"] .cron-name')).toContainText(
-      "Morning Briefing",
-    );
-    await expect(page.locator('.cron-row-v2[data-cron-id="weekly-report"] .cron-name')).toContainText(
-      "Weekly Summary",
-    );
+    await expect(
+      page.locator('.cron-row-v2[data-cron-id="morning-check"] .cron-name'),
+    ).toContainText("Morning Briefing");
+    await expect(
+      page.locator('.cron-row-v2[data-cron-id="weekly-report"] .cron-name'),
+    ).toContainText("Weekly Summary");
     await expect(page.locator('.cron-row-v2[data-cron-id="health-ping"] .cron-name')).toContainText(
       "Health Check",
     );

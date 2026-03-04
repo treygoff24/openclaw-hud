@@ -4,7 +4,11 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 const { setupWebSocket } = require("./ws/log-streaming");
 const { GatewayWS } = require("./lib/gateway-ws");
-const { buildModelAliasPayload, getGatewayConfig, prewarmModelAliasMapCache } = require("./lib/helpers");
+const {
+  buildModelAliasPayload,
+  getGatewayConfig,
+  prewarmModelAliasMapCache,
+} = require("./lib/helpers");
 const { resolveMethodScopes } = require("./lib/gateway-compat/client");
 const { createApiTailTelemetryMiddleware } = require("./lib/api-tail-telemetry");
 const { applySecurityHeaders } = require("./lib/security-headers");
@@ -83,12 +87,9 @@ function dedupeScopes(scopes) {
 }
 
 const SERVER_GATEWAY_METHOD_SCOPES = dedupeScopes(
-  [
-    "chat.history",
-    "chat.send",
-    "chat.abort",
-    "models.list",
-  ].flatMap((method) => resolveMethodScopes(method)),
+  ["chat.history", "chat.send", "chat.abort", "models.list"].flatMap((method) =>
+    resolveMethodScopes(method),
+  ),
 );
 
 // Gateway WebSocket client
@@ -192,7 +193,8 @@ async function runSpawnPreflight() {
 
     return createSpawnPreflightSuccess();
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Cannot evaluate spawn preflight configuration";
+    const message =
+      err instanceof Error ? err.message : "Cannot evaluate spawn preflight configuration";
     return createSpawnPreflightFailure("SPAWN_PRECHECK_UNKNOWN", message, [
       {
         code: "SPAWN_PRECHECK_UNKNOWN",
@@ -226,7 +228,10 @@ function warmModelAliasCacheForSpawn() {
     try {
       spawnRouter.setCachedModels(buildModelAliasPayload(aliasMap));
     } catch (error) {
-      console.warn("[spawn-cache] failed to refresh cached model aliases:", error?.message || error);
+      console.warn(
+        "[spawn-cache] failed to refresh cached model aliases:",
+        error?.message || error,
+      );
     }
   };
 
@@ -240,17 +245,22 @@ function warmModelAliasCacheForSpawn() {
 
 // Static files — vendor assets get long immutable cache, app files get short cache with ETag
 // Vendor files: immutable, long cache (1 year)
-app.use("/vendor", express.static(path.join(__dirname, "public", "vendor"), {
-  maxAge: "1y",
-  immutable: true,
-  etag: true,
-}));
+app.use(
+  "/vendor",
+  express.static(path.join(__dirname, "public", "vendor"), {
+    maxAge: "1y",
+    immutable: true,
+    etag: true,
+  }),
+);
 
 // App files: short cache (5 minutes) with ETag for revalidation
-app.use(express.static(path.join(__dirname, "public"), {
-  maxAge: "5m",
-  etag: true,
-}));
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    maxAge: "5m",
+    etag: true,
+  }),
+);
 
 const apiTailTelemetry = createApiTailTelemetryMiddleware({
   appendPerfEvents: diagPerfRouter.appendSanitizedPerfEvents,

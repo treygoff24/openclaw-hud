@@ -2,12 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const { Router } = require("express");
-const {
-  OPENCLAW_HOME,
-  safeJSON,
-  safeJSON5,
-  stripSecrets,
-} = require("../lib/helpers");
+const { OPENCLAW_HOME, safeJSON, safeJSON5, stripSecrets } = require("../lib/helpers");
 const crypto = require("crypto");
 const { mapGatewayError } = require("../lib/gateway-compat/error-map");
 const { requireLocalOrigin } = require("../lib/gateway-compat/origin-policy");
@@ -140,9 +135,15 @@ function sendGatewayError(res, err) {
 function shouldFallbackToLocal(mappedError) {
   if (mappedError?.code === "UNAVAILABLE") return true;
   if (mappedError?.status === 503) return true;
-  if (/gateway token (is )?not configured|gateway token missing|token not configured/i.test(mappedError?.message || ""))
+  if (
+    /gateway token (is )?not configured|gateway token missing|token not configured/i.test(
+      mappedError?.message || "",
+    )
+  )
     return true;
-  if (/unreachable|connection|timeout|econn|eai_again|unavailable/i.test(mappedError?.message || ""))
+  if (
+    /unreachable|connection|timeout|econn|eai_again|unavailable/i.test(mappedError?.message || "")
+  )
     return true;
   return false;
 }
@@ -154,7 +155,10 @@ router.get("/api/cron", async (req, res) => {
     const jobs = normalized.jobs.map((job) => {
       const payloadModel = isObject(job?.payload) ? job.payload : {};
       const defaultModel = "unknown";
-      return enrichCronJobReadModel(Object.assign({}, job, { payload: payloadModel }), defaultModel);
+      return enrichCronJobReadModel(
+        Object.assign({}, job, { payload: payloadModel }),
+        defaultModel,
+      );
     });
 
     const responsePayload = Object.assign({}, normalized, {

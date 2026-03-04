@@ -55,12 +55,7 @@ function toCounterValue(value) {
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
 }
 
-function buildModelUsageTelemetry({
-  workload,
-  cacheState,
-  phases,
-  counters,
-}) {
+function buildModelUsageTelemetry({ workload, cacheState, phases, counters }) {
   return {
     workload: String(workload || ""),
     phases,
@@ -131,7 +126,6 @@ function sendJsonWithETag(req, res, payload, stablePayloadTransformer = (value) 
   return res.json(payload);
 }
 
-
 function getUsageCacheTtlMs() {
   const ttlMs = Number(process.env.HUD_USAGE_CACHE_TTL_MS);
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
@@ -175,11 +169,7 @@ function shouldForceRefresh(req) {
   return refresh === "1" || refresh === 1 || refresh === true;
 }
 
-function getLiveWeeklyCacheKey({
-  tz,
-  pricingFingerprint,
-  sessionsLimit,
-}) {
+function getLiveWeeklyCacheKey({ tz, pricingFingerprint, sessionsLimit }) {
   return `${tz}|${pricingFingerprint}|${sessionsLimit}`;
 }
 
@@ -642,8 +632,8 @@ function buildUnavailableMonthlyPayload({ tz, monthWindow, nowMs, reason, reques
     summary: {
       monthSpend: 0,
       topMonthModel: null,
-  },
-};
+    },
+  };
 }
 
 function createLegacyModelUsagePayload() {
@@ -888,9 +878,7 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
     return response;
   };
 
-  if (
-    cacheHit
-  ) {
+  if (cacheHit) {
     telemetry.counters.cacheHit = 1;
     telemetry.counters.cacheMiss = 0;
     telemetry.cacheState.state = "hit";
@@ -915,7 +903,11 @@ router.get("/api/model-usage/live-weekly", async (req, res) => {
   }
 
   const liveWindow = getLiveWeekWindow(tz, nowMs);
-  telemetry.cacheState.state = refresh ? "disabled" : ttlMs > 0 ? "miss" : telemetry.cacheState.state;
+  telemetry.cacheState.state = refresh
+    ? "disabled"
+    : ttlMs > 0
+      ? "miss"
+      : telemetry.cacheState.state;
   telemetry.counters.cacheMiss = 1;
   telemetry.counters.cacheHit = 0;
 
@@ -1122,7 +1114,9 @@ router.get("/api/model-usage/monthly", async (req, res) => {
     const ageMs = nowMs - cachedMonthEntry.timestamp;
     if (ageMs >= 0 && ageMs < diskTtlMs) {
       const cachedPayload =
-        cachedMonthEntry && typeof cachedMonthEntry.payload === "object" && cachedMonthEntry.payload !== null
+        cachedMonthEntry &&
+        typeof cachedMonthEntry.payload === "object" &&
+        cachedMonthEntry.payload !== null
           ? cachedMonthEntry.payload
           : {};
       telemetry.cacheState.state = "hit";
@@ -1138,7 +1132,9 @@ router.get("/api/model-usage/monthly", async (req, res) => {
       telemetry.counters.cacheWriteSuccess = 0;
       telemetry.counters.windowCount = 0;
       telemetry.counters.gatewayCalls = 0;
-      telemetry.counters.windowsSplit = toCounterValue(responsePayload.meta?.sessionsUsage?.windowsSplit);
+      telemetry.counters.windowsSplit = toCounterValue(
+        responsePayload.meta?.sessionsUsage?.windowsSplit,
+      );
       telemetry.counters.truncationWindows = toCounterValue(
         responsePayload.meta?.sessionsUsage?.truncatedWindows,
       );
@@ -1184,10 +1180,14 @@ router.get("/api/model-usage/monthly", async (req, res) => {
       maxDurationMs: monthMaxDurationMs,
     });
     telemetry.phases.gatewayFetchMs = performance.now() - gatewayStartMs;
-    telemetry.counters.gatewayCalls = toCounterValue(monthCollection?.diagnostics?.windowsRequested);
+    telemetry.counters.gatewayCalls = toCounterValue(
+      monthCollection?.diagnostics?.windowsRequested,
+    );
     telemetry.counters.windowCount = toCounterValue(monthCollection?.diagnostics?.windowsRequested);
     telemetry.counters.windowsSplit = toCounterValue(monthCollection?.diagnostics?.windowsSplit);
-    telemetry.counters.truncationWindows = toCounterValue(monthCollection?.diagnostics?.truncatedWindows);
+    telemetry.counters.truncationWindows = toCounterValue(
+      monthCollection?.diagnostics?.truncatedWindows,
+    );
     telemetry.counters.truncatedSingleDayWindows = toCounterValue(
       monthCollection?.diagnostics?.truncatedSingleDayWindows,
     );

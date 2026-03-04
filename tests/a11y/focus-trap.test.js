@@ -215,7 +215,9 @@ describe("makeFocusable utility", () => {
     makeFocusable(element, callback);
     makeFocusable(element, callback);
 
-    const keydownCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "keydown");
+    const keydownCalls = element.addEventListener.mock.calls.filter(
+      (call) => call[0] === "keydown",
+    );
     const focusCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "focus");
     const blurCalls = element.addEventListener.mock.calls.filter((call) => call[0] === "blur");
 

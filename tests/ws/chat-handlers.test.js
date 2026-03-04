@@ -134,7 +134,9 @@ describe("chat-handlers", () => {
         status: 400,
         text: async () =>
           JSON.stringify({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
-        json: async () => ({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+        json: async () => ({
+          error: { code: "INVALID_REQUEST", message: "payload missing field" },
+        }),
       });
       vi.stubGlobal("fetch", fetchMock);
 
@@ -749,8 +751,11 @@ describe("chat-handlers", () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: false,
         status: 400,
-        text: async () => JSON.stringify({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
-        json: async () => ({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+        text: async () =>
+          JSON.stringify({ error: { code: "INVALID_REQUEST", message: "payload missing field" } }),
+        json: async () => ({
+          error: { code: "INVALID_REQUEST", message: "payload missing field" },
+        }),
       });
       vi.stubGlobal("fetch", fetchMock);
 

@@ -32,25 +32,19 @@
     const previousPerfLongAnimationFrameHook = window.HUDApp.perfLongAnimationFrameHook;
     const previousPerfFrameBudgetHook = window.HUDApp.perfFrameBudgetHook;
 
-    if (
-      previousPerfMonitor &&
-      typeof previousPerfMonitor.stop === "function"
-    ) {
+    if (previousPerfMonitor && typeof previousPerfMonitor.stop === "function") {
       try {
         previousPerfMonitor.stop();
       } catch (_error) {
         diagLog(
           "[HUD-PERF]",
           "previous monitor stop failed",
-          String(_error && _error.message ? _error.message : _error)
+          String(_error && _error.message ? _error.message : _error),
         );
       }
     }
 
-    if (
-      previousPerfLongTaskHook &&
-      typeof previousPerfLongTaskHook.stop === "function"
-    ) {
+    if (previousPerfLongTaskHook && typeof previousPerfLongTaskHook.stop === "function") {
       try {
         previousPerfLongTaskHook.stop();
       } catch (_error) {
@@ -92,11 +86,11 @@
     const wsLogPrefix = "[HUD-WS]";
     const perfDiagnosticsFlags =
       typeof diagnostics.resolvePerfDiagnosticsFlags === "function"
-            ? diagnostics.resolvePerfDiagnosticsFlags({
-                locationSearch: window.location.search,
-                localStorage: localStorage,
-                globalConfig: opts.globalConfig,
-              })
+        ? diagnostics.resolvePerfDiagnosticsFlags({
+            locationSearch: window.location.search,
+            localStorage: localStorage,
+            globalConfig: opts.globalConfig,
+          })
         : { enabled: false };
     const perfBatchTransport =
       typeof diagnostics.createPerfBatchTransport === "function"
@@ -140,9 +134,7 @@
             performanceObserver: window.PerformanceObserver,
             logger: function (event, fields) {
               var eventName =
-                typeof event === "string" && event.trim()
-                  ? event.trim()
-                  : "long-task";
+                typeof event === "string" && event.trim() ? event.trim() : "long-task";
               var payload =
                 fields && typeof fields === "object" && !Array.isArray(fields)
                   ? fields
@@ -197,9 +189,7 @@
             cancelAnimationFrame: window.cancelAnimationFrame,
             logger: function (event, fields) {
               var eventName =
-                typeof event === "string" && event.trim()
-                  ? event.trim()
-                  : "frame-budget";
+                typeof event === "string" && event.trim() ? event.trim() : "frame-budget";
               var payload =
                 fields && typeof fields === "object" && !Array.isArray(fields)
                   ? fields
@@ -293,18 +283,18 @@
     HUD.cron.init();
     HUD.spawn.init();
 
-      if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
-        perfMonitor.start();
-        if (perfLongTaskHook && typeof perfLongTaskHook.start === "function") {
-          perfLongTaskHook.start();
-        }
-        if (perfLongAnimationFrameHook && typeof perfLongAnimationFrameHook.start === "function") {
-          perfLongAnimationFrameHook.start();
-        }
-        if (perfFrameBudgetHook && typeof perfFrameBudgetHook.start === "function") {
-          perfFrameBudgetHook.start();
-        }
+    if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
+      perfMonitor.start();
+      if (perfLongTaskHook && typeof perfLongTaskHook.start === "function") {
+        perfLongTaskHook.start();
       }
+      if (perfLongAnimationFrameHook && typeof perfLongAnimationFrameHook.start === "function") {
+        perfLongAnimationFrameHook.start();
+      }
+      if (perfFrameBudgetHook && typeof perfFrameBudgetHook.start === "function") {
+        perfFrameBudgetHook.start();
+      }
+    }
 
     HUD.fetchAll();
     pollingController.start();

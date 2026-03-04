@@ -20,26 +20,32 @@
 ## Incompatibility Inventory (Current HUD vs Canonical Gateway)
 
 1. `routes/cron.js`
+
 - Uses local file writes for mutations.
 - Does not use canonical RPC payload shapes (`cron.update` expects nested `patch`).
 - Missing canonical idempotent remove semantics.
 
 2. `routes/spawn.js` and `ws/chat-handlers/command-handlers.js`
+
 - Call `/tools/invoke` directly with per-call ad hoc mapping.
 - Gateway failure classification differs from other modules.
 - No direct `sessions.spawn` WS RPC exists today, so spawn cannot be fully moved off invoke transport yet.
 
 3. `lib/usage-rpc.js`
+
 - Owns a second WS connect/request implementation.
 - Error codes differ from chat and route adapters.
 
 4. `ws/chat-handlers/history.js`
+
 - Has strong fallback classification, but mapping is local to chat-history and not reused by routes.
 
 5. Scope usage drift across entry points
+
 - Canonical method scopes are centralized upstream, but HUD entry points use mixed static scope sets and message-string checks.
 
 6. Origin/local policy duplication
+
 - `requireLocalOrigin` exists in multiple routes with near-duplicate logic.
 - Policy is good, but not centralized and easy to drift.
 
@@ -79,6 +85,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `routes/spawn.js`, `server.js`, `public/panels/spawn.js`, `tests/routes/spawn.test.js`, `tests/public/panels/spawn.test.js`
 
 **Files:**
+
 - Modify: `routes/spawn.js`
 - Modify: `server.js`
 - Modify: `public/panels/spawn.js`
@@ -86,11 +93,13 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - Modify: `tests/public/panels/spawn.test.js`
 
 **Work:**
+
 - Add explicit startup preflight that validates `sessions_spawn` invoke capability and required allowlist/denylist override configuration.
 - Gate spawn UI enablement on successful preflight; if preflight fails, keep UI disabled and show actionable diagnostics for operator setup.
 - Ensure no silent spawn fallback path exists when invoke capability or hardening config is missing.
 
 **Verification commands:**
+
 - `npx vitest run tests/routes/spawn.test.js tests/public/panels/spawn.test.js`
 
 ### Phase 1: Compatibility Core Foundation
@@ -100,6 +109,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `lib/gateway-compat/client.js`, `lib/gateway-compat/error-map.js`, `lib/gateway-compat/origin-policy.js`, `tests/lib/gateway-compat-client.test.js`, `tests/lib/gateway-compat-error-map.test.js`, `tests/lib/gateway-compat-origin-policy.test.js`
 
 **Files:**
+
 - Create: `lib/gateway-compat/client.js`
 - Create: `lib/gateway-compat/error-map.js`
 - Create: `lib/gateway-compat/origin-policy.js`
@@ -108,6 +118,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - Create: `tests/lib/gateway-compat-origin-policy.test.js`
 
 **Verification commands:**
+
 - `npx vitest run tests/lib/gateway-compat-client.test.js`
 - `npx vitest run tests/lib/gateway-compat-error-map.test.js`
 - `npx vitest run tests/lib/gateway-compat-origin-policy.test.js`
@@ -119,6 +130,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `routes/cron.js`, `lib/gateway-compat/contracts/cron.js`, `tests/routes/cron.test.js`, `tests/lib/cron-gateway.test.js`, `public/panels/cron.js`, `tests/public/panels/cron.test.js`
 
 **Files:**
+
 - Create: `lib/gateway-compat/contracts/cron.js`
 - Modify: `routes/cron.js`
 - Modify: `tests/routes/cron.test.js`
@@ -127,6 +139,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - Modify: `tests/public/panels/cron.test.js`
 
 **Verification commands:**
+
 - `npx vitest run tests/lib/cron-gateway.test.js tests/routes/cron.test.js`
 - `npx vitest run tests/public/panels/cron.test.js`
 
@@ -137,10 +150,12 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `routes/spawn.js`, `tests/routes/spawn.test.js`
 
 **Files:**
+
 - Modify: `routes/spawn.js`
 - Modify: `tests/routes/spawn.test.js`
 
 **Work:**
+
 - Keep spawn on `/tools/invoke` (`sessions_spawn`) via a shared compatibility helper; do not attempt WS replacement in this phase.
 - Route uses `gateway-compat` error mapping and shared origin middleware.
 - Preserve loopback-host guard and explicit `GATEWAY_HOST_UNSUPPORTED` handling.
@@ -148,6 +163,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - Add explicit handling for gateway hardening denylist outcomes; do not silently degrade spawn behavior.
 
 **Verification commands:**
+
 - `npx vitest run tests/routes/spawn.test.js`
 
 ### Phase 3B: Usage RPC Compatibility (WS)
@@ -157,6 +173,7 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `lib/usage-rpc.js`, `tests/lib/usage-rpc.test.js`, `routes/model-usage.js`, `tests/routes/model-usage-live-weekly.test.js`, `tests/routes/model-usage-monthly.test.js`
 
 **Files:**
+
 - Modify: `lib/usage-rpc.js`
 - Modify: `tests/lib/usage-rpc.test.js`
 - Modify: `routes/model-usage.js`
@@ -164,10 +181,12 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 - Modify: `tests/routes/model-usage-monthly.test.js`
 
 **Work:**
+
 - Replace one-off WS call path with compatibility client.
 - Keep existing degraded payload semantics (`meta.unavailable`) for usage routes.
 
 **Verification commands:**
+
 - `npx vitest run tests/lib/usage-rpc.test.js`
 - `npx vitest run tests/routes/model-usage-live-weekly.test.js tests/routes/model-usage-monthly.test.js`
 
@@ -178,15 +197,18 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `ws/chat-handlers/command-handlers.js`, `ws/chat-handlers/history.js`, `tests/ws/chat-handlers.test.js`
 
 **Files:**
+
 - Modify: `ws/chat-handlers/command-handlers.js`
 - Modify: `ws/chat-handlers/history.js`
 - Modify: `tests/ws/chat-handlers.test.js`
 
 **Work:**
+
 - Reuse compatibility error categories for chat-history, chat-send, and chat-abort responses.
 - Keep fallback behavior explicit and diagnostics-first; remove ad hoc duplication and silent fallback reliance.
 
 **Verification commands:**
+
 - `npx vitest run tests/ws/chat-handlers.test.js`
 
 ### Phase 4: Server-Wide Gateway Policy Consistency
@@ -196,16 +218,19 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `server.js`, `lib/gateway-ws.js`, `tests/lib/gateway-ws.test.js`, `tests/routes/health.test.js`
 
 **Files:**
+
 - Modify: `server.js`
 - Modify: `lib/gateway-ws.js`
 - Modify: `tests/lib/gateway-ws.test.js`
 - Modify: `tests/routes/health.test.js`
 
 **Work:**
+
 - Ensure connection defaults/scopes are explicit and compatible with method-level calls.
 - Keep status broadcast behavior (`gateway-status`) stable for UI consumers.
 
 **Verification commands:**
+
 - `npx vitest run tests/lib/gateway-ws.test.js tests/routes/health.test.js`
 
 ### Phase 5: Integration and E2E Contract Lock
@@ -215,18 +240,21 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `e2e/cron-crud.spec.js`, `e2e/modals.spec.js`, `e2e/chat.spec.js` (or existing chat e2e), `docs/plans/2026-03-03-hud-gateway-hardening-compat.md`
 
 **Files:**
+
 - Modify/create: `e2e/cron-crud.spec.js`
 - Modify: `e2e/modals.spec.js`
 - Modify/create: chat e2e spec covering fail-fast diagnostics and explicit degraded-state behavior
 - Modify: this plan doc with final execution notes (post-implementation)
 
 **Verification commands:**
+
 - `npx playwright test e2e/cron-crud.spec.js`
 - `npx playwright test e2e/modals.spec.js`
 - `npm test`
 - `npm run test:e2e`
 
 **Execution notes (2026-03-03):**
+
 - E2E focus for Phase 5 was run with these commands:
   - `npx playwright test e2e/cron-crud.spec.js`
   - `npx playwright test e2e/modals.spec.js`
@@ -247,27 +275,32 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 **Owned files:** `docs/plans/2026-03-03-hud-gateway-hardening-compat.md`
 
 **Work:**
+
 - Open upstream collaboration item proposing a first-class spawn RPC contract (`sessions.spawn` or equivalent) with required scope model and parity behavior for current `sessions_spawn` tool invocation.
 - Track decision outcome and migration trigger conditions in this plan doc.
 
 ## Test Strategy
 
 1. Unit tests (new compatibility layer)
+
 - Validate scope routing, request shaping, and all error-map branches.
 - Validate shared origin middleware behavior (loopback, tailscale proxy, non-local denial).
 - Validate preflight gate behavior for spawn invoke capability and allowlist/denylist override requirements.
 
 2. Route tests
+
 - Cron: canonical CRUD, idempotent remove, corrected HTTP status mapping.
 - Spawn: host guard + unified gateway errors + required setup/preflight gate diagnostics.
 - Model usage: degraded/unavailable metadata remains stable.
 
 3. WS/chat tests
+
 - Gateway-first paths still succeed.
 - Degraded behavior is explicit and classified; no silent fallback substitution for core operations.
 - Error payloads use normalized categories.
 
 4. E2E tests
+
 - Cron CRUD flow from UI.
 - Chat history behavior under connected and degraded gateway states with explicit diagnostics.
 - Spawn UI remains disabled until preflight passes; no hidden transport fallback.
@@ -276,24 +309,29 @@ Create a single HUD Gateway Compatibility Layer, then migrate every gateway-touc
 ## Rollout and Risk Mitigation
 
 1. Incremental release slices
+
 - Land Phase 0 first to enforce spawn setup gates before enabling UI paths.
 - Land Phase 1 next with no behavior changes.
 - Migrate cron next (highest contract drift, isolated surface).
 - Migrate spawn/usage/chat in parallel lanes with file ownership boundaries.
 
 2. Strict-mode guards
+
 - Keep `POST /api/cron/:jobId/toggle` as compatibility shim until UI migration is fully stable.
 - Keep degraded behavior explicit and operator-visible; no silent fallback assumptions.
 
 3. Failure containment
+
 - Route-level degraded paths are read-only only (`/api/cron` list degraded path, model usage unavailable metadata) and must carry explicit diagnostics.
 - If compatibility client fails, fail closed on core mutation/operator flows and fail with explicit degraded status on approved read-only endpoints.
 
 4. Verification gates before merge
+
 - Targeted Vitest slices per phase must pass before moving to next phase.
 - Final `npm test` + `npm run test:e2e` required.
 
 5. Rollback strategy
+
 - Each phase is separately revertible by file ownership; avoid bundling phases into one PR/commit.
 
 ## Acceptance Criteria

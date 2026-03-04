@@ -161,11 +161,13 @@ Even with gateway auth/scope checks, keep `requireLocalOrigin` for all mutating 
 **Owned files:** `lib/cron-gateway.js`, `lib/gateway-rpc-errors.js`, `tests/lib/cron-gateway.test.js`
 
 **Files:**
+
 - Create: `lib/cron-gateway.js`
 - Create: `lib/gateway-rpc-errors.js`
 - Test: `tests/lib/cron-gateway.test.js`
 
 **Step 1: Write failing adapter tests**
+
 - Covers method names, param shaping, and response normalization.
 - Covers corrected error mapping table.
 
@@ -173,6 +175,7 @@ Even with gateway auth/scope checks, keep `requireLocalOrigin` for all mutating 
 Run: `npx vitest run tests/lib/cron-gateway.test.js`
 
 **Step 3: Implement adapter + error mapping**
+
 - Add `list/add/update/remove/toggle` helpers.
 - Normalize `jobId` to `id` outbound.
 
@@ -186,10 +189,12 @@ Run: `npx vitest run tests/lib/cron-gateway.test.js`
 **Owned files:** `routes/cron.js`, `tests/routes/cron.test.js`
 
 **Files:**
+
 - Modify: `routes/cron.js`
 - Modify: `tests/routes/cron.test.js`
 
 **Step 1: Write failing route tests**
+
 - `POST /api/cron`, `DELETE /api/cron/:jobId`, toggle-via-update behavior.
 - `removed:false` returns `200`, not `404`.
 - Scope/auth mapping and `UNAVAILABLE` mapping.
@@ -198,6 +203,7 @@ Run: `npx vitest run tests/lib/cron-gateway.test.js`
 Run: `npx vitest run tests/routes/cron.test.js`
 
 **Step 3: Implement route migration**
+
 - Remove direct file writes from mutation handlers.
 - Keep read fallback path only as degraded secondary behavior with explicit diagnostics.
 - Preserve `requireLocalOrigin` on mutations.
@@ -212,10 +218,12 @@ Run: `npx vitest run tests/routes/cron.test.js`
 **Owned files:** `public/panels/cron.js`, `tests/public/panels/cron.test.js`
 
 **Files:**
+
 - Modify: `public/panels/cron.js`
 - Modify: `tests/public/panels/cron.test.js`
 
 **Step 1: Add failing UI tests**
+
 - Handles `removed:false` user messaging.
 - Displays explicit degraded gateway-unavailable read-only state.
 - Handles paged list payload from `cron.list` contract.
@@ -224,6 +232,7 @@ Run: `npx vitest run tests/routes/cron.test.js`
 Run: `npx vitest run tests/public/panels/cron.test.js`
 
 **Step 3: Implement UI updates**
+
 - Adapt list parsing to page shape.
 - Add explicit idempotent-delete messaging.
 
@@ -237,9 +246,11 @@ Run: `npx vitest run tests/public/panels/cron.test.js`
 **Owned files:** `e2e/cron-crud.spec.js`
 
 **Files:**
+
 - Create or modify: `e2e/cron-crud.spec.js`
 
 **Step 1: Add CRUD path tests**
+
 - Create, update, remove, and remove-again idempotent flow.
 - One scope/permission negative case.
 

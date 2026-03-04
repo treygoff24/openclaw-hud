@@ -80,10 +80,10 @@ describe("GET /api/model-usage/monthly", () => {
     delete process.env.HUD_USAGE_MONTH_MAX_WINDOWS;
     delete process.env.HUD_USAGE_MONTH_MAX_DURATION_MS;
     delete process.env.HUD_USAGE_MONTH_MEMO_TTL_MS;
-    
+
     testCacheDir = path.join("/tmp", `hud-test-cache-${Date.now()}`);
     helpers.OPENCLAW_HOME = testCacheDir;
-    
+
     vi.clearAllMocks();
     usageRpc.requestSessionsUsage = vi.fn();
     pricing.loadPricingCatalog = vi.fn(() =>
@@ -129,7 +129,7 @@ describe("GET /api/model-usage/monthly", () => {
     if (originalMonthUsageDiskTtlMs === undefined) delete process.env.HUD_USAGE_MONTH_DISK_TTL_MS;
     else process.env.HUD_USAGE_MONTH_DISK_TTL_MS = originalMonthUsageDiskTtlMs;
     vi.restoreAllMocks();
-    
+
     // Cleanup test cache directory
     try {
       if (fs.existsSync(testCacheDir)) {
@@ -220,22 +220,22 @@ describe("GET /api/model-usage/monthly", () => {
     });
 
     const app = createApp();
-    
+
     // First request - should hit the gateway
     const res1 = await request(app).get("/api/model-usage/monthly");
     expect(res1.status).toBe(200);
     expect(res1.body.meta.source).toBe("sessions.usage+config-reprice");
-    
+
     // Verify gateway was called
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalled();
     const callCount = usageRpc.requestSessionsUsage.mock.calls.length;
     expect(callCount).toBeGreaterThan(0);
-    
+
     // Second request - should serve from disk cache
     const res2 = await request(app).get("/api/model-usage/monthly");
     expect(res2.status).toBe(200);
     expect(res2.body.meta.source).toBe("disk-cache");
-    
+
     // Gateway should not be called again (same call count)
     expect(usageRpc.requestSessionsUsage).toHaveBeenCalledTimes(callCount);
   });
@@ -367,23 +367,25 @@ describe("GET /api/model-usage/monthly", () => {
         observedApiTailTelemetry.push(events?.[0]);
       },
     });
-    
+
     // First request
     await request(appWithTelemetry).get("/api/model-usage/monthly");
     const callCountAfterFirst = usageRpc.requestSessionsUsage.mock.calls.length;
-    
+
     // Second request with refresh
     const res2 = await request(appWithTelemetry).get("/api/model-usage/monthly?refresh=1");
     await waitForTelemetryFlush();
     expect(res2.status).toBe(200);
     expect(res2.body.meta.source).toBe("sessions.usage+config-reprice");
-    
+
     // Gateway should be called again
     expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThan(callCountAfterFirst);
     expect(observedApiTailTelemetry.at(1)).toMatchObject({
       cacheState: expect.objectContaining({ state: "disabled" }),
     });
-    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
+    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(
+      1,
+    );
   });
 
   it("handles expired disk cache by fetching fresh data", async () => {
@@ -391,7 +393,7 @@ describe("GET /api/model-usage/monthly", () => {
     const cacheModule = require("../../lib/month-usage-cache");
     const originalReadMonthCacheEntry = cacheModule.readMonthCacheEntry;
     cacheModule.readMonthCacheEntry = vi.fn(() => null);
-    
+
     usageRpc.requestSessionsUsage.mockResolvedValue({
       ok: true,
       result: {
@@ -413,19 +415,19 @@ describe("GET /api/model-usage/monthly", () => {
     });
 
     const app = createApp();
-    
+
     // First request
     await request(app).get("/api/model-usage/monthly");
     const callCountAfterFirst = usageRpc.requestSessionsUsage.mock.calls.length;
     expect(callCountAfterFirst).toBeGreaterThan(0);
-    
+
     // Second request - should fetch fresh (cache expired)
     const res2 = await request(app).get("/api/model-usage/monthly");
     expect(res2.status).toBe(200);
-    
+
     // Gateway should be called again
     expect(usageRpc.requestSessionsUsage.mock.calls.length).toBeGreaterThan(callCountAfterFirst);
-    
+
     // Restore
     cacheModule.readMonthCacheEntry = originalReadMonthCacheEntry;
   });
@@ -456,16 +458,18 @@ describe("GET /api/model-usage/monthly", () => {
           outputTokens: 50,
         }),
         aggregates: {
-          byModel: [{
-            provider: "openai",
-            model: "gpt-5",
-            totals: {
-              input: 50000,
-              output: 25000,
-              totalTokens: 75000,
-              totalCost: 50.0,
+          byModel: [
+            {
+              provider: "openai",
+              model: "gpt-5",
+              totals: {
+                input: 50000,
+                output: 25000,
+                totalTokens: 75000,
+                totalCost: 50.0,
+              },
             },
-          }],
+          ],
         },
       },
     });

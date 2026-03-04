@@ -2,7 +2,9 @@ const { getGatewayConfig } = require("../../lib/helpers");
 const { chatSubscriptions, clientChatSubs } = require("./state");
 const { isCanonicalSessionKey } = require("./session-key");
 const { invokeTool } = require("../../lib/gateway-compat/tools-invoke");
-const { normalizeGatewayError: normalizeCompatGatewayError } = require("../../lib/gateway-compat/error-map");
+const {
+  normalizeGatewayError: normalizeCompatGatewayError,
+} = require("../../lib/gateway-compat/error-map");
 const {
   validateAttachments,
   buildContentBlocks,
@@ -45,13 +47,13 @@ function normalizeCompatError(error, defaultMessage = "Unknown gateway error") {
     error &&
     typeof error === "object" &&
     typeof error.code === "string" &&
-    (typeof error.reason === "string" || typeof error.rawMessage === "string" || typeof error.rawCode === "string");
+    (typeof error.reason === "string" ||
+      typeof error.rawMessage === "string" ||
+      typeof error.rawCode === "string");
 
   if (hasCompatMarkers) {
     const message =
-      typeof error.message === "string" && error.message.trim()
-        ? error.message
-        : defaultMessage;
+      typeof error.message === "string" && error.message.trim() ? error.message : defaultMessage;
     return {
       ...error,
       status: Number.isInteger(error.status) ? error.status : 502,
@@ -69,11 +71,17 @@ function normalizeCompatError(error, defaultMessage = "Unknown gateway error") {
       ? error
       : { message: typeof error === "string" && error.trim() ? error : defaultMessage };
   const normalized = normalizeCompatGatewayError(payload);
-  const message = typeof normalized.message === "string" && normalized.message.trim() ? normalized.message : defaultMessage;
+  const message =
+    typeof normalized.message === "string" && normalized.message.trim()
+      ? normalized.message
+      : defaultMessage;
   return {
     ...normalized,
     message,
-    rawMessage: typeof normalized.rawMessage === "string" && normalized.rawMessage.trim() ? normalized.rawMessage : message,
+    rawMessage:
+      typeof normalized.rawMessage === "string" && normalized.rawMessage.trim()
+        ? normalized.rawMessage
+        : message,
   };
 }
 
@@ -217,11 +225,12 @@ const commandHandlers = {
         ok: true,
       });
     } catch (err) {
-      const error = hasGatewayConnection && err && err.code
-        ? err
-        : hasGatewayConnection
-          ? normalizeGatewayError(err)
-          : normalizeCompatError(err, "Gateway not connected for message send");
+      const error =
+        hasGatewayConnection && err && err.code
+          ? err
+          : hasGatewayConnection
+            ? normalizeGatewayError(err)
+            : normalizeCompatError(err, "Gateway not connected for message send");
       sendJson(ws, { type: "chat-send-ack", idempotencyKey, ok: false, error });
     }
   },
@@ -389,10 +398,7 @@ const commandHandlers = {
         sendJson(ws, {
           type: "chat-new-result",
           ok: false,
-          error: normalizeCompatError(
-            spawnError,
-            "Gateway spawn response missing childSessionKey",
-          ),
+          error: normalizeCompatError(spawnError, "Gateway spawn response missing childSessionKey"),
         });
       }
     } catch (err) {

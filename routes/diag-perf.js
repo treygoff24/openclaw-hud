@@ -1,18 +1,18 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const express = require('express');
-const { Router } = require('express');
-const { stripSecrets } = require('../lib/helpers');
+const fs = require("node:fs");
+const path = require("node:path");
+const express = require("express");
+const { Router } = require("express");
+const { stripSecrets } = require("../lib/helpers");
 const {
   createPerfLogWriter,
   PERF_LOG_WRITER_DEFAULTS,
   sanitizePerfEvent,
   sanitizePerfEventBatch,
-} = require('../lib/perf-log-writer');
+} = require("../lib/perf-log-writer");
 
 const router = Router();
 
-const PERF_ROUTE_PATH = '/api/diag/perf';
+const PERF_ROUTE_PATH = "/api/diag/perf";
 const PERF_EXPORT_ROUTE_PATH = `${PERF_ROUTE_PATH}/export`;
 const PERF_SYSTEM_ROUTE_PATH = `${PERF_ROUTE_PATH}/system`;
 const PERF_FILE_DIR = PERF_LOG_WRITER_DEFAULTS.dir;
@@ -21,18 +21,24 @@ const DEFAULT_PERF_LOG_OPTIONS = {
   maxBytes: PERF_LOG_WRITER_DEFAULTS.maxBytes,
   maxFiles: PERF_LOG_WRITER_DEFAULTS.maxFiles,
 };
-const PERF_UNAVAILABLE_ERROR = 'Performance diagnostics storage unavailable';
+const PERF_UNAVAILABLE_ERROR = "Performance diagnostics storage unavailable";
 
 function createNullProtoObject() {
   return Object.create(null);
 }
 
 function isSafeObjectKey(value) {
-  return typeof value === 'string' && value.trim().length > 0 && value !== '__proto__' && value !== 'constructor' && value !== 'prototype';
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value !== "__proto__" &&
+    value !== "constructor" &&
+    value !== "prototype"
+  );
 }
 
 function clampSafeText(value, maxLength = 128) {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (maxLength > 0 && trimmed.length > maxLength) {
@@ -52,7 +58,7 @@ function buildSafeEvents(rawLines) {
     }
 
     const sanitized = sanitizePerfEvent(parsed);
-    if (sanitized && typeof sanitized === 'object') {
+    if (sanitized && typeof sanitized === "object") {
       events.push(sanitized);
     }
   }
@@ -64,7 +70,7 @@ let perfLogWriter = defaultPerfLogWriter;
 let perfExporter = createPerfExporter(perfLogWriter);
 
 function parseValidTimestamp(ts) {
-  if (typeof ts !== 'string') {
+  if (typeof ts !== "string") {
     return null;
   }
 
@@ -104,8 +110,7 @@ function toPositiveInteger(value, fallback = 0) {
 function collectRunLevelSample(rawField, fallbackCount = 1) {
   const parsedCount = toPositiveInteger(rawField?.count, fallbackCount);
   const sampleCount = Math.max(parsedCount, 1);
-  const averagedValue =
-    sampleCount > 0 ? toFiniteNumber(rawField?.sum, null) / sampleCount : null;
+  const averagedValue = sampleCount > 0 ? toFiniteNumber(rawField?.sum, null) / sampleCount : null;
   const sampleValue = toFiniteNumber(
     rawField?.last,
     toFiniteNumber(averagedValue, toFiniteNumber(rawField?.max, null)),
@@ -161,7 +166,7 @@ function weightedPercentileFromSamples(samples, percentile) {
 
 function appendMetric(summary, metricName, fieldName, value) {
   if (!isSafeObjectKey(metricName) || !isSafeObjectKey(fieldName)) return;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return;
+  if (typeof value !== "number" || !Number.isFinite(value)) return;
 
   if (!Object.prototype.hasOwnProperty.call(summary, metricName)) {
     summary[metricName] = createNullProtoObject();
@@ -177,56 +182,60 @@ function appendMetric(summary, metricName, fieldName, value) {
 }
 
 function mapSystemSamplePayload(body) {
-  if (!body || typeof body !== 'object') {
-    return { ok: false, error: 'Invalid payload: expected object' };
+  if (!body || typeof body !== "object") {
+    return { ok: false, error: "Invalid payload: expected object" };
   }
 
   const runId = clampSafeText(body.runId, 128);
   if (runId === null) {
-    return { ok: false, error: 'Invalid payload: runId is required for system samples' };
+    return { ok: false, error: "Invalid payload: runId is required for system samples" };
   }
 
-  const source = clampSafeText(body.source, 64) || 'system-viewer';
-  const ts =
-    typeof body.ts === 'string' ? body.ts : new Date().toISOString();
+  const source = clampSafeText(body.source, 64) || "system-viewer";
+  const ts = typeof body.ts === "string" ? body.ts : new Date().toISOString();
 
   const summary = createNullProtoObject();
-  const power = body.power && typeof body.power === 'object' ? body.power : null;
-  const thermal = body.thermal && typeof body.thermal === 'object' ? body.thermal : null;
-  const capture = body.capture && typeof body.capture === 'object' ? body.capture : null;
+  const power = body.power && typeof body.power === "object" ? body.power : null;
+  const thermal = body.thermal && typeof body.thermal === "object" ? body.thermal : null;
+  const capture = body.capture && typeof body.capture === "object" ? body.capture : null;
 
   const appendIfNumber = (metricName, fieldName, value) => {
-    appendMetric(summary, metricName, fieldName, Number.isFinite(Number(value)) ? Number(value) : NaN);
+    appendMetric(
+      summary,
+      metricName,
+      fieldName,
+      Number.isFinite(Number(value)) ? Number(value) : NaN,
+    );
   };
 
   if (power) {
-    appendIfNumber('system.power', 'gpuPowerW', power.gpuPowerW);
-    appendIfNumber('system.power', 'gpuPowerMW', power.gpuPowerMW);
-    appendIfNumber('system.power', 'cpuPowerW', power.cpuPowerW);
-    appendIfNumber('system.power', 'packagePowerW', power.packagePowerW);
+    appendIfNumber("system.power", "gpuPowerW", power.gpuPowerW);
+    appendIfNumber("system.power", "gpuPowerMW", power.gpuPowerMW);
+    appendIfNumber("system.power", "cpuPowerW", power.cpuPowerW);
+    appendIfNumber("system.power", "packagePowerW", power.packagePowerW);
   }
 
   if (thermal) {
-    appendIfNumber('system.thermal', 'cpuTempC', thermal.cpuTempC);
-    appendIfNumber('system.thermal', 'gpuTempC', thermal.gpuTempC);
-    appendIfNumber('system.thermal', 'skinTempC', thermal.skinTempC);
-    appendIfNumber('system.thermal', 'thermalPressure', thermal.thermalPressure);
+    appendIfNumber("system.thermal", "cpuTempC", thermal.cpuTempC);
+    appendIfNumber("system.thermal", "gpuTempC", thermal.gpuTempC);
+    appendIfNumber("system.thermal", "skinTempC", thermal.skinTempC);
+    appendIfNumber("system.thermal", "thermalPressure", thermal.thermalPressure);
   }
 
   if (capture) {
-    appendIfNumber('system.capture', 'powermetricsAttempts', capture.powermetricsAttempts);
-    appendIfNumber('system.capture', 'powermetricsSuccesses', capture.powermetricsSuccesses);
-    appendIfNumber('system.capture', 'powermetricsFailures', capture.powermetricsFailures);
-    appendIfNumber('system.capture', 'powermetricsUnavailable', capture.powermetricsUnavailable);
-    appendIfNumber('system.capture', 'thermlogAttempts', capture.thermlogAttempts);
-    appendIfNumber('system.capture', 'thermlogSuccesses', capture.thermlogSuccesses);
-    appendIfNumber('system.capture', 'thermlogFailures', capture.thermlogFailures);
-    appendIfNumber('system.capture', 'thermlogUnavailable', capture.thermlogUnavailable);
+    appendIfNumber("system.capture", "powermetricsAttempts", capture.powermetricsAttempts);
+    appendIfNumber("system.capture", "powermetricsSuccesses", capture.powermetricsSuccesses);
+    appendIfNumber("system.capture", "powermetricsFailures", capture.powermetricsFailures);
+    appendIfNumber("system.capture", "powermetricsUnavailable", capture.powermetricsUnavailable);
+    appendIfNumber("system.capture", "thermlogAttempts", capture.thermlogAttempts);
+    appendIfNumber("system.capture", "thermlogSuccesses", capture.thermlogSuccesses);
+    appendIfNumber("system.capture", "thermlogFailures", capture.thermlogFailures);
+    appendIfNumber("system.capture", "thermlogUnavailable", capture.thermlogUnavailable);
   }
 
   const summaryKeys = Object.keys(summary);
   if (summaryKeys.length === 0) {
-    return { ok: false, error: 'Invalid payload: no recognized system metrics' };
+    return { ok: false, error: "Invalid payload: no recognized system metrics" };
   }
 
   return {
@@ -244,7 +253,7 @@ function mapSystemSamplePayload(body) {
 
 function createPerfExporter(writer) {
   function collectSegmentEntries() {
-    const baseName = writer?.config?.baseName || 'hud-perf';
+    const baseName = writer?.config?.baseName || "hud-perf";
     const dir = writer?.config?.dir || PERF_FILE_DIR;
     const prefix = `${baseName}-`;
     let entries = [];
@@ -256,7 +265,7 @@ function createPerfExporter(writer) {
     }
 
     const logs = entries
-      .filter((name) => name.startsWith(prefix) && name.endsWith('.jsonl'))
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".jsonl"))
       .map((name) => ({ name, path: path.join(dir, name) }))
       .filter((entry) => {
         try {
@@ -290,12 +299,15 @@ function createPerfExporter(writer) {
       for (const filePath of segmentPaths) {
         let raw;
         try {
-          raw = fs.readFileSync(filePath, 'utf8');
+          raw = fs.readFileSync(filePath, "utf8");
         } catch (_error) {
           continue;
         }
 
-        const lines = String(raw).split('\n').map((line) => line.trim()).filter(Boolean);
+        const lines = String(raw)
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
         for (const parsed of buildSafeEvents(lines)) {
           eventCount += 1;
 
@@ -313,11 +325,11 @@ function createPerfExporter(writer) {
             batchIds.add(String(parsed._batchId));
           }
 
-          if (typeof parsed.runId === 'string' && isSafeObjectKey(parsed.runId)) {
+          if (typeof parsed.runId === "string" && isSafeObjectKey(parsed.runId)) {
             runIdCounts[parsed.runId] = (runIdCounts[parsed.runId] || 0) + 1;
           }
 
-          if (typeof parsed.source === 'string' && isSafeObjectKey(parsed.source)) {
+          if (typeof parsed.source === "string" && isSafeObjectKey(parsed.source)) {
             sources[parsed.source] = (sources[parsed.source] || 0) + 1;
           }
 
@@ -327,14 +339,14 @@ function createPerfExporter(writer) {
           }
 
           for (const [metricName, rawFields] of Object.entries(summary)) {
-            if (!rawFields || typeof rawFields !== 'object') continue;
+            if (!rawFields || typeof rawFields !== "object") continue;
             if (!Object.prototype.hasOwnProperty.call(metrics, metricName)) {
               metrics[metricName] = createNullProtoObject();
             }
             const targetFields = metrics[metricName];
 
             for (const [fieldName, rawField] of Object.entries(rawFields)) {
-              if (!rawField || typeof rawField !== 'object') continue;
+              if (!rawField || typeof rawField !== "object") continue;
 
               const next = {
                 count: Number(rawField.count) || 0,
@@ -353,7 +365,7 @@ function createPerfExporter(writer) {
                   max: next.max,
                   last: next.last,
                 };
-                if (metricName === 'fetchAll.finish' && fieldName === 'durationMs') {
+                if (metricName === "fetchAll.finish" && fieldName === "durationMs") {
                   const sample = collectRunLevelSample(rawField, 1);
                   if (sample) {
                     fetchAllSamples.push(sample);
@@ -362,11 +374,14 @@ function createPerfExporter(writer) {
                     }
                   }
                 }
-                if (metricName === 'fetchAll.finish' && fieldName === 'over500ms') {
+                if (metricName === "fetchAll.finish" && fieldName === "over500ms") {
                   sawExplicitOver500Metric = true;
-                  explicitOver500Count += toPositiveInteger(rawField?.sum, toPositiveInteger(rawField?.last, 0));
+                  explicitOver500Count += toPositiveInteger(
+                    rawField?.sum,
+                    toPositiveInteger(rawField?.last, 0),
+                  );
                 }
-                if (metricName === 'tickToPaint' && fieldName === 'durationMs') {
+                if (metricName === "tickToPaint" && fieldName === "durationMs") {
                   const sample = collectRunLevelSample(rawField, 1);
                   if (sample) {
                     tickToPaintSamples.push(sample);
@@ -383,7 +398,7 @@ function createPerfExporter(writer) {
                 last: next.last,
               };
               targetFields[fieldName] = merged;
-              if (metricName === 'fetchAll.finish' && fieldName === 'durationMs') {
+              if (metricName === "fetchAll.finish" && fieldName === "durationMs") {
                 const sample = collectRunLevelSample(rawField, 1);
                 if (sample) {
                   fetchAllSamples.push(sample);
@@ -392,11 +407,14 @@ function createPerfExporter(writer) {
                   }
                 }
               }
-              if (metricName === 'fetchAll.finish' && fieldName === 'over500ms') {
+              if (metricName === "fetchAll.finish" && fieldName === "over500ms") {
                 sawExplicitOver500Metric = true;
-                explicitOver500Count += toPositiveInteger(rawField?.sum, toPositiveInteger(rawField?.last, 0));
+                explicitOver500Count += toPositiveInteger(
+                  rawField?.sum,
+                  toPositiveInteger(rawField?.last, 0),
+                );
               }
-              if (metricName === 'tickToPaint' && fieldName === 'durationMs') {
+              if (metricName === "tickToPaint" && fieldName === "durationMs") {
                 const sample = collectRunLevelSample(rawField, 1);
                 if (sample) {
                   tickToPaintSamples.push(sample);
@@ -442,12 +460,12 @@ function setPerfLogWriter(nextWriter) {
     return;
   }
 
-  if (typeof nextWriter.appendBatch === 'function') {
+  if (typeof nextWriter.appendBatch === "function") {
     perfLogWriter = nextWriter;
     return;
   }
 
-  throw new Error('perfLogWriter must expose appendBatch(eventBatch)');
+  throw new Error("perfLogWriter must expose appendBatch(eventBatch)");
 }
 
 function setPerfExporter(nextExporter) {
@@ -456,26 +474,28 @@ function setPerfExporter(nextExporter) {
     return;
   }
 
-  if (typeof nextExporter.buildSummary === 'function') {
+  if (typeof nextExporter.buildSummary === "function") {
     perfExporter = nextExporter;
     return;
   }
 
-  throw new Error('perfExporter must expose buildSummary()');
+  throw new Error("perfExporter must expose buildSummary()");
 }
 
 async function appendSanitizedPerfEvents(rawEvents) {
   if (!Array.isArray(rawEvents)) {
-    throw new Error('perf event batch must be an array');
+    throw new Error("perf event batch must be an array");
   }
 
   const events = sanitizePerfEventBatch(
-    rawEvents.filter((event) => event && typeof event === 'object'),
+    rawEvents.filter((event) => event && typeof event === "object"),
   );
 
   if (perfLogWriter && perfLogWriter.isAvailable === false) {
-    const unavailable = new Error(perfLogWriter.unavailableReason || 'Performance log writer unavailable');
-    unavailable.code = 'E_PERF_LOG_WRITER_UNAVAILABLE';
+    const unavailable = new Error(
+      perfLogWriter.unavailableReason || "Performance log writer unavailable",
+    );
+    unavailable.code = "E_PERF_LOG_WRITER_UNAVAILABLE";
     throw unavailable;
   }
 
@@ -484,12 +504,12 @@ async function appendSanitizedPerfEvents(rawEvents) {
 }
 
 function validatePerfPayload(body) {
-  if (!body || typeof body !== 'object') {
-    return { ok: false, error: 'Invalid payload: expected object' };
+  if (!body || typeof body !== "object") {
+    return { ok: false, error: "Invalid payload: expected object" };
   }
 
   if (!Array.isArray(body.events)) {
-    return { ok: false, error: 'Invalid payload: events must be an array' };
+    return { ok: false, error: "Invalid payload: events must be an array" };
   }
 
   if (body.events.length === 0) {
@@ -497,8 +517,8 @@ function validatePerfPayload(body) {
   }
 
   for (const entry of body.events) {
-    if (!entry || typeof entry !== 'object') {
-      return { ok: false, error: 'Invalid payload: each event must be an object' };
+    if (!entry || typeof entry !== "object") {
+      return { ok: false, error: "Invalid payload: each event must be an object" };
     }
   }
 
@@ -514,11 +534,11 @@ router.post(PERF_ROUTE_PATH, express.json(), async (req, res) => {
   const envelopeSource = clampSafeText(req.body.source, 64);
   const envelopeRunId = clampSafeText(req.body.runId, 128);
   const normalizedEvents = validation.events.map((event) => {
-    const clonedEvent = event && typeof event === 'object' ? event : {};
-    if (envelopeSource && !Object.prototype.hasOwnProperty.call(clonedEvent, 'source')) {
+    const clonedEvent = event && typeof event === "object" ? event : {};
+    if (envelopeSource && !Object.prototype.hasOwnProperty.call(clonedEvent, "source")) {
       clonedEvent.source = envelopeSource;
     }
-    if (envelopeRunId && !Object.prototype.hasOwnProperty.call(clonedEvent, 'runId')) {
+    if (envelopeRunId && !Object.prototype.hasOwnProperty.call(clonedEvent, "runId")) {
       clonedEvent.runId = envelopeRunId;
     }
     return clonedEvent;
@@ -545,18 +565,21 @@ router.post(PERF_ROUTE_PATH, express.json(), async (req, res) => {
       bytes: summary?.bytes,
     });
   } catch (error) {
-    if (error && error.code === 'E_PERF_EVENT_TOO_LARGE') {
+    if (error && error.code === "E_PERF_EVENT_TOO_LARGE") {
       return res.status(413).json({
         ok: false,
-        code: 'E_PERF_EVENT_TOO_LARGE',
-        error: error instanceof Error ? error.message : 'Serialized performance event exceeds maxBytes policy',
+        code: "E_PERF_EVENT_TOO_LARGE",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Serialized performance event exceeds maxBytes policy",
         repairable: true,
       });
     }
 
     if (
       perfLogWriter?.isAvailable === false ||
-      (error && error.code === 'E_PERF_LOG_WRITER_UNAVAILABLE')
+      (error && error.code === "E_PERF_LOG_WRITER_UNAVAILABLE")
     ) {
       return res.status(503).json({
         ok: false,
@@ -567,7 +590,7 @@ router.post(PERF_ROUTE_PATH, express.json(), async (req, res) => {
 
     return res.status(500).json({
       ok: false,
-      error: error instanceof Error ? error.message : 'Unable to persist performance events',
+      error: error instanceof Error ? error.message : "Unable to persist performance events",
     });
   }
 });
@@ -582,35 +605,33 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
         generatedAt: summary?.generatedAt || new Date().toISOString(),
         range: {
           from:
-            summary?.range && typeof summary.range.from === 'string' ? summary.range.from : new Date().toISOString(),
+            summary?.range && typeof summary.range.from === "string"
+              ? summary.range.from
+              : new Date().toISOString(),
           to:
-            summary?.range && typeof summary.range.to === 'string' ? summary.range.to : new Date().toISOString(),
+            summary?.range && typeof summary.range.to === "string"
+              ? summary.range.to
+              : new Date().toISOString(),
         },
         totals: {
           batches:
-            summary?.totals && Number.isFinite(summary.totals.batches)
-              ? summary.totals.batches
-              : 0,
+            summary?.totals && Number.isFinite(summary.totals.batches) ? summary.totals.batches : 0,
           events:
-            summary?.totals && Number.isFinite(summary.totals.events)
-              ? summary.totals.events
-              : 0,
-          runs:
-            summary?.totals && Number.isFinite(summary.totals.runs)
-              ? summary.totals.runs
-              : 0,
+            summary?.totals && Number.isFinite(summary.totals.events) ? summary.totals.events : 0,
+          runs: summary?.totals && Number.isFinite(summary.totals.runs) ? summary.totals.runs : 0,
           sources:
-            summary?.totals && Number.isFinite(summary.totals.sources)
-              ? summary.totals.sources
-              : 0,
+            summary?.totals && Number.isFinite(summary.totals.sources) ? summary.totals.sources : 0,
         },
-        metrics: summary?.metrics && typeof summary.metrics === 'object' ? summary.metrics : {},
+        metrics: summary?.metrics && typeof summary.metrics === "object" ? summary.metrics : {},
         runLevelSlo:
-          summary?.runLevelSlo && typeof summary.runLevelSlo === 'object'
+          summary?.runLevelSlo && typeof summary.runLevelSlo === "object"
             ? summary.runLevelSlo
             : createRunLevelSloDefaults(),
         runIds: Array.isArray(summary?.runIds) ? summary.runIds : [],
-        sourceCounts: summary?.sourceCounts && typeof summary.sourceCounts === 'object' ? summary.sourceCounts : {},
+        sourceCounts:
+          summary?.sourceCounts && typeof summary.sourceCounts === "object"
+            ? summary.sourceCounts
+            : {},
       },
     });
   } catch (error) {
@@ -618,7 +639,7 @@ router.get(PERF_EXPORT_ROUTE_PATH, async (_req, res) => {
     const runLevelSlo = createRunLevelSloDefaults();
     return res.status(500).json({
       ok: false,
-      error: error instanceof Error ? error.message : 'Unable to build performance summary',
+      error: error instanceof Error ? error.message : "Unable to build performance summary",
       summary: {
         generatedAt: now,
         range: {
@@ -665,18 +686,21 @@ router.post(PERF_SYSTEM_ROUTE_PATH, express.json(), async (req, res) => {
       source: mapped.events[0].source,
     });
   } catch (error) {
-    if (error && error.code === 'E_PERF_EVENT_TOO_LARGE') {
+    if (error && error.code === "E_PERF_EVENT_TOO_LARGE") {
       return res.status(413).json({
         ok: false,
-        code: 'E_PERF_EVENT_TOO_LARGE',
-        error: error instanceof Error ? error.message : 'Serialized performance event exceeds maxBytes policy',
+        code: "E_PERF_EVENT_TOO_LARGE",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Serialized performance event exceeds maxBytes policy",
         repairable: true,
       });
     }
 
     if (
       perfLogWriter?.isAvailable === false ||
-      (error && error.code === 'E_PERF_LOG_WRITER_UNAVAILABLE')
+      (error && error.code === "E_PERF_LOG_WRITER_UNAVAILABLE")
     ) {
       return res.status(503).json({
         ok: false,
@@ -687,7 +711,7 @@ router.post(PERF_SYSTEM_ROUTE_PATH, express.json(), async (req, res) => {
 
     return res.status(500).json({
       ok: false,
-      error: error instanceof Error ? error.message : 'Unable to persist performance events',
+      error: error instanceof Error ? error.message : "Unable to persist performance events",
     });
   }
 });

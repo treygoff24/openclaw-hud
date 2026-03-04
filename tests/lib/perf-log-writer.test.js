@@ -15,7 +15,8 @@ afterEach(() => {
 
 describe("perf log writer rotation", () => {
   it("exports canonical writer defaults and applies them when options are omitted", async () => {
-    const { createPerfLogWriter, PERF_LOG_WRITER_DEFAULTS } = await import("../../lib/perf-log-writer.js");
+    const { createPerfLogWriter, PERF_LOG_WRITER_DEFAULTS } =
+      await import("../../lib/perf-log-writer.js");
 
     expect(PERF_LOG_WRITER_DEFAULTS).toMatchObject({
       maxBytes: expect.any(Number),
@@ -33,9 +34,7 @@ describe("perf log writer rotation", () => {
       maxFiles: PERF_LOG_WRITER_DEFAULTS.maxFiles,
     });
 
-    expect(writer.config.baseName).toMatch(
-      /^hud-perf-\d{8}T\d{9}Z-[a-z0-9]+-[0-9]+-[0-9a-f]{8}$/,
-    );
+    expect(writer.config.baseName).toMatch(/^hud-perf-\d{8}T\d{9}Z-[a-z0-9]+-[0-9]+-[0-9a-f]{8}$/);
     expect(writer.config.baseName).not.toBe(PERF_LOG_WRITER_DEFAULTS.baseName);
   });
 
@@ -87,9 +86,7 @@ describe("perf log writer rotation", () => {
       },
     ]);
 
-    const segmentEntries = fs
-      .readdirSync(TMP_ROOT)
-      .filter((name) => name.endsWith(".jsonl"));
+    const segmentEntries = fs.readdirSync(TMP_ROOT).filter((name) => name.endsWith(".jsonl"));
     expect(segmentEntries).toHaveLength(2);
     expect(new Set(segmentEntries).size).toBe(2);
   });
@@ -107,22 +104,30 @@ describe("perf log writer rotation", () => {
     await writer.appendBatch([
       {
         ts: "2026-03-03T18:00:00.000Z",
-        summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 111, min: 111, max: 111, last: 111 } } },
+        summary: {
+          "fetchAll.finish": { durationMs: { count: 1, sum: 111, min: 111, max: 111, last: 111 } },
+        },
       },
       {
         ts: "2026-03-03T18:00:01.000Z",
-        summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 112, min: 112, max: 112, last: 112 } } },
+        summary: {
+          "fetchAll.finish": { durationMs: { count: 1, sum: 112, min: 112, max: 112, last: 112 } },
+        },
       },
     ]);
 
     await writer.appendBatch([
       {
         ts: "2026-03-03T18:00:02.000Z",
-        summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 113, min: 113, max: 113, last: 113 } } },
+        summary: {
+          "fetchAll.finish": { durationMs: { count: 1, sum: 113, min: 113, max: 113, last: 113 } },
+        },
       },
       {
         ts: "2026-03-03T18:00:03.000Z",
-        summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 114, min: 114, max: 114, last: 114 } } },
+        summary: {
+          "fetchAll.finish": { durationMs: { count: 1, sum: 114, min: 114, max: 114, last: 114 } },
+        },
       },
     ]);
 
@@ -176,7 +181,9 @@ describe("perf log writer rotation", () => {
       },
     };
 
-    await expect(writer.appendBatch([oversizedEvent])).rejects.toThrow(/maxBytes|exceeds|oversized/i);
+    await expect(writer.appendBatch([oversizedEvent])).rejects.toThrow(
+      /maxBytes|exceeds|oversized/i,
+    );
 
     expect(writer.readSegmentPaths()).toHaveLength(0);
   });

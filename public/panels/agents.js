@@ -20,7 +20,7 @@ HUD.agents = (function () {
     const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
     const now = Date.now();
     let activeCount = 0;
-    
+
     const html = filtered
       .map((a, index) => {
         const recent = a.sessions[0]?.updatedAt;
@@ -39,18 +39,18 @@ HUD.agents = (function () {
       </div>`;
       })
       .join("");
-    
+
     return { html, filteredCount: filtered.length, activeCount, totalCount: agents.length };
   }
 
   function updateAgentsList() {
     const agentsList = $("#agents-list");
     if (!agentsList || !window._agents) return;
-    
+
     const { html, filteredCount } = buildAgentsHTML(window._agents);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(agentsList, temp, { childrenOnly: true });
     } else {
@@ -58,7 +58,7 @@ HUD.agents = (function () {
     }
 
     applyFocusableAgentCards();
-    
+
     $("#agent-count").textContent = filteredCount;
   }
 
@@ -66,11 +66,11 @@ HUD.agents = (function () {
     if (!Array.isArray(agents)) agents = [];
     window._agents = agents;
     const { html, filteredCount, activeCount, totalCount } = buildAgentsHTML(agents);
-    
+
     const agentsList = $("#agents-list");
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(agentsList, temp, { childrenOnly: true });
     } else {
@@ -78,7 +78,7 @@ HUD.agents = (function () {
     }
 
     applyFocusableAgentCards();
-    
+
     $("#agent-count").textContent = filteredCount;
 
     const statAgents = document.getElementById("stat-agents");

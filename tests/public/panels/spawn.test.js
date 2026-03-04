@@ -272,7 +272,8 @@ describe("spawn.preflight", () => {
             diagnostics: [
               {
                 code: "SPAWN_HARDENING_PRECHECK",
-                message: "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
+                message:
+                  "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
                 remediation:
                   "Set OPENCLAW_SPAWN_ALLOWLIST_OVERRIDE and OPENCLAW_SPAWN_DENYLIST_OVERRIDE",
               },

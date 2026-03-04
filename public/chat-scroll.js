@@ -17,7 +17,7 @@
     if (scrollQueued) return;
     if (!force && !isAtBottom()) return;
     scrollQueued = true;
-    requestAnimationFrame(function() {
+    requestAnimationFrame(function () {
       container.scrollTop = container.scrollHeight;
       scrollQueued = false;
       if (_pill) _pill.classList.remove("visible");

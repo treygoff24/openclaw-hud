@@ -93,11 +93,11 @@ HUD.sessionTree = (function () {
   function updateTree() {
     const treeBody = $("#tree-body");
     if (!treeBody || !window._treeData) return;
-    
+
     const nextHTML = buildTreeHTML(window._treeData);
     const temp = document.createElement("div");
     temp.innerHTML = nextHTML;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(treeBody, temp, { childrenOnly: true });
     } else {

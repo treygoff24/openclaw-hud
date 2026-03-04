@@ -198,7 +198,9 @@ test.describe("Spawn Modal", () => {
     await expect(page.locator("#spawn-error")).toContainText(
       "Spawn setup requires allowlist/denylist override configuration.",
     );
-    const openSpawnErrorDisplay = await page.locator("#spawn-error").evaluate((el) => el.style.display);
+    const openSpawnErrorDisplay = await page
+      .locator("#spawn-error")
+      .evaluate((el) => el.style.display);
     expect(openSpawnErrorDisplay).toBe("block");
     await expect(page.locator("#spawn-modal")).not.toHaveClass(/active/);
   });
@@ -210,7 +212,9 @@ test.describe("Spawn Modal", () => {
     await expect(page.locator("#spawn-modal")).toHaveClass(/active/);
     await page.locator("#spawn-launch-btn").click();
     await expect(page.locator("#spawn-error")).toContainText("required");
-    const promptErrorDisplay = await page.locator("#spawn-error").evaluate((el) => el.style.display);
+    const promptErrorDisplay = await page
+      .locator("#spawn-error")
+      .evaluate((el) => el.style.display);
     expect(promptErrorDisplay).toBe("block");
   });
 

@@ -11,7 +11,7 @@ describe("month-usage-cache", () => {
   beforeEach(() => {
     testDir = path.join("/tmp", `hud-cache-test-${Date.now()}`);
     process.env.OPENCLAW_HOME = testDir;
-    
+
     // Clear require cache and reload module with new OPENCLAW_HOME
     delete require.cache[require.resolve("../../lib/month-usage-cache")];
     delete require.cache[require.resolve("../../lib/helpers")];
@@ -33,7 +33,7 @@ describe("month-usage-cache", () => {
     it("returns path within OPENCLAW_HOME/hud-cache/monthly/", () => {
       const cacheKey = "test-key-123";
       const cachePath = cacheModule.getMonthCachePath(cacheKey);
-      
+
       expect(cachePath).toContain("hud-cache");
       expect(cachePath).toContain("monthly");
       expect(cachePath).toContain(cacheKey);
@@ -43,7 +43,7 @@ describe("month-usage-cache", () => {
     it("creates hud-cache directory if it doesn't exist", () => {
       const cacheKey = "new-cache";
       cacheModule.getMonthCachePath(cacheKey);
-      
+
       const hudCacheDir = path.join(testDir, "hud-cache");
       expect(fs.existsSync(hudCacheDir)).toBe(true);
     });
@@ -51,7 +51,7 @@ describe("month-usage-cache", () => {
     it("sanitizes cache key to prevent directory traversal", () => {
       const maliciousKey = "../../../etc/passwd";
       const cachePath = cacheModule.getMonthCachePath(maliciousKey);
-      
+
       // Should not contain path traversal
       expect(cachePath).not.toContain("../");
       expect(cachePath).toContain("etc-passwd"); // Sanitized version
@@ -66,10 +66,10 @@ describe("month-usage-cache", () => {
         pricingFingerprint: "v1",
         sessionsLimit: 500,
       };
-      
+
       const key1 = cacheModule.generateMonthCacheKey(params);
       const key2 = cacheModule.generateMonthCacheKey(params);
-      
+
       expect(key1).toBe(key2);
       expect(typeof key1).toBe("string");
       expect(key1.length).toBeGreaterThan(0);
@@ -82,14 +82,14 @@ describe("month-usage-cache", () => {
         pricingFingerprint: "v1",
         sessionsLimit: 500,
       });
-      
+
       const key2 = cacheModule.generateMonthCacheKey({
         tz: "America/New_York", // Different TZ
         monthStartMs: 1704067200000,
         pricingFingerprint: "v1",
         sessionsLimit: 500,
       });
-      
+
       expect(key1).not.toBe(key2);
     });
   });
@@ -101,12 +101,12 @@ describe("month-usage-cache", () => {
         usageRows: [{ model: "gpt-4", cost: 10 }],
         diagnostics: { isPartial: false },
       };
-      
+
       cacheModule.writeMonthCache(cacheKey, payload);
-      
+
       const cachePath = cacheModule.getMonthCachePath(cacheKey);
       expect(fs.existsSync(cachePath)).toBe(true);
-      
+
       const content = JSON.parse(fs.readFileSync(cachePath, "utf8"));
       expect(content.payload).toEqual(payload);
       expect(content.timestamp).toBeDefined();
@@ -115,10 +115,10 @@ describe("month-usage-cache", () => {
 
     it("overwrites existing cache file", () => {
       const cacheKey = "test-overwrite";
-      
+
       cacheModule.writeMonthCache(cacheKey, { data: "old" });
       cacheModule.writeMonthCache(cacheKey, { data: "new" });
-      
+
       const cachePath = cacheModule.getMonthCachePath(cacheKey);
       const content = JSON.parse(fs.readFileSync(cachePath, "utf8"));
       expect(content.payload.data).toBe("new");
@@ -137,9 +137,9 @@ describe("month-usage-cache", () => {
         usageRows: [{ model: "gpt-4", cost: 25 }],
         diagnostics: { isPartial: true, reason: "timeout" },
       };
-      
+
       cacheModule.writeMonthCache(cacheKey, payload);
-      
+
       const result = cacheModule.readMonthCache(cacheKey);
       expect(result).toEqual(payload);
     });
@@ -147,9 +147,9 @@ describe("month-usage-cache", () => {
     it("returns null for corrupted cache file", () => {
       const cacheKey = "corrupted";
       const cachePath = cacheModule.getMonthCachePath(cacheKey);
-      
+
       fs.writeFileSync(cachePath, "not valid json");
-      
+
       const result = cacheModule.readMonthCache(cacheKey);
       expect(result).toBeNull();
     });
@@ -195,14 +195,14 @@ describe("month-usage-cache", () => {
     it("returns true for fresh cache", () => {
       const cacheKey = "fresh-cache";
       cacheModule.writeMonthCache(cacheKey, { data: "test" });
-      
+
       expect(cacheModule.shouldUseMonthCache(cacheKey, Date.now())).toBe(true);
     });
 
     it("returns false for expired cache", () => {
       const cacheKey = "expired-cache";
       cacheModule.writeMonthCache(cacheKey, { data: "test" });
-      
+
       const futureTime = Date.now() + 400000; // 400 seconds in future
       expect(cacheModule.shouldUseMonthCache(cacheKey, futureTime, 300000)).toBe(false);
     });
@@ -210,7 +210,7 @@ describe("month-usage-cache", () => {
     it("respects custom TTL", () => {
       const cacheKey = "custom-ttl";
       cacheModule.writeMonthCache(cacheKey, { data: "test" });
-      
+
       // Cache is 10 seconds old, but TTL is 30 seconds
       const tenSecondsLater = Date.now() + 10000;
       expect(cacheModule.shouldUseMonthCache(cacheKey, tenSecondsLater, 30000)).toBe(true);

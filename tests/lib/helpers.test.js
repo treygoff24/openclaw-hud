@@ -413,12 +413,8 @@ describe("OPENCLAW_HOME", () => {
 });
 
 // --------------- Async helpers ---------------
-const {
-  safeReadAsync,
-  safeJSONAsync,
-  safeJSON5Async,
-  safeReaddirAsync,
-} = await import("../../lib/helpers.js");
+const { safeReadAsync, safeJSONAsync, safeJSON5Async, safeReaddirAsync } =
+  await import("../../lib/helpers.js");
 
 describe("safeReadAsync", () => {
   it("returns file content as string when file exists", async () => {
@@ -453,11 +449,14 @@ describe("safeJSONAsync", () => {
 describe("safeJSON5Async", () => {
   it("parses valid JSON5 with comments and trailing commas", async () => {
     const fp = path.join(TMPDIR, "async-config.json5");
-    fs.writeFileSync(fp, `{
+    fs.writeFileSync(
+      fp,
+      `{
       // comment
       name: "test",
       value: 42,
-    }`);
+    }`,
+    );
     const result = await safeJSON5Async(fp);
     expect(result.name).toBe("test");
     expect(result.value).toBe(42);

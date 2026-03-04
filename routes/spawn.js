@@ -43,13 +43,29 @@ function normalizeSpawnPreflightState(nextState = {}) {
   return {
     ok: Boolean(base.ok),
     enabled: Boolean(base.ok && base.enabled),
-    code: typeof base.code === "string" && base.code.trim() ? base.code.trim() : base.ok ? "READY" : "SPAWN_PRECHECK_FAILED",
-    status: typeof base.status === "string" && base.status.trim() ? base.status.trim() : base.ok ? "ready" : "blocked",
+    code:
+      typeof base.code === "string" && base.code.trim()
+        ? base.code.trim()
+        : base.ok
+          ? "READY"
+          : "SPAWN_PRECHECK_FAILED",
+    status:
+      typeof base.status === "string" && base.status.trim()
+        ? base.status.trim()
+        : base.ok
+          ? "ready"
+          : "blocked",
     reason:
-      typeof base.reason === "string" && base.reason.trim() ? base.reason.trim() : base.ok ? "spawn preflight passed" : "spawn preflight blocked",
+      typeof base.reason === "string" && base.reason.trim()
+        ? base.reason.trim()
+        : base.ok
+          ? "spawn preflight passed"
+          : "spawn preflight blocked",
     diagnostics,
     checkedAt:
-      typeof base.checkedAt === "number" && Number.isFinite(base.checkedAt) ? base.checkedAt : Date.now(),
+      typeof base.checkedAt === "number" && Number.isFinite(base.checkedAt)
+        ? base.checkedAt
+        : Date.now(),
     source: typeof base.source === "string" && base.source.trim() ? base.source.trim() : "server",
   };
 }
@@ -268,7 +284,7 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
     throw err;
   }
 
-    spawnTimestamps.push(Date.now());
+  spawnTimestamps.push(Date.now());
 
   try {
     const gwRes = await fetch(`${gatewayInvokeBaseUrl}/tools/invoke`, {
@@ -318,7 +334,10 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
     if (!sessionKey && !runId) {
       return writeCompatibilityErrorResponse(
         res,
-        { code: "SPAWN_RESPONSE_INVALID", message: "Gateway spawn response missing session/run identifiers." },
+        {
+          code: "SPAWN_RESPONSE_INVALID",
+          message: "Gateway spawn response missing session/run identifiers.",
+        },
         "Gateway returned a spawn response without usable session/run identifiers.",
       );
     }
@@ -329,7 +348,11 @@ router.post("/api/spawn", requireLocalOrigin, express.json(), async (req, res) =
       runId: runId || null,
     });
   } catch (err) {
-    return writeCompatibilityErrorResponse(res, { message: err.message, code: err.code, status: 502 }, err.message);
+    return writeCompatibilityErrorResponse(
+      res,
+      { message: err.message, code: err.code, status: 502 },
+      err.message,
+    );
   }
 });
 

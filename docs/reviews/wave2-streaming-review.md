@@ -1,6 +1,7 @@
 # Wave 2 Chat Streaming JS Fixes — Code Review
 
 ## Summary
+
 The `gpu/wave2-chat-streaming` branch successfully implements several crucial performance optimizations for the chat UI. The switch to `DocumentFragment` batching for history load and the LRU caching for markdown rendering are solid improvements. Replacing `innerHTML` serialization with `replaceChildren` in the virtual scroller is an excellent fix that restores DOM event safety and efficiency.
 
 However, the implementation of the `requestAnimationFrame` (rAF) autoscroll logic introduces a critical regression that completely breaks the "force scroll to bottom" behavior (e.g., when switching sessions or loading history).
@@ -16,7 +17,8 @@ However, the implementation of the `requestAnimationFrame` (rAF) autoscroll logi
 ## Issues Found
 
 ### Critical
-- **`force` scroll is ignored in `chat-scroll.js`**: In `ChatScroll.scrollToBottom(force)`, the `force` parameter indicates we should scroll to the bottom regardless of the user's current scroll position. However, it delegates to `scheduleAutoScroll(_container)` without passing the flag, and `scheduleAutoScroll` hardcodes a check for `!isAtBottom()`. If the user is scrolled up (or if history just loaded and `scrollTop` is 0), `isAtBottom()` is `false`, so `scheduleAutoScroll` returns immediately *without* scrolling.
+
+- **`force` scroll is ignored in `chat-scroll.js`**: In `ChatScroll.scrollToBottom(force)`, the `force` parameter indicates we should scroll to the bottom regardless of the user's current scroll position. However, it delegates to `scheduleAutoScroll(_container)` without passing the flag, and `scheduleAutoScroll` hardcodes a check for `!isAtBottom()`. If the user is scrolled up (or if history just loaded and `scrollTop` is 0), `isAtBottom()` is `false`, so `scheduleAutoScroll` returns immediately _without_ scrolling.
   - **Impact**: Loading history, switching sessions, or clicking the "Scroll to Bottom" pill will fail to scroll the view down.
   - **Fix**: Update `scheduleAutoScroll` to accept the `force` parameter:
     ```javascript
@@ -34,10 +36,13 @@ However, the implementation of the `requestAnimationFrame` (rAF) autoscroll logi
     And update the callsite in `scrollToBottom` to pass it: `scheduleAutoScroll(_container, force);`.
 
 ### Warning
+
 - **Recycle Pool `innerHTML` destruction**: In `chat-messages.js`, `createOrRecycleElement` clears recycled elements via `el.innerHTML = ""`. While `replaceChildren` initially preserves event listeners from `messageEl` inside the virtualized list, `innerHTML = ""` destroys them when the element is recycled. This is memory-safe (the GC cleans them up) because `chat-markdown.js` relies on document-level event delegation for copy buttons, but if any future interactive components add direct listeners, they will be dropped upon recycle.
 
 ### Suggestions
+
 - **Syntax Consistency**: `chat-scroll.js` mixes ES5 `var` with an ES6 arrow function (`requestAnimationFrame(() => { ... })`). Since the rest of the file uses ES5 syntax, it's better to stick to `function()` for consistency, though this doesn't impact modern browsers.
 
 ## Verdict
+
 FAIL — Needs fix for the `chat-scroll.js` critical bug before merging to prevent a broken scrolling experience.

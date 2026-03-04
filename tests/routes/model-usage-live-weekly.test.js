@@ -718,7 +718,9 @@ describe("GET /api/model-usage/live-weekly", () => {
     expect(observedApiTailTelemetry.at(1)).toMatchObject({
       cacheState: expect.objectContaining({ state: "disabled" }),
     });
-    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(1);
+    expect(observedApiTailTelemetry.at(1)?.summary?.["apiTail.metric.cacheMiss"]?.count?.sum).toBe(
+      1,
+    );
   });
 
   it("surfaces gateway error when sessions.usage is unavailable (no fallback payload)", async () => {

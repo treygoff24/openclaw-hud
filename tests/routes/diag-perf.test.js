@@ -132,9 +132,7 @@ describe("perf diagnostics route contract", () => {
       ],
     };
 
-    const res = await request(createApp({ writer }))
-      .post("/api/diag/perf")
-      .send(payload);
+    const res = await request(createApp({ writer })).post("/api/diag/perf").send(payload);
 
     expect(res.status).toBe(202);
     expect(appendBatch).toHaveBeenCalledTimes(1);
@@ -236,7 +234,7 @@ describe("perf diagnostics route contract", () => {
           "apiTail.request": {
             status: { count: 1, sum: 200, min: 200, max: 200, last: 200 },
           },
-          "__proto__": {
+          __proto__: {
             polluted: { count: 1, sum: 1, min: 1, max: 1, last: 1 },
           },
         },
@@ -710,11 +708,7 @@ describe("perf diagnostics route contract", () => {
         }
       }
     }`);
-    fs.writeFileSync(
-      segmentPath,
-      `${JSON.stringify(maliciousEntry)}\n`,
-      "utf8",
-    );
+    fs.writeFileSync(segmentPath, `${JSON.stringify(maliciousEntry)}\n`, "utf8");
 
     try {
       const writer = {
@@ -751,10 +745,12 @@ describe("perf diagnostics route contract", () => {
         app = createApp();
       }).not.toThrow();
 
-      const res = await request(app).post("/api/diag/perf").send({
-        source: "hud",
-        events: [{ ts: "2026-03-03T18:30:00.000Z", summary: {} }],
-      });
+      const res = await request(app)
+        .post("/api/diag/perf")
+        .send({
+          source: "hud",
+          events: [{ ts: "2026-03-03T18:30:00.000Z", summary: {} }],
+        });
       expect([202, 503]).toContain(res.status);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -809,12 +805,14 @@ describe("perf diagnostics route contract", () => {
     const appendBatch = vi.fn(async () => ({ written: 0, bytes: 0 }));
     const writer = { appendBatch };
 
-    const res = await request(createApp({ writer })).post("/api/diag/perf/system").send({
-      source: "viewer-macos",
-      thermal: {
-        cpuTempC: 50,
-      },
-    });
+    const res = await request(createApp({ writer }))
+      .post("/api/diag/perf/system")
+      .send({
+        source: "viewer-macos",
+        thermal: {
+          cpuTempC: 50,
+        },
+      });
 
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ ok: false, error: expect.stringMatching(/runId/i) });

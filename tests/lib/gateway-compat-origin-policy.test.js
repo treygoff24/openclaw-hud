@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
-const { createRequireLocalOrigin, requireLocalOrigin } = await import(
-  "../../lib/gateway-compat/origin-policy.js"
-);
+const { createRequireLocalOrigin, requireLocalOrigin } =
+  await import("../../lib/gateway-compat/origin-policy.js");
 
 function makeReq({ origin = null, remoteAddress = "127.0.0.1" } = {}) {
   return {

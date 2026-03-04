@@ -396,7 +396,8 @@ describe("POST /api/spawn", () => {
   it("accepts gateway success payloads without result.details wrapper", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      text: async () => JSON.stringify({ result: { childSessionKey: "key-789", runId: "run-101" } }),
+      text: async () =>
+        JSON.stringify({ result: { childSessionKey: "key-789", runId: "run-101" } }),
       json: async () => ({ result: { childSessionKey: "key-789", runId: "run-101" } }),
     });
 

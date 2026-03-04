@@ -43,7 +43,11 @@
     if (options && typeof options.now === "function") {
       return options.now;
     }
-    if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+    if (
+      typeof performance !== "undefined" &&
+      performance &&
+      typeof performance.now === "function"
+    ) {
       return function () {
         return performance.now();
       };
@@ -302,7 +306,8 @@
         if (messageType === "tick") {
           const tickPaintStartMs = shouldRecord ? nowMs() : null;
           const currentRunId = resolvePerfRunIdFromContext();
-          const tickRunId = currentRunId == null ? activeTickRunId || "tick-" + ++tickRunSeq : currentRunId;
+          const tickRunId =
+            currentRunId == null ? activeTickRunId || "tick-" + ++tickRunSeq : currentRunId;
 
           if (currentRunId == null) {
             activeTickRunId = tickRunId;

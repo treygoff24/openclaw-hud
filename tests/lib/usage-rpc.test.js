@@ -40,7 +40,11 @@ describe("usage-rpc", () => {
       sessions: [{ id: "abc" }],
     });
 
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    helpers.getGatewayConfig = vi.fn(() => ({
+      host: "127.0.0.1",
+      port: 18789,
+      token: "test-token",
+    }));
 
     const { requestSessionsUsage } = loadModule();
     const result = await requestSessionsUsage({
@@ -86,7 +90,11 @@ describe("usage-rpc", () => {
       }),
     );
 
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    helpers.getGatewayConfig = vi.fn(() => ({
+      host: "127.0.0.1",
+      port: 18789,
+      token: "test-token",
+    }));
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({
@@ -103,7 +111,11 @@ describe("usage-rpc", () => {
       }),
     );
 
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    helpers.getGatewayConfig = vi.fn(() => ({
+      host: "127.0.0.1",
+      port: 18789,
+      token: "test-token",
+    }));
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({
@@ -113,9 +125,15 @@ describe("usage-rpc", () => {
   });
 
   it("preserves generic gateway response errors", async () => {
-    vi.spyOn(compatClient, "callGatewayMethod").mockRejectedValue(new Error("Gateway rejected request"));
+    vi.spyOn(compatClient, "callGatewayMethod").mockRejectedValue(
+      new Error("Gateway rejected request"),
+    );
 
-    helpers.getGatewayConfig = vi.fn(() => ({ host: "127.0.0.1", port: 18789, token: "test-token" }));
+    helpers.getGatewayConfig = vi.fn(() => ({
+      host: "127.0.0.1",
+      port: 18789,
+      token: "test-token",
+    }));
     const { requestSessionsUsage } = loadModule();
 
     await expect(requestSessionsUsage({ from: 1, to: 2 })).rejects.toMatchObject({

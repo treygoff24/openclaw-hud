@@ -48,12 +48,12 @@ HUD.sessions = (function () {
         throw new Error("sessions.render requires canonical sessionKey for each session");
     }
     $("#session-count").textContent = sessions.length;
-    
+
     const sessionsList = $("#sessions-list");
     const html = buildSessionsHTML(sessions);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(sessionsList, temp, { childrenOnly: true });
     } else {

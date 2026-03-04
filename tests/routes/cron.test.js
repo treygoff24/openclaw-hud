@@ -191,11 +191,13 @@ describe("POST /api/cron", () => {
   });
 
   it("returns mapped gateway error codes for add failures", async () => {
-    cronGateway.addCronJob.mockRejectedValue({ code: "INVALID_REQUEST", status: 400, message: "bad payload" });
+    cronGateway.addCronJob.mockRejectedValue({
+      code: "INVALID_REQUEST",
+      status: 400,
+      message: "bad payload",
+    });
 
-    const res = await request(createApp())
-      .post("/api/cron")
-      .send({ name: "Manual" });
+    const res = await request(createApp()).post("/api/cron").send({ name: "Manual" });
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("BAD_REQUEST");
@@ -298,10 +300,7 @@ describe("DELETE /api/cron/:jobId", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, removed: false, id: "missing" });
-    expect(cronGateway.removeCronJob).toHaveBeenCalledWith(
-      "missing",
-      expect.any(Object),
-    );
+    expect(cronGateway.removeCronJob).toHaveBeenCalledWith("missing", expect.any(Object));
   });
 
   it("returns removed true when deletion succeeds", async () => {

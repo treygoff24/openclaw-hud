@@ -2,11 +2,22 @@ const path = require("path");
 const fs = require("fs");
 const { OPENCLAW_HOME, safeJSON, safeRead } = require("../../lib/helpers");
 const { parseCanonicalSessionKey } = require("./session-key");
-const { normalizeGatewayError: normalizeCompatGatewayError } = require("../../lib/gateway-compat/error-map");
+const {
+  normalizeGatewayError: normalizeCompatGatewayError,
+} = require("../../lib/gateway-compat/error-map");
 
 const CHAT_HISTORY_LOG_PREFIX = "[CHAT-HISTORY]";
-const SESSION_NOT_FOUND_CODES = new Set(["INVALID_SESSION_KEY", "SESSION_NOT_FOUND", "UNKNOWN_SESSION_KEY"]);
-const AUTH_SCOPE_CODES = new Set(["INVALID_SCOPE", "MISSING_SCOPE", "AUTH_SCOPE_MISSING", "INSUFFICIENT_SCOPE"]);
+const SESSION_NOT_FOUND_CODES = new Set([
+  "INVALID_SESSION_KEY",
+  "SESSION_NOT_FOUND",
+  "UNKNOWN_SESSION_KEY",
+]);
+const AUTH_SCOPE_CODES = new Set([
+  "INVALID_SCOPE",
+  "MISSING_SCOPE",
+  "AUTH_SCOPE_MISSING",
+  "INSUFFICIENT_SCOPE",
+]);
 
 function normalizeHistoryLimit(limit) {
   if (limit === undefined || limit === null || limit === "") return null;
@@ -241,7 +252,11 @@ function normalizeGatewayError(err) {
 
 function classifyChatHistoryGatewayError(err) {
   const normalized = normalizeCompatGatewayError(err);
-  return normalizeChatHistoryReason(normalized.reason, String(normalized.rawCode || ""), normalized.message);
+  return normalizeChatHistoryReason(
+    normalized.reason,
+    String(normalized.rawCode || ""),
+    normalized.message,
+  );
 }
 
 function adaptChatHistoryGatewayError(err) {
@@ -275,7 +290,10 @@ function normalizeChatHistoryReason(reason, rawCode, message) {
     return "not_found";
   }
 
-  if (AUTH_SCOPE_CODES.has(codeUpper) || /missing scope|scope.*missing|insufficient scope/i.test(messageLower)) {
+  if (
+    AUTH_SCOPE_CODES.has(codeUpper) ||
+    /missing scope|scope.*missing|insufficient scope/i.test(messageLower)
+  ) {
     return "missing_scope";
   }
 

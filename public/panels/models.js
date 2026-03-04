@@ -86,15 +86,17 @@ HUD.models = (function () {
     const payload = usagePayload && typeof usagePayload === "object" ? usagePayload : {};
     const payloadSummary =
       payload.summary && typeof payload.summary === "object" ? payload.summary : {};
-    
+
     // Get monthly data from separate endpoint (fetched async)
-    const monthlyPayload = payload._monthlyData && typeof payload._monthlyData === "object" 
-      ? payload._monthlyData 
-      : null;
-    const monthlySummary = monthlyPayload?.summary && typeof monthlyPayload.summary === "object"
-      ? monthlyPayload.summary
-      : {};
-    
+    const monthlyPayload =
+      payload._monthlyData && typeof payload._monthlyData === "object"
+        ? payload._monthlyData
+        : null;
+    const monthlySummary =
+      monthlyPayload?.summary && typeof monthlyPayload.summary === "object"
+        ? monthlyPayload.summary
+        : {};
+
     const weeklySpend = pickFirstFinite(
       [
         payloadSummary.weekSpend,
@@ -118,22 +120,17 @@ HUD.models = (function () {
 
     // Top model comes from monthly endpoint
     const explicitTop = normalizeTopModel(
-      monthlySummary.topMonthModel ||
-        monthlyPayload?.summary?.topMonthModel
+      monthlySummary.topMonthModel || monthlyPayload?.summary?.topMonthModel,
     );
-    const monthModels = Array.isArray(monthlyPayload?.models)
-      ? monthlyPayload.models
-      : [];
+    const monthModels = Array.isArray(monthlyPayload?.models) ? monthlyPayload.models : [];
     const derivedTopFromMonthRows = getTopModelFromRows(monthModels);
     const derivedTopFromWeeklyRows = getTopModelFromRows(rows);
     const topModel = explicitTop || derivedTopFromMonthRows || derivedTopFromWeeklyRows;
     const topModelName = topModel?.modelName || "";
     const topModelSpend = pickFirstFinite([topModel?.spend], 0);
-    
+
     // Check if month data is partial (from diagnostics)
-    const isMonthToDatePartial = Boolean(
-      monthlyPayload?.meta?.sessionsUsage?.isPartial === true
-    );
+    const isMonthToDatePartial = Boolean(monthlyPayload?.meta?.sessionsUsage?.isPartial === true);
 
     return {
       weeklySpend,
@@ -343,7 +340,7 @@ HUD.models = (function () {
     const html = buildModelsHTML(usage, responseMeta);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(mount, temp, { childrenOnly: true });
     } else {

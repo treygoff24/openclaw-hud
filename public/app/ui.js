@@ -69,7 +69,7 @@
       });
     }
 
-  function renderPanelSafe(panelName, panelEl, renderFn, data, options) {
+    function renderPanelSafe(panelName, panelEl, renderFn, data, options) {
       if (!panelEl) {
         console.warn("Panel element not found: " + panelName);
         return;
@@ -149,7 +149,11 @@
         }
       }
 
-      if (shouldRecordPerf && shouldSamplePostPaint() && typeof requestAnimationFrame === "function") {
+      if (
+        shouldRecordPerf &&
+        shouldSamplePostPaint() &&
+        typeof requestAnimationFrame === "function"
+      ) {
         const paintScheduledAt =
           typeof performance !== "undefined" && typeof performance.now === "function"
             ? performance.now()

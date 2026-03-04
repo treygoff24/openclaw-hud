@@ -54,11 +54,7 @@ describe("tailLines", () => {
 
   it("returns all lines when file has fewer than N lines", async () => {
     const fp = path.join(TMPDIR, "few.jsonl");
-    const lines = [
-      JSON.stringify({ a: 1 }),
-      JSON.stringify({ a: 2 }),
-      JSON.stringify({ a: 3 }),
-    ];
+    const lines = [JSON.stringify({ a: 1 }), JSON.stringify({ a: 2 }), JSON.stringify({ a: 3 })];
     fs.writeFileSync(fp, lines.join("\n") + "\n");
     const result = await tailLines(fp, 10);
     expect(result).toHaveLength(3);

@@ -13,11 +13,21 @@
       return null;
     }
 
-    if (normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes") {
+    if (
+      normalized === "1" ||
+      normalized === "true" ||
+      normalized === "on" ||
+      normalized === "yes"
+    ) {
       return true;
     }
 
-    if (normalized === "0" || normalized === "false" || normalized === "off" || normalized === "no") {
+    if (
+      normalized === "0" ||
+      normalized === "false" ||
+      normalized === "off" ||
+      normalized === "no"
+    ) {
       return false;
     }
 
@@ -81,12 +91,11 @@
         : typeof options.search === "string"
           ? options.search
           : "";
-    var storage =
-      Object.prototype.hasOwnProperty.call(options, "localStorage")
-        ? options.localStorage
-        : typeof window !== "undefined"
-          ? window.localStorage
-          : null;
+    var storage = Object.prototype.hasOwnProperty.call(options, "localStorage")
+      ? options.localStorage
+      : typeof window !== "undefined"
+        ? window.localStorage
+        : null;
 
     var hydratedRunId = normalizePerfRunIdFromSearch(locationSearch);
     if (hydratedRunId == null) {
@@ -95,7 +104,10 @@
 
     window.HUDApp = window.HUDApp || {};
 
-    if (!window.HUDApp.perfEventContext || typeof window.HUDApp.perfEventContext.setRunId !== "function") {
+    if (
+      !window.HUDApp.perfEventContext ||
+      typeof window.HUDApp.perfEventContext.setRunId !== "function"
+    ) {
       window.HUDApp.perfEventContext = {
         runId: null,
         setRunId: function (runId) {
@@ -139,14 +151,13 @@
     var options = input || {};
     var isEnabled = Boolean(options.enabled);
     var monitor = options.monitor || null;
-    var observerFactory = options.performanceObserver || (typeof window !== "undefined" && window.PerformanceObserver);
-    var eventName = typeof options.eventName === "string" && options.eventName.trim()
-      ? options.eventName.trim()
-      : "longtask";
-    var logger =
-      typeof options.logger === "function"
-        ? options.logger
-        : function () {};
+    var observerFactory =
+      options.performanceObserver || (typeof window !== "undefined" && window.PerformanceObserver);
+    var eventName =
+      typeof options.eventName === "string" && options.eventName.trim()
+        ? options.eventName.trim()
+        : "longtask";
+    var logger = typeof options.logger === "function" ? options.logger : function () {};
     var longTaskObserver = null;
     var isStarted = false;
 
@@ -267,13 +278,11 @@
     var monitor = options.monitor || null;
     var observerFactory =
       options.performanceObserver || (typeof window !== "undefined" && window.PerformanceObserver);
-    var eventName = typeof options.eventName === "string" && options.eventName.trim()
-      ? options.eventName.trim()
-      : "long-animation-frame";
-    var logger =
-      typeof options.logger === "function"
-        ? options.logger
-        : function () {};
+    var eventName =
+      typeof options.eventName === "string" && options.eventName.trim()
+        ? options.eventName.trim()
+        : "long-animation-frame";
+    var logger = typeof options.logger === "function" ? options.logger : function () {};
     var longAnimationFrameObserver = null;
     var isStarted = false;
 
@@ -397,12 +406,13 @@
     var options = input || {};
     var isEnabled = Boolean(options.enabled);
     var monitor = options.monitor || null;
-    var raf = options.requestAnimationFrame || (typeof window !== "undefined" && window.requestAnimationFrame);
-    var cancelRaf = options.cancelAnimationFrame || (typeof window !== "undefined" && window.cancelAnimationFrame);
-    var logger =
-      typeof options.logger === "function"
-        ? options.logger
-        : function () {};
+    var raf =
+      options.requestAnimationFrame ||
+      (typeof window !== "undefined" && window.requestAnimationFrame);
+    var cancelRaf =
+      options.cancelAnimationFrame ||
+      (typeof window !== "undefined" && window.cancelAnimationFrame);
+    var logger = typeof options.logger === "function" ? options.logger : function () {};
     var isStarted = false;
     var rafHandle = null;
     var lastTimestamp = null;
@@ -553,7 +563,9 @@
     var queryParams = locationSearch ? new URLSearchParams(locationSearch) : null;
     var querySink = parsePerfSinkValue(queryParams ? queryParams.get("hudPerfSink") : null);
     var hasQuerySink = querySink != null;
-    var longTaskFlag = parseBooleanFlagValue(queryParams ? queryParams.get("hudPerfLongTasks") : null);
+    var longTaskFlag = parseBooleanFlagValue(
+      queryParams ? queryParams.get("hudPerfLongTasks") : null,
+    );
     var localStorageValue = null;
 
     if (options.localStorage && typeof options.localStorage.getItem === "function") {
@@ -579,7 +591,10 @@
       resolvedEnabled = storageValue;
     } else if (typeof options.globalConfig === "boolean") {
       resolvedEnabled = options.globalConfig;
-    } else if (typeof options.globalConfig === "string" || typeof options.globalConfig === "number") {
+    } else if (
+      typeof options.globalConfig === "string" ||
+      typeof options.globalConfig === "number"
+    ) {
       var fallback = parseBooleanFlagValue(options.globalConfig);
       if (fallback !== null) {
         resolvedEnabled = fallback;
@@ -810,7 +825,12 @@
     }
 
     function normalizeName(record) {
-      if (record && typeof record === "object" && typeof record.name === "string" && record.name.trim()) {
+      if (
+        record &&
+        typeof record === "object" &&
+        typeof record.name === "string" &&
+        record.name.trim()
+      ) {
         return record.name.trim();
       }
 

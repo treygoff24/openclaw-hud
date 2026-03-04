@@ -170,7 +170,7 @@
     var config = Object.assign({}, PURIFY_CONFIG);
     var sanitized = DOMPurify.sanitize(raw, config);
     var result = postProcessAnchors(sanitized);
-    
+
     // Cache if under limit
     if (mdCache.size >= MD_CACHE_MAX) {
       mdCache.delete(mdCache.keys().next().value); // evict oldest
@@ -180,7 +180,7 @@
   }
 
   function renderMarkdown(text) {
-    return renderMarkdownCached(text);  // delegates to cached version
+    return renderMarkdownCached(text); // delegates to cached version
   }
 
   function renderPlainText(text) {

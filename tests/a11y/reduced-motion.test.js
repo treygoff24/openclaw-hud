@@ -19,7 +19,9 @@ describe("Reduced Motion Support", () => {
   it("should have valid status and alert keyframe definitions in panels.css", () => {
     const panelsCss = readCssFile("./public/styles/panels.css");
     const ast = postcss.parse(panelsCss);
-    const keyframes = ast.nodes.filter((node) => node.type === "atrule" && node.name === "keyframes");
+    const keyframes = ast.nodes.filter(
+      (node) => node.type === "atrule" && node.name === "keyframes",
+    );
 
     const keyframeNames = keyframes.map((node) => node.params);
     expect(keyframeNames).toContain("blink-red");

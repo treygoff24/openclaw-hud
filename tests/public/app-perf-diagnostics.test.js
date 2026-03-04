@@ -36,17 +36,15 @@ function createBootstrapHarness(options = {}) {
   const wsConnect = options.wsConnect || vi.fn();
   const perfStart = options.perfStart || vi.fn();
 
-  const diagnostics =
-    options.diagnostics ||
-    {
-      ensureHudDiagLogger: vi.fn(() => vi.fn()),
-      resolvePerfDiagnosticsFlags: vi.fn(() => ({ enabled: false })),
-      createPerfMonitor: vi.fn(() => ({
-        start: perfStart,
-        stop: vi.fn(),
-        record: vi.fn(),
-      })),
-    };
+  const diagnostics = options.diagnostics || {
+    ensureHudDiagLogger: vi.fn(() => vi.fn()),
+    resolvePerfDiagnosticsFlags: vi.fn(() => ({ enabled: false })),
+    createPerfMonitor: vi.fn(() => ({
+      start: perfStart,
+      stop: vi.fn(),
+      record: vi.fn(),
+    })),
+  };
 
   const statusController = {
     start: vi.fn(),
@@ -1542,14 +1540,34 @@ describe("data controller perf instrumentation", () => {
   it("records endpoint 304 hit-rate and payload bytes", async () => {
     const record = vi.fn();
     const responsesByUrl = {
-      "/api/agents": { status: 200, payload: [{ id: "agent-1" }], headers: { "content-length": "20" } },
-      "/api/sessions": { status: 200, payload: [] , headers: { "content-length": "3" } },
-      "/api/cron": { status: 200, payload: [] , headers: { "content-length": "2" } },
-      "/api/config": { status: 304, payload: null, headers: { "content-length": "128", "x-request-id": "cfg-304" } },
-      "/api/model-usage/live-weekly": { status: 200, payload: { weekly: { count: 1 } }, headers: { "content-length": "8" } },
-      "/api/model-usage/monthly": { status: 200, payload: { month: "2026-03" }, headers: { "content-length": "12" } },
+      "/api/agents": {
+        status: 200,
+        payload: [{ id: "agent-1" }],
+        headers: { "content-length": "20" },
+      },
+      "/api/sessions": { status: 200, payload: [], headers: { "content-length": "3" } },
+      "/api/cron": { status: 200, payload: [], headers: { "content-length": "2" } },
+      "/api/config": {
+        status: 304,
+        payload: null,
+        headers: { "content-length": "128", "x-request-id": "cfg-304" },
+      },
+      "/api/model-usage/live-weekly": {
+        status: 200,
+        payload: { weekly: { count: 1 } },
+        headers: { "content-length": "8" },
+      },
+      "/api/model-usage/monthly": {
+        status: 200,
+        payload: { month: "2026-03" },
+        headers: { "content-length": "12" },
+      },
       "/api/activity": { status: 200, payload: [], headers: { "content-length": "2" } },
-      "/api/session-tree": { status: 200, payload: { nodes: [] }, headers: { "content-length": "3" } },
+      "/api/session-tree": {
+        status: 200,
+        payload: { nodes: [] },
+        headers: { "content-length": "3" },
+      },
     };
     const fetchImpl = vi.fn((url) => {
       const next = responsesByUrl[url];
@@ -1565,7 +1583,9 @@ describe("data controller perf instrumentation", () => {
           statusText: "Not Modified",
           headers: {
             get: (key) =>
-              responsesByUrl[url].headers?.[key.toLowerCase()] || responsesByUrl[url].headers?.[key] || "",
+              responsesByUrl[url].headers?.[key.toLowerCase()] ||
+              responsesByUrl[url].headers?.[key] ||
+              "",
           },
           text: () => Promise.resolve(""),
           json: () => Promise.resolve(null),
@@ -1578,7 +1598,9 @@ describe("data controller perf instrumentation", () => {
         statusText: "OK",
         headers: {
           get: (key) =>
-            responsesByUrl[url].headers?.[key.toLowerCase()] || responsesByUrl[url].headers?.[key] || "",
+            responsesByUrl[url].headers?.[key.toLowerCase()] ||
+            responsesByUrl[url].headers?.[key] ||
+            "",
         },
         text: () => Promise.resolve(JSON.stringify(next.payload)),
         json: () => Promise.resolve(next.payload),
@@ -1946,11 +1968,15 @@ describe("HUD perf sink transport", () => {
 
     transport.enqueue({
       ts: "2026-03-03T18:06:00.000Z",
-      summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 19, min: 19, max: 19, last: 19 } } },
+      summary: {
+        "fetchAll.finish": { durationMs: { count: 1, sum: 19, min: 19, max: 19, last: 19 } },
+      },
     });
     transport.enqueue({
       ts: "2026-03-03T18:06:01.000Z",
-      summary: { "fetchAll.finish": { durationMs: { count: 1, sum: 20, min: 20, max: 20, last: 20 } } },
+      summary: {
+        "fetchAll.finish": { durationMs: { count: 1, sum: 20, min: 20, max: 20, last: 20 } },
+      },
     });
 
     await Promise.resolve();
@@ -1991,11 +2017,15 @@ describe("HUD perf sink transport", () => {
 
     transport.enqueue({
       ts: "2026-03-03T18:07:00.000Z",
-      summary: { "chatBatcher.flush": { durationMs: { count: 1, sum: 9, min: 9, max: 9, last: 9 } } },
+      summary: {
+        "chatBatcher.flush": { durationMs: { count: 1, sum: 9, min: 9, max: 9, last: 9 } },
+      },
     });
     transport.enqueue({
       ts: "2026-03-03T18:07:01.000Z",
-      summary: { "chatBatcher.flush": { durationMs: { count: 1, sum: 10, min: 10, max: 10, last: 10 } } },
+      summary: {
+        "chatBatcher.flush": { durationMs: { count: 1, sum: 10, min: 10, max: 10, last: 10 } },
+      },
     });
 
     await Promise.resolve();

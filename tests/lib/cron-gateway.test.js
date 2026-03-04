@@ -86,18 +86,15 @@ describe("cron contract list", () => {
       { client, connectScopes: ["operator.read"] },
     );
 
-    expect(client.request).toHaveBeenCalledWith(
-      "cron.list",
-      {
-        includeDisabled: true,
-        limit: 50,
-        offset: 0,
-        enabled: "all",
-        sortBy: "nextRunAtMs",
-        sortDir: "asc",
-        query: "backup",
-      },
-    );
+    expect(client.request).toHaveBeenCalledWith("cron.list", {
+      includeDisabled: true,
+      limit: 50,
+      offset: 0,
+      enabled: "all",
+      sortBy: "nextRunAtMs",
+      sortDir: "asc",
+      query: "backup",
+    });
     expect(result).toEqual({ jobs: [] });
   });
 });
@@ -136,15 +133,12 @@ describe("cron contract mutations", () => {
       { client },
     );
 
-    expect(client.request).toHaveBeenCalledWith(
-      "cron.update",
-      {
-        id: "j1",
-        patch: {
-          enabled: true,
-        },
+    expect(client.request).toHaveBeenCalledWith("cron.update", {
+      id: "j1",
+      patch: {
+        enabled: true,
       },
-    );
+    });
     expect(result).toEqual({ id: "j1" });
   });
 
@@ -163,21 +157,18 @@ describe("cron contract mutations", () => {
       { client },
     );
 
-    expect(client.request).toHaveBeenCalledWith(
-      "cron.update",
-      {
-        id: "j1",
-        patch: {
-          name: "Manual",
-          enabled: true,
-          sessionTarget: "isolated",
-          payload: {
-            kind: "agentTurn",
-            message: "go",
-          },
+    expect(client.request).toHaveBeenCalledWith("cron.update", {
+      id: "j1",
+      patch: {
+        name: "Manual",
+        enabled: true,
+        sessionTarget: "isolated",
+        payload: {
+          kind: "agentTurn",
+          message: "go",
         },
       },
-    );
+    });
   });
 
   it("calls cron.add with canonical payload", async () => {
@@ -194,17 +185,14 @@ describe("cron contract mutations", () => {
       { client },
     );
 
-    expect(client.request).toHaveBeenCalledWith(
-      "cron.add",
-      {
-        id: "new-id",
-        name: "Nightly",
-        schedule: {
-          kind: "cron",
-          expr: "0 0 * * *",
-        },
+    expect(client.request).toHaveBeenCalledWith("cron.add", {
+      id: "new-id",
+      name: "Nightly",
+      schedule: {
+        kind: "cron",
+        expr: "0 0 * * *",
       },
-    );
+    });
   });
 
   it("calls cron.remove with canonical id", async () => {

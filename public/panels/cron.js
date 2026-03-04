@@ -104,12 +104,12 @@ HUD.cron = (function () {
     const jobs = extractJobs(data);
     const meta = extractCronMeta(data);
     $("#cron-count").textContent = jobs.length;
-    
+
     const cronList = $("#cron-list");
     const html = readOnlyBanner(meta) + buildCronHTML(data);
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    
+
     if (typeof morphdom !== "undefined") {
       morphdom(cronList, temp, { childrenOnly: true });
     } else {

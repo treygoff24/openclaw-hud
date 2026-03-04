@@ -34,26 +34,26 @@ function createApp({ appendPerfEvents, sampleRate = 0, slowRequestMs = 500, rand
     };
     res.send("models");
   });
-    app.get("/api/metrics", (_req, res) => {
-      res.locals.apiTailTelemetry = {
-        metrics: {
-          metricCount: 12,
-          averageRows: 8,
-        },
-        workload: "metrics",
-      };
-      res.send("metrics");
-    });
-    app.get("/api/counters", (_req, res) => {
-      res.locals.apiTailTelemetry = {
-        counters: {
-          cacheHit: 2,
-          cacheMiss: 3,
-        },
-        workload: "counters",
-      };
-      res.send("counters");
-    });
+  app.get("/api/metrics", (_req, res) => {
+    res.locals.apiTailTelemetry = {
+      metrics: {
+        metricCount: 12,
+        averageRows: 8,
+      },
+      workload: "metrics",
+    };
+    res.send("metrics");
+  });
+  app.get("/api/counters", (_req, res) => {
+    res.locals.apiTailTelemetry = {
+      counters: {
+        cacheHit: 2,
+        cacheMiss: 3,
+      },
+      workload: "counters",
+    };
+    res.send("counters");
+  });
   app.get("/api/metrics-invalid", (_req, res) => {
     res.locals.apiTailTelemetry = {
       metrics: {
@@ -202,9 +202,7 @@ describe("api tail telemetry middleware", () => {
       slowRequestMs: 500,
     });
 
-    const res = await request(app)
-      .get("/api/fast")
-      .set("x-hud-run-id", "run-hud-12");
+    const res = await request(app).get("/api/fast").set("x-hud-run-id", "run-hud-12");
 
     expect(res.status).toBe(200);
     await waitForTelemetryFlush();

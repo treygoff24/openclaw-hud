@@ -80,7 +80,13 @@ describe("GET /api/activity", () => {
       safeReaddirAsync: vi.fn(async () => Array.from({ length: 20 }, (_, i) => `agent${i}`)),
       getCachedSessions: vi.fn(async () => sessions),
       tailLines: vi.fn(async () =>
-        Array.from({ length: 5 }, (_, i) => JSON.stringify({ type: "msg", timestamp: `2025-01-01T${String(i).padStart(2, "0")}:00:00Z`, content: `e${i}` })),
+        Array.from({ length: 5 }, (_, i) =>
+          JSON.stringify({
+            type: "msg",
+            timestamp: `2025-01-01T${String(i).padStart(2, "0")}:00:00Z`,
+            content: `e${i}`,
+          }),
+        ),
       ),
     });
 
@@ -91,10 +97,12 @@ describe("GET /api/activity", () => {
   it("includes agentId and sessionKey in each event", async () => {
     const { app } = createApp({
       safeReaddirAsync: vi.fn(async () => ["mybot"]),
-      getCachedSessions: vi.fn(async () => ({ "session-key": { sessionId: "sid", updatedAt: Date.now() } })),
-      tailLines: vi.fn(async () =>
-        [JSON.stringify({ type: "tool", name: "read", timestamp: "2025-06-01T00:00:00Z" })],
-      ),
+      getCachedSessions: vi.fn(async () => ({
+        "session-key": { sessionId: "sid", updatedAt: Date.now() },
+      })),
+      tailLines: vi.fn(async () => [
+        JSON.stringify({ type: "tool", name: "read", timestamp: "2025-06-01T00:00:00Z" }),
+      ]),
     });
 
     const res = await request(app).get("/api/activity");
@@ -109,7 +117,11 @@ describe("GET /api/activity", () => {
       getCachedSessions: vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } })),
       tailLines: vi.fn(async () => [
         JSON.stringify({ type: "msg", content: "no timestamp" }),
-        JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "has timestamp" }),
+        JSON.stringify({
+          type: "msg",
+          timestamp: "2025-01-01T00:00:00Z",
+          content: "has timestamp",
+        }),
       ]),
     });
 
@@ -129,7 +141,9 @@ describe("GET /api/activity", () => {
   });
 
   it("uses cache for subsequent requests inside TTL", async () => {
-    const getCachedSessions = vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } }));
+    const getCachedSessions = vi.fn(async () => ({
+      s1: { sessionId: "s1", updatedAt: Date.now() },
+    }));
     const tailLines = vi.fn(async () => [
       JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "cached" }),
     ]);
@@ -188,10 +202,14 @@ describe("GET /api/activity", () => {
 
   it("coalesces concurrent recompute into a single in-flight computation", async () => {
     const safeReaddirAsync = vi.fn(async () => ["agent1"]);
-    const getCachedSessions = vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } }));
+    const getCachedSessions = vi.fn(async () => ({
+      s1: { sessionId: "s1", updatedAt: Date.now() },
+    }));
     const tailLines = vi.fn(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      return [JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "shared" })];
+      return [
+        JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "shared" }),
+      ];
     });
     const { app } = createApp({ safeReaddirAsync, getCachedSessions, tailLines });
 
@@ -285,7 +303,9 @@ describe("GET /api/activity", () => {
       getCachedSessions: vi.fn(async () => ({ s1: { sessionId: "s1", updatedAt: Date.now() } })),
       tailLines: vi.fn(async () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
-        return [JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "shared" })];
+        return [
+          JSON.stringify({ type: "msg", timestamp: "2025-01-01T00:00:00Z", content: "shared" }),
+        ];
       }),
     });
 

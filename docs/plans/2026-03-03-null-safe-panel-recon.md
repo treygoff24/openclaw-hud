@@ -12,21 +12,22 @@
 
 ## Files to Patch (4 panels)
 
-| Panel | File | Guard |
-|-------|------|-------|
-| agents | `public/panels/agents.js` | `buildAgentsHTML` + `render`: `Array.isArray(agents) ? agents : []` |
-| sessions | `public/panels/sessions.js` | `render`: guard `sessions` |
-| session-tree | `public/panels/session-tree.js` | `render` + `buildTreeHTML`: guard `sessions` |
-| activity | `public/panels/activity.js` | `render`: guard `events` |
+| Panel        | File                            | Guard                                                               |
+| ------------ | ------------------------------- | ------------------------------------------------------------------- |
+| agents       | `public/panels/agents.js`       | `buildAgentsHTML` + `render`: `Array.isArray(agents) ? agents : []` |
+| sessions     | `public/panels/sessions.js`     | `render`: guard `sessions`                                          |
+| session-tree | `public/panels/session-tree.js` | `render` + `buildTreeHTML`: guard `sessions`                        |
+| activity     | `public/panels/activity.js`     | `render`: guard `events`                                            |
 
 Pattern: early guard clause `if (!data || !Array.isArray(data)) data = []` or equivalent, plus fallback UI showing "0" counts and empty containers.
 
 ## Test Plan (Minimax — 16 new tests)
 
 4 tests per panel × 4 panels:
+
 - `render(null)` → no throw, count element shows "0", no cards
 - `render(undefined)` → same
-- `render("not-an-array")` → same  
+- `render("not-an-array")` → same
 - `render({})` → same
 
 **New test file:** `tests/public/fetch-resilience.test.js` (or per-panel files like `agents.test.js`)
