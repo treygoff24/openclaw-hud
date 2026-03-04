@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Set up the full DOM that app.js expects
 document.body.innerHTML = `
@@ -62,8 +62,18 @@ window.escapeHtml = function (s) {
 const openChatPaneMock = vi.fn();
 window.openChatPane = openChatPaneMock;
 
-// Mock fetch for all API calls
-window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+function createResolvedResponse(payload) {
+  return {
+    json: () => Promise.resolve(payload),
+  };
+}
+
+const initialFetch = vi.fn(() => Promise.resolve(createResolvedResponse([])));
+window.fetch = initialFetch;
+
+beforeEach(() => {
+  window.fetch = vi.fn(() => Promise.resolve(createResolvedResponse([])));
+});
 
 // Mock WebSocket
 const createdSockets = [];
@@ -163,7 +173,7 @@ describe("app.js initialization", () => {
   });
 
   it("calls fetch on initialization", () => {
-    expect(window.fetch).toHaveBeenCalled();
+    expect(initialFetch).toHaveBeenCalled();
   });
 
   it("creates WebSocket connection", () => {
@@ -414,9 +424,13 @@ describe("modal close on Escape", () => {
 
 describe("fetch error handling", () => {
   it("handles fetch failure in fetchAll", async () => {
+    const renderSpies = {
+      agents: vi.spyOn(HUD.agents, "render"),
+    };
     window.fetch = vi.fn(() => Promise.reject(new Error("network")));
     await HUD.fetchAll();
-    // Should not throw
+    expect(renderSpies.agents).toHaveBeenCalled();
+    renderSpies.agents.mockRestore();
   });
 });
 
@@ -461,9 +475,11 @@ describe("WebSocket lifecycle", () => {
 
   it("handles onopen", () => {
     const ws = getLatestWs();
+    const flushQueue = vi.fn();
+    window._flushChatWsQueue = flushQueue;
     ws.readyState = window.WebSocket.OPEN;
     if (ws.onopen) ws.onopen();
-    // Should flush WS queue
+    expect(flushQueue).toHaveBeenCalled();
   });
 
   it("handles tick message", () => {
@@ -474,21 +490,28 @@ describe("WebSocket lifecycle", () => {
   });
 
   it("handles log-entry message", () => {
+    const chatMessageSpy = vi
+      .spyOn(window, "handleChatWsMessage")
+      .mockImplementation(() => {});
     const ws = getLatestWs();
     if (ws.onmessage) ws.onmessage({ data: JSON.stringify({ type: "log-entry", entry: {} }) });
-    // Should not throw
+    expect(chatMessageSpy).toHaveBeenCalledWith({ type: "log-entry", entry: {} });
+    chatMessageSpy.mockRestore();
   });
 
   it("handles onclose", () => {
     const ws = getLatestWs();
+    window._hudWs = ws;
     if (ws.onclose) ws.onclose();
-    // Should restart polling
+    expect(window._hudWs).toBeNull();
   });
 
   it("handles onerror", () => {
     const ws = getLatestWs();
+    const badge = document.getElementById("connection-badge");
     if (ws.onerror) ws.onerror();
-    // Should update connection status
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toContain("DISCONNECTED");
   });
 });
 
@@ -711,6 +734,157 @@ function flushAsyncWork() {
 }
 
 describe("data controller progressive endpoint loading", () => {
+  it("coalesces overlapping fetchAll calls into one in-flight cycle", async () => {
+    const deferredByUrl = {
+      "/api/agents": createDeferred(),
+      "/api/sessions": createDeferred(),
+      "/api/cron": createDeferred(),
+      "/api/config": createDeferred(),
+      "/api/model-usage/live-weekly": createDeferred(),
+      "/api/activity": createDeferred(),
+      "/api/session-tree": createDeferred(),
+      "/api/models": createDeferred(),
+      "/api/model-usage/monthly": createDeferred(),
+    };
+
+    const fetchImpl = vi.fn((url) => {
+      const pending = deferredByUrl[url];
+      if (pending) {
+        return pending.promise;
+      }
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+
+    const { controller } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 50,
+    });
+
+    const first = controller.fetchAll({ includeCold: true });
+    await flushAsyncWork();
+    const second = controller.fetchAll();
+
+    const initialRequestedEndpoints = [
+      "/api/agents",
+      "/api/sessions",
+      "/api/cron",
+      "/api/config",
+      "/api/model-usage/live-weekly",
+      "/api/activity",
+      "/api/session-tree",
+      "/api/models",
+    ];
+
+    initialRequestedEndpoints.forEach(function (url) {
+      expect(fetchImpl).toHaveBeenCalledWith(url, expect.any(Object));
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(initialRequestedEndpoints.length);
+
+    deferredByUrl["/api/agents"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/sessions"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/cron"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/config"].resolve(createMockJsonResponse({}));
+    deferredByUrl["/api/model-usage/live-weekly"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/activity"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/session-tree"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/models"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/model-usage/monthly"].resolve(createMockJsonResponse({}));
+
+    await first;
+    await second;
+
+    expect(fetchImpl).toHaveBeenCalledWith("/api/model-usage/monthly", expect.any(Object));
+    expect(fetchImpl).toHaveBeenCalledTimes(initialRequestedEndpoints.length + 1);
+  });
+
+  it("fetches cold model endpoints less frequently than hot endpoints", async () => {
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const endpointCalls = [];
+    const fetchImpl = vi.fn((url) => {
+      endpointCalls.push(url);
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+
+    const { controller } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 20,
+    });
+
+    await controller.fetchAll({ includeCold: true });
+    const firstCycleLength = endpointCalls.length;
+    expect(endpointCalls).toContain("/api/models");
+    expect(endpointCalls).toContain("/api/model-usage/monthly");
+
+    now = 30 * 1000;
+    await controller.fetchAll();
+
+    const secondCycleCalls = endpointCalls.slice(firstCycleLength);
+    expect(secondCycleCalls).not.toContain("/api/models");
+    expect(secondCycleCalls).not.toContain("/api/model-usage/monthly");
+
+    now = 90 * 1000;
+    await controller.fetchAll({ includeCold: true });
+
+    const thirdCycleCalls = endpointCalls.slice(firstCycleLength + secondCycleCalls.length);
+    expect(thirdCycleCalls).toContain("/api/models");
+    expect(thirdCycleCalls).toContain("/api/model-usage/monthly");
+
+    dateNowSpy.mockRestore();
+  });
+
+  it("does not re-render model panel when monthly payload is unchanged", async () => {
+    const hangingWeekly = new Promise(() => {});
+    const weeklyPayload = {
+      models: [{ model: "gpt-4", totalCost: 2 }],
+      summary: { weekSpend: 2 },
+    };
+    const monthlyPayload = {
+      summary: {
+        monthSpend: 50,
+        topMonthModel: { model: "gpt-4", totalCost: 50 },
+      },
+      models: [{ model: "gpt-4", totalCost: 50 }],
+    };
+
+    const responseQueues = {
+      "/api/agents": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/sessions": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/cron": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/config": [createMockJsonResponse({}), createMockJsonResponse({})],
+      "/api/model-usage/live-weekly": [createMockJsonResponse(weeklyPayload), hangingWeekly],
+      "/api/activity": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/session-tree": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/models": [createMockJsonResponse([]), createMockJsonResponse([])],
+      "/api/model-usage/monthly": [
+        createMockJsonResponse(monthlyPayload),
+        createMockJsonResponse(monthlyPayload),
+      ],
+    };
+
+    const fetchImpl = vi.fn((url) => {
+      const queue = responseQueues[url];
+      if (!queue || queue.length === 0) {
+        return Promise.resolve(createMockJsonResponse([]));
+      }
+      return Promise.resolve(queue.shift());
+    });
+
+    const { controller, HUD } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 20,
+    });
+    const modelsRenderSpy = vi.spyOn(HUD.models, "render");
+
+    await controller.fetchAll({ includeCold: true });
+    expect(modelsRenderSpy).toHaveBeenCalledTimes(2);
+
+    await controller.fetchAll({ includeCold: true });
+
+    expect(modelsRenderSpy).toHaveBeenCalledTimes(3);
+    modelsRenderSpy.mockRestore();
+  });
+
   it("renders sessions before slow model-usage resolves and keeps one-time chat restore", async () => {
     const endpoints = [
       "/api/agents",
@@ -729,7 +903,7 @@ describe("data controller progressive endpoint loading", () => {
       fetchImpl,
       endpointTimeoutMs: 500,
     });
-    const fetchPromise = controller.fetchAll();
+    const fetchPromise = controller.fetchAll({ includeCold: true });
     await flushAsyncWork();
 
     deferredByUrl["/api/sessions"].resolve(

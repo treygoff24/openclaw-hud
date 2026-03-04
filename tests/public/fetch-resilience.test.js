@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Set up minimal DOM that app.js expects
 document.body.innerHTML = `
@@ -60,7 +60,24 @@ window.escapeHtml = function (s) {
 };
 
 // Mock fetch
-window.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve([]) }));
+function createResolvedResponse(payload) {
+  return {
+    json: () => Promise.resolve(payload),
+  };
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise(function (res, rej) {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const defaultPayloadFetch = vi.fn(() => Promise.resolve(createResolvedResponse([])));
+window.fetch = defaultPayloadFetch;
 
 // Mock WebSocket
 const createdSockets = [];
@@ -156,25 +173,220 @@ await import("../../public/chat-pane/ws-bridge.js");
 await import("../../public/chat-pane/export.js");
 await import("../../public/chat-pane.js");
 
+const baseLocalFetch = defaultPayloadFetch;
+
+beforeEach(() => {
+  window.fetch = vi.fn(() => Promise.resolve(createResolvedResponse([])));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.fetch = baseLocalFetch;
+});
+
 describe("fetchAll resilient fetching", () => {
+  function createColdAndModelUsageController(overrides) {
+    const fetchImpl = overrides && Object.prototype.hasOwnProperty.call(overrides, "fetch") ? overrides.fetch : null;
+    const opts = {
+      HUD: HUD,
+      renderPanelSafe: window.renderPanelSafe,
+      setConnectionStatus: vi.fn(),
+    };
+    if (fetchImpl) {
+      opts.getFetch = function () {
+        return fetchImpl;
+      };
+    }
+    return HUDApp.data.createDataController(Object.assign(opts, overrides || {}));
+  }
+
+  it("renders weekly model usage before monthly enrichment during cold refresh", async () => {
+    const modelsRenderSpy = vi.spyOn(HUD.models, "render");
+    const modelUsageController = createColdAndModelUsageController();
+    const weeklyResult = { weekly: 2, models: ["codex"] };
+    const monthlyResult = { month: "2026-03" };
+    const weeklyDeferred = createDeferred();
+    const monthlyDeferred = createDeferred();
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/model-usage/live-weekly") {
+        return Promise.resolve(createResolvedResponse(weeklyDeferred.promise));
+      }
+      if (url === "/api/model-usage/monthly") {
+        return Promise.resolve(createResolvedResponse(monthlyDeferred.promise));
+      }
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    const fetchPromise = modelUsageController.fetchAll({ includeCold: true });
+    weeklyDeferred.resolve(weeklyResult);
+    await new Promise(function (resolve) {
+      setTimeout(resolve, 0);
+    });
+
+    expect(modelsRenderSpy).toHaveBeenCalled();
+    const firstRenderArg = modelsRenderSpy.mock.calls[0][0];
+    expect(firstRenderArg).toMatchObject(weeklyResult);
+    expect(firstRenderArg).not.toHaveProperty("_monthlyData");
+
+    const renderCallsAfterWeekly = modelsRenderSpy.mock.calls.length;
+    expect(renderCallsAfterWeekly).toBe(1);
+
+    monthlyDeferred.resolve(monthlyResult);
+    await fetchPromise;
+
+    expect(modelsRenderSpy).toHaveBeenCalledTimes(2);
+    const secondRenderArg = modelsRenderSpy.mock.calls[1][0];
+    expect(secondRenderArg).toMatchObject({
+      _monthlyData: monthlyResult,
+    });
+  });
+
+  it("resolves includeCold fetch only after queued cold refresh finishes", async () => {
+    const modelUsageController = createColdAndModelUsageController();
+    const hotDeferred = createDeferred();
+    const modelsDeferred = createDeferred();
+    const monthlyDeferred = createDeferred();
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => 0);
+    const hotPayload = [];
+
+    const hotEndpoints = new Set([
+      "/api/agents",
+      "/api/sessions",
+      "/api/cron",
+      "/api/config",
+      "/api/model-usage/live-weekly",
+      "/api/activity",
+      "/api/session-tree",
+    ]);
+    const fetchCalls = [];
+
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      if (url === "/api/models") {
+        return Promise.resolve(createResolvedResponse(modelsDeferred.promise));
+      }
+      if (url === "/api/model-usage/monthly") {
+        return Promise.resolve(createResolvedResponse(monthlyDeferred.promise));
+      }
+      if (hotEndpoints.has(url)) {
+        return Promise.resolve(createResolvedResponse(hotDeferred.promise));
+      }
+      return Promise.resolve(createResolvedResponse(hotPayload));
+    });
+
+    const firstFetch = modelUsageController.fetchAll();
+    const secondFetch = modelUsageController.fetchAll({ includeCold: true });
+    let secondFetchResolved = false;
+    secondFetch.then(() => {
+      secondFetchResolved = true;
+    });
+
+    await Promise.resolve();
+    expect(secondFetchResolved).toBe(false);
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(0);
+
+    hotDeferred.resolve(hotPayload);
+    await firstFetch;
+
+    expect(secondFetchResolved).toBe(false);
+
+    modelsDeferred.resolve([]);
+    monthlyDeferred.resolve({ totals: [] });
+    await secondFetch;
+    nowSpy.mockRestore();
+
+    expect(secondFetchResolved).toBe(true);
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(1);
+    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(1);
+  });
+
+  it("does not advance the cold-refresh timestamp when cold refresh fails", async () => {
+    let now = 100000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(function () {
+      const value = now;
+      return value;
+    });
+    const fetchCalls = [];
+
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      if (url === "/api/models") {
+        return Promise.reject(new Error("models offline"));
+      }
+      if (url === "/api/model-usage/monthly") {
+        return Promise.resolve(createResolvedResponse({}));
+      }
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    const modelUsageController = createColdAndModelUsageController();
+    await modelUsageController.fetchAll({ includeCold: true });
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(1);
+    now += 1;
+
+    await modelUsageController.fetchAll();
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(2);
+    nowSpy.mockRestore();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("calls fetch for all endpoints", async () => {
+    const modelUsageController = createColdAndModelUsageController();
     const fetchCalls = [];
     window.fetch = vi.fn((url) => {
       fetchCalls.push(url);
       return Promise.resolve({ json: () => Promise.resolve([]) });
     });
 
-    await HUD.fetchAll();
+    await modelUsageController.fetchAll({ includeCold: true });
 
     expect(fetchCalls).toContain("/api/agents");
     expect(fetchCalls).toContain("/api/sessions");
     expect(fetchCalls).toContain("/api/config");
     expect(fetchCalls).toContain("/api/model-usage/live-weekly");
-    expect(fetchCalls).not.toContain("/api/model-usage");
+    expect(fetchCalls).toContain("/api/models");
+    expect(fetchCalls).toContain("/api/model-usage/monthly");
+  });
+
+  it("does not run cold model endpoints on every fetchAll cycle", async () => {
+    const fetchCalls = [];
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      return Promise.resolve({ json: () => Promise.resolve([]) });
+    });
+
+    await HUD.fetchAll({ includeCold: true });
+    expect(fetchCalls).toContain("/api/models");
+    expect(fetchCalls).toContain("/api/model-usage/monthly");
+
+    const firstColdCalls = fetchCalls.slice();
+
+    now = 5 * 1000;
+    await HUD.fetchAll();
+
+    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(
+      firstColdCalls.filter((url) => url === "/api/models").length,
+    );
+    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(
+      firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
+    );
+
+    now = 70 * 1000;
+    await HUD.fetchAll({ includeCold: true });
+    expect(fetchCalls.filter((url) => url === "/api/models").length).toBeGreaterThan(
+      firstColdCalls.filter((url) => url === "/api/models").length,
+    );
+    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly").length).toBeGreaterThan(
+      firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
+    );
+
+    dateNowSpy.mockRestore();
   });
 
   it("renders panels even when some endpoints fail", async () => {
@@ -235,7 +447,7 @@ describe("renderPanelSafe error boundaries", () => {
   });
 
   it("catches render errors and shows unavailable state", () => {
-    if (typeof renderPanelSafe !== "function") return;
+    expect(typeof renderPanelSafe).toBe("function");
 
     const panelEl = document.getElementById("test-panel");
 
@@ -252,7 +464,8 @@ describe("renderPanelSafe error boundaries", () => {
   });
 
   it("calls retryPanel when retry button is clicked", () => {
-    if (typeof retryPanel !== "function" || typeof renderPanelSafe !== "function") return;
+    expect(typeof retryPanel).toBe("function");
+    expect(typeof renderPanelSafe).toBe("function");
 
     const panelEl = document.getElementById("test-panel");
 
@@ -270,7 +483,7 @@ describe("renderPanelSafe error boundaries", () => {
   });
 
   it("renders normally when no error", () => {
-    if (typeof renderPanelSafe !== "function") return;
+    expect(typeof renderPanelSafe).toBe("function");
 
     const panelEl = document.getElementById("test-panel");
 

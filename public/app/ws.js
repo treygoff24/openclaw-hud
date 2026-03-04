@@ -131,7 +131,7 @@
       ws.onmessage = function (event) {
         const data = JSON.parse(event.data);
         if (data.type === "tick") {
-          fetchAll();
+          fetchAll({ includeCold: false });
         }
         if (data.type === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
           setGatewayUptimeSnapshot(data.uptimeMs);
