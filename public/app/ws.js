@@ -8,8 +8,6 @@
   const WS_RECONNECT_JITTER_MS = 250;
   const WS_POST_OPEN_RECONNECT_MS = 2000;
   let textEncoder = null;
-  let inboundMessageCount = 0;
-  let inboundMessageBytes = 0;
 
   function resolvePerfMonitor() {
     const monitor = window.HUDApp && window.HUDApp.perfMonitor;
@@ -41,6 +39,37 @@
     return String(rawMessage).length;
   }
 
+  function resolveNowMs(options) {
+    if (options && typeof options.now === "function") {
+      return options.now;
+    }
+    if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+      return function () {
+        return performance.now();
+      };
+    }
+    return function () {
+      return Date.now();
+    };
+  }
+
+  function normalizeDurationMs(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return 0;
+    return numeric;
+  }
+
+  function normalizeMessageType(type) {
+    const normalized = typeof type === "string" ? type.trim().toLowerCase() : "";
+    if (!normalized) return "unknown";
+    const safe = normalized.replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+    return safe || "unknown";
+  }
+
+  function createMessageMetricName(type) {
+    return "ws.message." + normalizeMessageType(type);
+  }
+
   function createWsController(options) {
     const opts = options || {};
     const diagLog = opts.diagLog || function () {};
@@ -57,11 +86,45 @@
           ? window.HUD.utils.wsUrl(location)
           : "ws://localhost:3777/ws";
       };
+    const nowMs = resolveNowMs(opts);
 
     let wsReconnectAttempts = 0;
     let wsReconnectTimer = null;
     let wsEverOpened = false;
     let wsConnectAttempt = 0;
+    let inboundMessageCount = 0;
+    let inboundMessageBytes = 0;
+    let tickRefreshInFlight = false;
+    let tickRefreshQueued = false;
+
+    function scheduleTickRefresh() {
+      if (typeof fetchAll !== "function") {
+        return;
+      }
+
+      if (tickRefreshInFlight) {
+        tickRefreshQueued = true;
+        return;
+      }
+
+      tickRefreshInFlight = true;
+      let refreshResult;
+      try {
+        refreshResult = fetchAll({ includeCold: false });
+      } catch (_error) {
+        refreshResult = Promise.reject(_error);
+      }
+
+      Promise.resolve(refreshResult)
+        .catch(function () {})
+        .finally(function () {
+          tickRefreshInFlight = false;
+          if (tickRefreshQueued) {
+            tickRefreshQueued = false;
+            scheduleTickRefresh();
+          }
+        });
+    }
 
     function clearWsReconnectTimer() {
       if (!wsReconnectTimer) return;
@@ -163,28 +226,57 @@
 
       ws.onmessage = function (event) {
         const shouldRecord = Boolean(resolvePerfMonitor());
+        let inboundBytes = 0;
         if (shouldRecord) {
-          const inboundBytes = estimateMessageBytes(event && event.data);
+          inboundBytes = estimateMessageBytes(event && event.data);
           inboundMessageCount += 1;
           inboundMessageBytes += inboundBytes;
-          recordPerf({
-            name: "ws.onmessage",
-            count: 1,
-            bytes: inboundBytes,
-            messageCount: inboundMessageCount,
-            bytesTotal: inboundMessageBytes,
-          });
         }
 
-        const data = JSON.parse(event.data);
+        const parseStart = nowMs();
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          const parseMs = normalizeDurationMs(nowMs() - parseStart);
+          if (shouldRecord) {
+            recordPerf({
+              name: "ws.message.parse_error",
+              payloadBytes: inboundBytes,
+              parseMs: parseMs,
+              dispatchMs: 0,
+              messageCount: inboundMessageCount,
+              bytesTotal: inboundMessageBytes,
+            });
+          }
+          diagLog(wsLogPrefix, "message_parse_error", {
+            error: error && error.message ? error.message : String(error),
+          });
+          return;
+        }
+        const parseMs = normalizeDurationMs(nowMs() - parseStart);
+
+        const dispatchStart = nowMs();
         if (data.type === "tick") {
-          fetchAll({ includeCold: false });
+          scheduleTickRefresh();
         }
         if (data.type === "gateway-status" && typeof setGatewayUptimeSnapshot === "function") {
           setGatewayUptimeSnapshot(data.uptimeMs);
         }
         if (window.handleChatWsMessage) {
           window.handleChatWsMessage(data);
+        }
+        const dispatchMs = normalizeDurationMs(nowMs() - dispatchStart);
+
+        if (shouldRecord) {
+          recordPerf({
+            name: createMessageMetricName(data && data.type),
+            payloadBytes: inboundBytes,
+            parseMs: parseMs,
+            dispatchMs: dispatchMs,
+            messageCount: inboundMessageCount,
+            bytesTotal: inboundMessageBytes,
+          });
         }
       };
 

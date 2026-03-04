@@ -28,6 +28,7 @@
       });
     };
     const previousPerfMonitor = window.HUDApp.perfMonitor;
+    const previousPerfLongTaskHook = window.HUDApp.perfLongTaskHook;
 
     if (
       previousPerfMonitor &&
@@ -40,6 +41,21 @@
           "[HUD-PERF]",
           "previous monitor stop failed",
           String(_error && _error.message ? _error.message : _error)
+        );
+      }
+    }
+
+    if (
+      previousPerfLongTaskHook &&
+      typeof previousPerfLongTaskHook.stop === "function"
+    ) {
+      try {
+        previousPerfLongTaskHook.stop();
+      } catch (_error) {
+        diagLog(
+          "[HUD-PERF]",
+          "previous long-task monitor stop failed",
+          String(_error && _error.message ? _error.message : _error),
         );
       }
     }
@@ -67,6 +83,7 @@
             },
           })
         : null;
+
     const perfMonitor =
       typeof diagnostics.createPerfMonitor === "function"
         ? diagnostics.createPerfMonitor({
@@ -86,7 +103,36 @@
             isEnabled: () => false,
           };
 
+    const perfLongTaskHook =
+      typeof diagnostics.createLongTaskTelemetryHook === "function"
+        ? diagnostics.createLongTaskTelemetryHook({
+            enabled: perfDiagnosticsFlags.longTask,
+            monitor: perfMonitor,
+            performanceObserver: window.PerformanceObserver,
+            logger: function (event, fields) {
+              var eventName =
+                typeof event === "string" && event.trim()
+                  ? event.trim()
+                  : "long-task";
+              var payload =
+                fields && typeof fields === "object" && !Array.isArray(fields)
+                  ? fields
+                  : fields == null
+                    ? {}
+                    : { message: String(fields) };
+              diagLog("[HUD-PERF]", eventName, payload);
+            },
+          })
+        : {
+            start: function () {},
+            stop: function () {},
+            isEnabled: function () {
+              return false;
+            },
+          };
+
     window.HUDApp.perfMonitor = perfMonitor;
+    window.HUDApp.perfLongTaskHook = perfLongTaskHook;
 
     const statusController = window.HUDApp.status.createStatusController({
       document: doc,
@@ -147,6 +193,9 @@
 
     if (perfMonitor.isEnabled && perfMonitor.isEnabled()) {
       perfMonitor.start();
+      if (perfLongTaskHook && typeof perfLongTaskHook.start === "function") {
+        perfLongTaskHook.start();
+      }
     }
 
     HUD.fetchAll();

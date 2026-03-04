@@ -203,7 +203,35 @@ describe("HUD perf diagnostics flags", () => {
       });
     }).not.toThrow();
 
-    expect(flags).toEqual({ enabled: false });
+    expect(flags).toEqual({ enabled: false, longTask: false });
+  });
+
+  it("parses URLSearchParams once while resolving perf flags", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const OriginalURLSearchParams = globalThis.URLSearchParams;
+    let parseCount = 0;
+
+    globalThis.URLSearchParams = function URLSearchParamsProxy(search) {
+      parseCount += 1;
+      return new OriginalURLSearchParams(search);
+    };
+    globalThis.URLSearchParams.prototype = OriginalURLSearchParams.prototype;
+
+    try {
+      const flags = diagnostics.resolvePerfDiagnosticsFlags({
+        search: "?hudPerf=1&hudPerfSink=file&hudPerfLongTasks=1",
+        localStorageValue: null,
+      });
+
+      expect(flags).toEqual({
+        enabled: true,
+        sink: "file",
+        longTask: true,
+      });
+      expect(parseCount).toBe(1);
+    } finally {
+      globalThis.URLSearchParams = OriginalURLSearchParams;
+    }
   });
 });
 
@@ -267,6 +295,194 @@ describe("HUD perf monitor cadence", () => {
 
     expect(logSink).toHaveBeenCalledTimes(1);
     monitor.stop();
+  });
+
+  it("records numeric telemetry fields and ignores non-numeric fields", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.createPerfMonitor).toBe("function");
+
+    const summarySpy = vi.fn();
+    const monitor = diagnostics.createPerfMonitor({
+      enabled: true,
+      summaryIntervalMs: 500,
+      emitSummary: summarySpy,
+    });
+    monitor.record({ name: "longTaskProbe", durationMs: 8.25, panelId: 4, label: "ignored" });
+    monitor.record({ name: "longTaskProbe", status: 1, payload: "drop-me" });
+    const summary = monitor.flushSummary();
+
+    expect(summary).toMatchObject({
+      longTaskProbe: {
+        durationMs: {
+          count: 1,
+          sum: 8.25,
+          min: 8.25,
+          max: 8.25,
+          last: 8.25,
+        },
+        panelId: {
+          count: 1,
+          sum: 4,
+          min: 4,
+          max: 4,
+          last: 4,
+        },
+        status: {
+          count: 1,
+          sum: 1,
+          min: 1,
+          max: 1,
+          last: 1,
+        },
+      },
+    });
+    expect(summary.longTaskProbe.label).toBeUndefined();
+  });
+});
+
+describe("HUD long-task telemetry hook", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    installLocalStorageMock();
+    await loadAppDiagnosticsModule();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalPerformanceObserver !== undefined) {
+      globalThis.PerformanceObserver = originalPerformanceObserver;
+    } else {
+      delete globalThis.PerformanceObserver;
+    }
+  });
+
+  const originalPerformanceObserver = globalThis.PerformanceObserver;
+
+  it("parses long-task flag from URL only and stays deterministic", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    expect(typeof diagnostics.resolvePerfDiagnosticsFlags).toBe("function");
+
+    let flags = diagnostics.resolvePerfDiagnosticsFlags({
+      search: "?hudPerf=1&hudPerfLongTasks=1",
+      localStorageValue: null,
+    });
+    expect(flags.enabled).toBe(true);
+    expect(flags.longTask).toBe(true);
+
+    flags = diagnostics.resolvePerfDiagnosticsFlags({
+      search: "?hudPerf=1&hudPerfLongTasks=0",
+      localStorageValue: "1",
+    });
+    expect(flags.enabled).toBe(true);
+    expect(flags.longTask).toBe(false);
+
+    flags = diagnostics.resolvePerfDiagnosticsFlags({
+      search: "?hudPerf=1",
+      localStorageValue: "1",
+    });
+    expect(flags.enabled).toBe(true);
+    expect(flags.longTask).toBe(false);
+  });
+
+  it("starts and stops long-task observer lifecycle safely on supported runtimes", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    let callback = null;
+
+    const MockPerformanceObserver = vi.fn(function (cb) {
+      callback = cb;
+      return {
+        observe,
+        disconnect,
+      };
+    });
+
+    const record = vi.fn();
+    globalThis.PerformanceObserver = MockPerformanceObserver;
+    const hook = diagnostics.createLongTaskTelemetryHook({
+      enabled: true,
+      monitor: {
+        record,
+      },
+      performanceObserver: MockPerformanceObserver,
+      logger: vi.fn(),
+    });
+
+    expect(hook.isStarted()).toBe(false);
+    hook.start();
+    expect(hook.isStarted()).toBe(true);
+    expect(MockPerformanceObserver).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith({ type: "longtask", buffered: true });
+
+    callback({ getEntries: () => [{ duration: 8.2, startTime: 123, attribution: [{}] }] });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0][0]).toMatchObject({
+      name: "longtask",
+      durationMs: 8.2,
+      startTime: 123,
+      attributionCount: 1,
+    });
+
+    hook.stop();
+    expect(hook.isStarted()).toBe(false);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+
+    hook.stop();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("start() is a no-op when perf monitor is not usable", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const observe = vi.fn();
+    const MockPerformanceObserver = vi.fn(function () {
+      return {
+        observe,
+        disconnect: vi.fn(),
+      };
+    });
+
+    const hookWithoutMonitor = diagnostics.createLongTaskTelemetryHook({
+      enabled: true,
+      monitor: null,
+      performanceObserver: MockPerformanceObserver,
+      logger: vi.fn(),
+    });
+    hookWithoutMonitor.start();
+    expect(MockPerformanceObserver).not.toHaveBeenCalled();
+    expect(hookWithoutMonitor.isStarted()).toBe(false);
+
+    const hookWithoutRecord = diagnostics.createLongTaskTelemetryHook({
+      enabled: true,
+      monitor: {},
+      performanceObserver: MockPerformanceObserver,
+      logger: vi.fn(),
+    });
+    hookWithoutRecord.start();
+    expect(MockPerformanceObserver).not.toHaveBeenCalled();
+    expect(hookWithoutRecord.isStarted()).toBe(false);
+  });
+
+  it("is a no-op when long-task observer is unavailable", () => {
+    const diagnostics = window.HUDApp.diagnostics;
+    const record = vi.fn();
+
+    delete globalThis.PerformanceObserver;
+    const hook = diagnostics.createLongTaskTelemetryHook({
+      enabled: true,
+      monitor: {
+        record,
+      },
+      logger: vi.fn(),
+    });
+
+    expect(() => {
+      hook.start();
+      hook.stop();
+    }).not.toThrow();
+    expect(record).not.toHaveBeenCalled();
+    expect(hook.isUsingObserver()).toBe(false);
   });
 });
 
@@ -397,6 +613,48 @@ describe("app bootstrap with perf monitor disabled", () => {
     expect(() => transportOptions.logger("perf", "transport failed")).not.toThrow();
     expect(diagLog).toHaveBeenCalled();
   });
+
+  it("normalizes long-task logger adapter contract to event + fields object", async () => {
+    const diagLog = vi.fn();
+    let capturedLongTaskLogger = null;
+    const diagnostics = {
+      ensureHudDiagLogger: vi.fn(() => diagLog),
+      resolvePerfDiagnosticsFlags: vi.fn(() => ({ enabled: true, longTask: true })),
+      createPerfBatchTransport: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        enqueue: vi.fn(),
+        flush: vi.fn(),
+        isEnabled: () => true,
+        isFileSink: () => true,
+        transportLogError: vi.fn(),
+      })),
+      createPerfMonitor: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        record: vi.fn(),
+        isEnabled: () => true,
+      })),
+      createLongTaskTelemetryHook: vi.fn((input) => {
+        capturedLongTaskLogger = input.logger;
+        return {
+          start: vi.fn(),
+          stop: vi.fn(),
+          isEnabled: () => true,
+        };
+      }),
+    };
+    const { HUD } = createBootstrapHarness({ diagnostics });
+
+    await import("../../public/app/bootstrap.js");
+    window.HUDApp.bootstrap.initApp({ document, HUD });
+
+    expect(typeof capturedLongTaskLogger).toBe("function");
+    capturedLongTaskLogger("long-task-observer-failed", { message: "observer rejected" });
+    expect(diagLog).toHaveBeenCalledWith("[HUD-PERF]", "long-task-observer-failed", {
+      message: "observer rejected",
+    });
+  });
 });
 
 describe("disabled perf mode fast paths", () => {
@@ -507,6 +765,239 @@ describe("disabled perf mode fast paths", () => {
 
     expect(renderFn).toHaveBeenCalledTimes(4);
     expect(rafSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("ws perf telemetry and tick backpressure", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    delete window._hudWs;
+    delete window.HUDApp;
+    delete window.handleChatWsMessage;
+  });
+
+  function createWsHarness(options = {}) {
+    const ws = {
+      readyState: window.WebSocket ? window.WebSocket.CONNECTING : 0,
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+
+    const WebSocketMock = vi.fn(function MockWebSocket() {
+      return ws;
+    });
+    WebSocketMock.OPEN = 1;
+    WebSocketMock.CONNECTING = 0;
+    window.WebSocket = WebSocketMock;
+
+    return {
+      ws,
+      fetchAll: options.fetchAll || vi.fn(() => Promise.resolve()),
+      setGatewayUptimeSnapshot: options.setGatewayUptimeSnapshot || vi.fn(),
+      startPolling: options.startPolling || vi.fn(),
+      stopPolling: options.stopPolling || vi.fn(),
+      setConnectionStatus: options.setConnectionStatus || vi.fn(),
+      diagLog: options.diagLog || vi.fn(),
+      now: options.now,
+    };
+  }
+
+  function createDeferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("records ws telemetry with payloadBytes, parseMs, dispatchMs and type-specific metric names", async () => {
+    const record = vi.fn();
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+    };
+    const nowSequence = [100, 103, 109, 200, 205, 213];
+    const harness = createWsHarness({
+      now: () => nowSequence.shift() || 300,
+    });
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: harness.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: harness.fetchAll,
+      setConnectionStatus: harness.setConnectionStatus,
+      setGatewayUptimeSnapshot: harness.setGatewayUptimeSnapshot,
+      startPolling: harness.startPolling,
+      stopPolling: harness.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+      now: harness.now,
+    });
+    wsController.connect();
+
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({
+      data: JSON.stringify({ type: "gateway-status", uptimeMs: 42 }),
+    });
+
+    const names = record.mock.calls.map(([entry]) => entry && entry.name);
+    expect(names).toContain("ws.message.tick");
+    expect(names).toContain("ws.message.gateway-status");
+
+    const tickEntry = record.mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry && entry.name === "ws.message.tick");
+    expect(tickEntry).toMatchObject({
+      payloadBytes: expect.any(Number),
+      parseMs: expect.any(Number),
+      dispatchMs: expect.any(Number),
+    });
+    expect(tickEntry.payloadBytes).toBeGreaterThan(0);
+    expect(tickEntry.parseMs).toBeGreaterThanOrEqual(0);
+    expect(tickEntry.dispatchMs).toBeGreaterThanOrEqual(0);
+
+    expect(harness.fetchAll).toHaveBeenCalledWith({ includeCold: false });
+    expect(harness.setGatewayUptimeSnapshot).toHaveBeenCalledWith(42);
+  });
+
+  it("keeps inbound ws telemetry counters scoped to each controller instance", async () => {
+    const record = vi.fn();
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+    };
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const first = createWsHarness();
+    const firstController = window.HUDApp.ws.createWsController({
+      diagLog: first.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: first.fetchAll,
+      setConnectionStatus: first.setConnectionStatus,
+      setGatewayUptimeSnapshot: first.setGatewayUptimeSnapshot,
+      startPolling: first.startPolling,
+      stopPolling: first.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    firstController.connect();
+    first.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+
+    window._hudWs = null;
+
+    const second = createWsHarness();
+    const secondController = window.HUDApp.ws.createWsController({
+      diagLog: second.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: second.fetchAll,
+      setConnectionStatus: second.setConnectionStatus,
+      setGatewayUptimeSnapshot: second.setGatewayUptimeSnapshot,
+      startPolling: second.startPolling,
+      stopPolling: second.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    secondController.connect();
+    second.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+
+    const tickEntries = record.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry && entry.name === "ws.message.tick");
+    expect(tickEntries).toHaveLength(2);
+    expect(tickEntries[0].messageCount).toBe(1);
+    expect(tickEntries[1].messageCount).toBe(1);
+  });
+
+  it("handles ws JSON parse failures without throwing and records parse_error telemetry", async () => {
+    const record = vi.fn();
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => true,
+        record,
+      },
+    };
+    const harness = createWsHarness();
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: harness.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: harness.fetchAll,
+      setConnectionStatus: harness.setConnectionStatus,
+      setGatewayUptimeSnapshot: harness.setGatewayUptimeSnapshot,
+      startPolling: harness.startPolling,
+      stopPolling: harness.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    wsController.connect();
+
+    expect(() => harness.ws.onmessage({ data: "{not-json}" })).not.toThrow();
+    expect(harness.fetchAll).not.toHaveBeenCalled();
+    expect(window.handleChatWsMessage).not.toHaveBeenCalled();
+
+    const names = record.mock.calls.map(([entry]) => entry && entry.name);
+    expect(names).toContain("ws.message.parse_error");
+  });
+
+  it("coalesces burst tick messages to avoid redundant fetchAll churn while preserving refresh", async () => {
+    const firstFetch = createDeferred();
+    const fetchAll = vi
+      .fn()
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockImplementation(() => Promise.resolve());
+
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => false,
+        record: vi.fn(),
+      },
+    };
+    const harness = createWsHarness({ fetchAll });
+    window.handleChatWsMessage = vi.fn();
+
+    await import("../../public/app/ws.js");
+
+    const wsController = window.HUDApp.ws.createWsController({
+      diagLog: harness.diagLog,
+      wsLogPrefix: "[HUD-WS]",
+      fetchAll: harness.fetchAll,
+      setConnectionStatus: harness.setConnectionStatus,
+      setGatewayUptimeSnapshot: harness.setGatewayUptimeSnapshot,
+      startPolling: harness.startPolling,
+      stopPolling: harness.stopPolling,
+      wsUrlFactory: () => "ws://hud.test/ws",
+    });
+    wsController.connect();
+
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+    harness.ws.onmessage({ data: JSON.stringify({ type: "tick" }) });
+
+    expect(fetchAll).toHaveBeenCalledTimes(1);
+
+    firstFetch.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchAll).toHaveBeenCalledTimes(2);
+    await Promise.resolve();
+    expect(fetchAll).toHaveBeenCalledTimes(2);
   });
 });
 

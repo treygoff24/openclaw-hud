@@ -53,6 +53,132 @@
     };
   }
 
+  function createLongTaskTelemetryHook(input) {
+    var options = input || {};
+    var isEnabled = Boolean(options.enabled);
+    var monitor = options.monitor || null;
+    var observerFactory = options.performanceObserver || (typeof window !== "undefined" && window.PerformanceObserver);
+    var eventName = typeof options.eventName === "string" && options.eventName.trim()
+      ? options.eventName.trim()
+      : "longtask";
+    var logger =
+      typeof options.logger === "function"
+        ? options.logger
+        : function () {};
+    var longTaskObserver = null;
+    var isStarted = false;
+
+    function isMonitorUsable() {
+      return isEnabled && monitor && typeof monitor.record === "function";
+    }
+
+    function safeRecord(entry) {
+      if (!entry || !isMonitorUsable()) {
+        return;
+      }
+
+      var durationMs = Number(entry.duration);
+      if (!Number.isFinite(durationMs)) {
+        return;
+      }
+
+      var sample = {
+        name: eventName,
+        durationMs: durationMs,
+      };
+
+      var startTimeMs = Number(entry.startTime);
+      if (Number.isFinite(startTimeMs)) {
+        sample.startTime = startTimeMs;
+      }
+
+      var attribution = entry.attribution;
+      if (Array.isArray(attribution)) {
+        sample.attributionCount = attribution.length;
+      }
+
+      try {
+        monitor.record(sample);
+      } catch (_error) {
+        // Perf data capture must never break runtime behavior.
+      }
+    }
+
+    function onLongTask(list) {
+      var entries = list && typeof list.getEntries === "function" ? list.getEntries() : [];
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return;
+      }
+
+      for (var i = 0; i < entries.length; i += 1) {
+        safeRecord(entries[i]);
+      }
+    }
+
+    function logHookError(hookEvent, error) {
+      var details =
+        error && typeof error === "object" && error.message
+          ? { message: String(error.message) }
+          : { message: String(error) };
+      logger(hookEvent, details);
+    }
+
+    function start() {
+      if (!isEnabled || longTaskObserver) {
+        return;
+      }
+      if (!isMonitorUsable()) {
+        return;
+      }
+
+      if (typeof observerFactory !== "function") {
+        return;
+      }
+
+      try {
+        longTaskObserver = new observerFactory(onLongTask);
+        longTaskObserver.observe({ type: "longtask", buffered: true });
+        isStarted = true;
+      } catch (error) {
+        longTaskObserver = null;
+        isStarted = false;
+        logHookError("long-task-observer-failed", error);
+      }
+    }
+
+    function stop() {
+      if (!longTaskObserver) {
+        isStarted = false;
+        return;
+      }
+
+      try {
+        if (typeof longTaskObserver.disconnect === "function") {
+          longTaskObserver.disconnect();
+        }
+      } catch (_error) {
+        // Ignore cleanup issues.
+      }
+
+      longTaskObserver = null;
+      isStarted = false;
+    }
+
+    return {
+      start: start,
+      stop: stop,
+      isEnabled: function () {
+        return isEnabled;
+      },
+      isStarted: function () {
+        return isStarted;
+      },
+      isUsingObserver: function () {
+        return longTaskObserver !== null;
+      },
+    };
+  }
+
   function ensureHudDiagLogger() {
     if (typeof window.__hudDiagLog === "function") {
       return window.__hudDiagLog;
@@ -101,10 +227,10 @@
         : typeof options.search === "string"
           ? options.search
           : "";
-    var querySink = parsePerfSinkValue(
-      locationSearch ? new URLSearchParams(locationSearch).get("hudPerfSink") : null,
-    );
+    var queryParams = locationSearch ? new URLSearchParams(locationSearch) : null;
+    var querySink = parsePerfSinkValue(queryParams ? queryParams.get("hudPerfSink") : null);
     var hasQuerySink = querySink != null;
+    var longTaskFlag = parseBooleanFlagValue(queryParams ? queryParams.get("hudPerfLongTasks") : null);
     var localStorageValue = null;
 
     if (options.localStorage && typeof options.localStorage.getItem === "function") {
@@ -117,45 +243,34 @@
       localStorageValue = options.localStorageValue;
     }
 
-    var queryValue = parseBooleanFlagValue(
-      locationSearch ? new URLSearchParams(locationSearch).get("hudPerf") : null,
-    );
+    var queryValue = parseBooleanFlagValue(queryParams ? queryParams.get("hudPerf") : null);
     var sinkMode = hasQuerySink ? querySink : "console";
-
-    function buildFlags(enabled) {
-      var flags = { enabled: enabled };
-      if (enabled || hasQuerySink) {
-        flags.sink = sinkMode;
-      }
-
-      return flags;
-    }
+    var resolvedEnabled = false;
+    var storageValue = parseBooleanFlagValue(localStorageValue);
 
     if (queryValue !== null) {
-      return buildFlags(queryValue);
-    }
-
-    if (storageUnavailable) {
-      return buildFlags(false);
-    }
-
-    var storageValue = parseBooleanFlagValue(localStorageValue);
-    if (storageValue !== null) {
-      return buildFlags(storageValue);
-    }
-
-    if (typeof options.globalConfig === "boolean") {
-      return { enabled: options.globalConfig };
-    }
-
-    if (typeof options.globalConfig === "string" || typeof options.globalConfig === "number") {
+      resolvedEnabled = queryValue;
+    } else if (storageUnavailable) {
+      resolvedEnabled = false;
+    } else if (storageValue !== null) {
+      resolvedEnabled = storageValue;
+    } else if (typeof options.globalConfig === "boolean") {
+      resolvedEnabled = options.globalConfig;
+    } else if (typeof options.globalConfig === "string" || typeof options.globalConfig === "number") {
       var fallback = parseBooleanFlagValue(options.globalConfig);
       if (fallback !== null) {
-        return buildFlags(fallback);
+        resolvedEnabled = fallback;
       }
     }
 
-    return buildFlags(false);
+    var flags = {
+      enabled: resolvedEnabled,
+      longTask: longTaskFlag === true,
+    };
+    if (resolvedEnabled || hasQuerySink) {
+      flags.sink = sinkMode;
+    }
+    return flags;
   }
 
   function createPerfBatchTransport(input) {
@@ -488,6 +603,7 @@
 
   window.HUDApp.diagnostics = {
     ensureHudDiagLogger,
+    createLongTaskTelemetryHook,
     resolvePerfDiagnosticsFlags,
     createPerfMonitor,
     createPerfBatchTransport,

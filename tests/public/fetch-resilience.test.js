@@ -62,6 +62,10 @@ window.escapeHtml = function (s) {
 // Mock fetch
 function createResolvedResponse(payload) {
   return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    headers: { get: () => "" },
     json: () => Promise.resolve(payload),
   };
 }
@@ -339,7 +343,7 @@ describe("fetchAll resilient fetching", () => {
     const fetchCalls = [];
     window.fetch = vi.fn((url) => {
       fetchCalls.push(url);
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      return Promise.resolve(createResolvedResponse([]));
     });
 
     await modelUsageController.fetchAll({ includeCold: true });
@@ -358,35 +362,365 @@ describe("fetchAll resilient fetching", () => {
     const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     window.fetch = vi.fn((url) => {
       fetchCalls.push(url);
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    try {
+      await HUD.fetchAll({ includeCold: true });
+      expect(fetchCalls).toContain("/api/models");
+      expect(fetchCalls).toContain("/api/model-usage/monthly");
+
+      const firstColdCalls = fetchCalls.slice();
+
+      now = 5 * 1000;
+      await HUD.fetchAll();
+
+      expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(
+        firstColdCalls.filter((url) => url === "/api/models").length,
+      );
+      expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(
+        firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
+      );
+
+      now = 70 * 1000;
+      await HUD.fetchAll({ includeCold: true });
+      expect(fetchCalls.filter((url) => url === "/api/models").length).toBeGreaterThan(
+        firstColdCalls.filter((url) => url === "/api/models").length,
+      );
+      expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly").length).toBeGreaterThan(
+        firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
+      );
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it("applies per-endpoint minimum intervals for heavy endpoints and bypasses cadence on explicit cold refresh", async () => {
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetchCalls = [];
+
+    window.fetch = vi.fn((url) => {
+      fetchCalls.push(url);
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    try {
+      const controller = createColdAndModelUsageController();
+
+      await controller.fetchAll();
+      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(1);
+      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(1);
+      expect(fetchCalls.filter((url) => url === "/api/agents")).toHaveLength(1);
+
+      now = 5000;
+      await controller.fetchAll();
+
+      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(1);
+      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(1);
+      expect(fetchCalls.filter((url) => url === "/api/agents")).toHaveLength(2);
+
+      now = 6000;
+      await controller.fetchAll({ includeCold: true });
+
+      expect(fetchCalls.filter((url) => url === "/api/activity")).toHaveLength(2);
+      expect(fetchCalls.filter((url) => url === "/api/session-tree")).toHaveLength(2);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it("does not throttle heavy endpoints after failure so recovery can happen immediately", async () => {
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let activityCalls = 0;
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/activity") {
+        activityCalls += 1;
+        if (activityCalls === 1) {
+          return Promise.reject(new Error("activity temporarily unavailable"));
+        }
+      }
       return Promise.resolve({ json: () => Promise.resolve([]) });
     });
 
-    await HUD.fetchAll({ includeCold: true });
-    expect(fetchCalls).toContain("/api/models");
-    expect(fetchCalls).toContain("/api/model-usage/monthly");
+    try {
+      const controller = createColdAndModelUsageController();
 
-    const firstColdCalls = fetchCalls.slice();
+      await controller.fetchAll();
+      now = 1000;
+      await controller.fetchAll();
 
-    now = 5 * 1000;
-    await HUD.fetchAll();
+      expect(activityCalls).toBe(2);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
 
-    expect(fetchCalls.filter((url) => url === "/api/models")).toHaveLength(
-      firstColdCalls.filter((url) => url === "/api/models").length,
-    );
-    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly")).toHaveLength(
-      firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
-    );
+  it("does not apply heavy-endpoint cooldown when response metadata is invalid", async () => {
+    let now = 0;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let activityCalls = 0;
 
-    now = 70 * 1000;
-    await HUD.fetchAll({ includeCold: true });
-    expect(fetchCalls.filter((url) => url === "/api/models").length).toBeGreaterThan(
-      firstColdCalls.filter((url) => url === "/api/models").length,
-    );
-    expect(fetchCalls.filter((url) => url === "/api/model-usage/monthly").length).toBeGreaterThan(
-      firstColdCalls.filter((url) => url === "/api/model-usage/monthly").length,
-    );
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/activity") {
+        activityCalls += 1;
+        return Promise.resolve({
+          json: () => Promise.resolve([]),
+        });
+      }
+      return Promise.resolve(createResolvedResponse([]));
+    });
 
-    dateNowSpy.mockRestore();
+    try {
+      const controller = createColdAndModelUsageController();
+
+      await controller.fetchAll();
+      now = 1000;
+      await controller.fetchAll();
+
+      expect(activityCalls).toBe(2);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it("uses stable response metadata to skip no-op rerender when payload is unchanged", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const onChatRestore = vi.fn();
+    const setConnectionStatus = vi.fn();
+    let sessionsRequestCount = 0;
+    let lastSessionsPayload = null;
+    const sessionsPayload = [{
+      sessionKey: "agent-alpha::session-static",
+      agentId: "agent-alpha",
+      sessionId: "session-static",
+      updatedAt: "2026-03-03T18:00:00.000Z",
+      status: "active",
+      label: "Session Static",
+    }];
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        sessionsRequestCount += 1;
+        lastSessionsPayload = sessionsPayload;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {
+            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+          },
+          json: () => Promise.resolve(lastSessionsPayload),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "" },
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    try {
+      const controller = HUDApp.data.createDataController({
+        HUD: HUD,
+        renderPanelSafe: window.renderPanelSafe,
+        setConnectionStatus,
+        onChatRestore,
+      });
+
+      await controller.fetchAll();
+      await controller.fetchAll();
+
+      expect(sessionsRequestCount).toBe(2);
+      expect(sessionsRenderSpy).toHaveBeenCalledTimes(1);
+      expect(onChatRestore).toHaveBeenCalledTimes(1);
+      expect(window._allSessions).toBe(lastSessionsPayload);
+      expect(setConnectionStatus).toHaveBeenCalled();
+    } finally {
+      sessionsRenderSpy.mockRestore();
+    }
+  });
+
+  it("rerenders when payload changes even if response metadata stays the same", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const onChatRestore = vi.fn();
+    const setConnectionStatus = vi.fn();
+    const sessionsPayloads = [
+      [{
+        sessionKey: "agent-alpha::session-a",
+        agentId: "agent-alpha",
+        sessionId: "session-a",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+        label: "Session A",
+      }],
+      [{
+        sessionKey: "agent-alpha::session-b",
+        agentId: "agent-alpha",
+        sessionId: "session-b",
+        updatedAt: "2026-03-03T18:01:00.000Z",
+        status: "active",
+        label: "Session B",
+      }],
+    ];
+    let sessionsRequestCount = 0;
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        const payload = sessionsPayloads[Math.min(sessionsRequestCount, sessionsPayloads.length - 1)];
+        sessionsRequestCount += 1;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {
+            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+          },
+          json: () => Promise.resolve(payload),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "" },
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    try {
+      const controller = HUDApp.data.createDataController({
+        HUD: HUD,
+        renderPanelSafe: window.renderPanelSafe,
+        setConnectionStatus,
+        onChatRestore,
+      });
+
+      await controller.fetchAll();
+      await controller.fetchAll();
+
+      expect(sessionsRequestCount).toBe(2);
+      expect(sessionsRenderSpy).toHaveBeenCalledTimes(2);
+      expect(onChatRestore).toHaveBeenCalledTimes(1);
+      expect(window._allSessions).toEqual(sessionsPayloads[1]);
+      expect(setConnectionStatus).toHaveBeenCalled();
+    } finally {
+      sessionsRenderSpy.mockRestore();
+    }
+  });
+
+  it("rerenders when payload is mutated in place with stable metadata", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const onChatRestore = vi.fn();
+    const setConnectionStatus = vi.fn();
+    let sessionsRequestCount = 0;
+    const sessionsPayload = [{
+      sessionKey: "agent-alpha::session-a",
+      agentId: "agent-alpha",
+      sessionId: "session-a",
+      updatedAt: "2026-03-03T18:00:00.000Z",
+      status: "active",
+      label: "Session A",
+    }];
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        sessionsRequestCount += 1;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {
+            get: (key) => (String(key).toLowerCase() === "x-request-id" ? "stable-sessions-request" : ""),
+          },
+          json: () => Promise.resolve(sessionsPayload),
+        });
+      }
+      return Promise.resolve(createResolvedResponse([]));
+    });
+
+    try {
+      const controller = HUDApp.data.createDataController({
+        HUD: HUD,
+        renderPanelSafe: window.renderPanelSafe,
+        setConnectionStatus,
+        onChatRestore,
+      });
+
+      await controller.fetchAll();
+
+      sessionsPayload[0].label = "Session A Updated";
+      sessionsPayload[0].updatedAt = "2026-03-03T18:01:00.000Z";
+
+      await controller.fetchAll();
+
+      expect(sessionsRequestCount).toBe(2);
+      expect(sessionsRenderSpy).toHaveBeenCalledTimes(2);
+      expect(onChatRestore).toHaveBeenCalledTimes(1);
+      expect(setConnectionStatus).toHaveBeenCalled();
+    } finally {
+      sessionsRenderSpy.mockRestore();
+    }
+  });
+
+  it("falls back to payload fingerprint dedupe when response metadata is absent", async () => {
+    const sessionsRenderSpy = vi.spyOn(HUD.sessions, "render");
+    const onChatRestore = vi.fn();
+    const setConnectionStatus = vi.fn();
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+    let sessionsRequestCount = 0;
+    let lastSessionsPayload = null;
+    const sessionsPayload = [{
+      sessionKey: "agent-alpha::session-static",
+      agentId: "agent-alpha",
+      sessionId: "session-static",
+      updatedAt: "2026-03-03T18:00:00.000Z",
+      status: "active",
+      label: "Session Static",
+    }];
+
+    window.fetch = vi.fn((url) => {
+      if (url === "/api/sessions") {
+        sessionsRequestCount += 1;
+        lastSessionsPayload = sessionsPayload;
+        return Promise.resolve({
+          json: () => Promise.resolve(lastSessionsPayload),
+        });
+      }
+      return Promise.resolve({
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    try {
+      const controller = HUDApp.data.createDataController({
+        HUD: HUD,
+        renderPanelSafe: window.renderPanelSafe,
+        setConnectionStatus,
+        onChatRestore,
+      });
+
+      await controller.fetchAll();
+      await controller.fetchAll();
+
+      const payloadStringifyCalls = stringifySpy.mock.calls.filter(
+        ([value]) => value === sessionsPayload,
+      );
+
+      expect(sessionsRequestCount).toBe(2);
+      expect(sessionsRenderSpy).toHaveBeenCalledTimes(1);
+      expect(payloadStringifyCalls.length).toBeGreaterThan(0);
+      expect(onChatRestore).toHaveBeenCalledTimes(1);
+      expect(window._allSessions).toBe(lastSessionsPayload);
+      expect(setConnectionStatus).toHaveBeenCalled();
+    } finally {
+      stringifySpy.mockRestore();
+      sessionsRenderSpy.mockRestore();
+    }
   });
 
   it("renders panels even when some endpoints fail", async () => {
@@ -403,7 +737,8 @@ describe("fetchAll resilient fetching", () => {
       return Promise.resolve({ json: () => Promise.resolve([]) });
     });
 
-    await HUD.fetchAll();
+    const controller = createColdAndModelUsageController();
+    await controller.fetchAll({ includeCold: true });
 
     expect(renderSpies.sessions).toHaveBeenCalled();
     expect(renderSpies.system).toHaveBeenCalled();
@@ -426,7 +761,8 @@ describe("fetchAll resilient fetching", () => {
 
     window.fetch = vi.fn(() => Promise.reject(new Error("network error")));
 
-    await HUD.fetchAll();
+    const controller = createColdAndModelUsageController();
+    await controller.fetchAll({ includeCold: true });
 
     Object.values(renderSpies).forEach((spy) => {
       expect(spy).toHaveBeenCalled();

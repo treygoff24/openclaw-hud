@@ -4,6 +4,10 @@
   window.HUDApp = window.HUDApp || {};
   const DEFAULT_ENDPOINT_TIMEOUT_MS = 8000;
   const COLD_REFRESH_INTERVAL_MS = 60 * 1000;
+  const HEAVY_ENDPOINT_MIN_INTERVAL_MS = Object.freeze({
+    activity: 10 * 1000,
+    "session-tree": 10 * 1000,
+  });
   function resolvePerfMonitor() {
     const monitor = window.HUDApp && window.HUDApp.perfMonitor;
     if (!monitor) return null;
@@ -55,6 +59,10 @@
     let queuedColdFetch = null;
     let lastColdRefreshAt = 0;
     let cachedMonthlyFingerprint = null;
+    let endpointLastFetchAt = Object.create(null);
+    let endpointRenderFingerprints = Object.create(null);
+    let endpointRenderMetaSignatures = Object.create(null);
+    let endpointLastRenderedPayloads = Object.create(null);
 
     // Cached monthly data survives across tick-based fetchAll() calls so the
     // models panel never flashes back to $0 between the weekly render and the
@@ -139,6 +147,53 @@
       };
     }
 
+    function resolveEndpointMinIntervalMs(endpointName) {
+      const interval = HEAVY_ENDPOINT_MIN_INTERVAL_MS[endpointName];
+      if (!Number.isFinite(interval) || interval <= 0) return 0;
+      return Math.floor(interval);
+    }
+
+    function shouldFetchEndpoint(endpointName, request) {
+      if (request.includeCold) return true;
+      const minIntervalMs = resolveEndpointMinIntervalMs(endpointName);
+      if (minIntervalMs <= 0) return true;
+
+      if (!Object.prototype.hasOwnProperty.call(endpointLastFetchAt, endpointName)) {
+        return true;
+      }
+      const lastFetchedAt = endpointLastFetchAt[endpointName];
+      return Date.now() - lastFetchedAt >= minIntervalMs;
+    }
+
+    function markEndpointFetched(endpointName) {
+      endpointLastFetchAt[endpointName] = Date.now();
+    }
+
+    function isSuccessfulFetchMeta(meta) {
+      if (!meta || typeof meta !== "object") return false;
+
+      const statusText = typeof meta.statusText === "string" ? meta.statusText.toLowerCase() : "";
+      if (statusText === "timeout") return false;
+      if (statusText === "fetch-failed") return false;
+
+      const status = Number(meta.status);
+      if (Number.isFinite(status) && status > 0) {
+        return status >= 200 && status < 400;
+      }
+
+      if (typeof meta.ok === "boolean") {
+        return meta.ok;
+      }
+
+      return false;
+    }
+
+    function shouldMarkEndpointFetched(result) {
+      if (!result || !Object.prototype.hasOwnProperty.call(result, "payload")) return false;
+      if (result.payload === null || result.payload === undefined) return false;
+      return isSuccessfulFetchMeta(result.meta);
+    }
+
     function shouldFetchColdEndpoints(includeColdRequest) {
       const now = Date.now();
       const dueForRefresh = now - lastColdRefreshAt >= COLD_REFRESH_INTERVAL_MS;
@@ -151,6 +206,77 @@
       } catch {
         return "";
       }
+    }
+
+    function payloadFingerprint(payload) {
+      try {
+        return JSON.stringify(payload);
+      } catch {
+        return null;
+      }
+    }
+
+    function endpointMetaSignature(endpointMeta) {
+      if (!endpointMeta || typeof endpointMeta !== "object") return null;
+      const requestId = typeof endpointMeta.requestId === "string" ? endpointMeta.requestId : "";
+      const timestamp = typeof endpointMeta.timestamp === "string" ? endpointMeta.timestamp : "";
+      if (!requestId && !timestamp) return null;
+      const status = Number.isFinite(endpointMeta.status) ? endpointMeta.status : 0;
+      const ok = endpointMeta.ok ? 1 : 0;
+      return requestId + "|" + timestamp + "|" + status + "|" + ok;
+    }
+
+    function shouldRenderEndpointPayload(endpointName, payload, endpointMeta) {
+      if (payload === null || payload === undefined) {
+        return true;
+      }
+
+      const metaSignature = endpointMetaSignature(endpointMeta);
+      if (metaSignature !== null) {
+        const previousMetaSignature = endpointRenderMetaSignatures[endpointName];
+        if (previousMetaSignature !== metaSignature) {
+          const nextFingerprint = payloadFingerprint(payload);
+          endpointRenderMetaSignatures[endpointName] = metaSignature;
+          endpointLastRenderedPayloads[endpointName] = payload;
+          if (nextFingerprint === null) {
+            delete endpointRenderFingerprints[endpointName];
+          } else {
+            endpointRenderFingerprints[endpointName] = nextFingerprint;
+          }
+          return true;
+        }
+
+        const previousPayload = endpointLastRenderedPayloads[endpointName];
+        const nextFingerprint = payloadFingerprint(payload);
+        if (nextFingerprint === null) {
+          return previousPayload !== payload;
+        }
+
+        let previousFingerprint = endpointRenderFingerprints[endpointName];
+        if (typeof previousFingerprint !== "string" && previousPayload !== undefined) {
+          previousFingerprint = payloadFingerprint(previousPayload);
+          endpointRenderFingerprints[endpointName] = previousFingerprint;
+        }
+
+        if (previousFingerprint === nextFingerprint) {
+          return false;
+        }
+
+        endpointRenderFingerprints[endpointName] = nextFingerprint;
+        endpointLastRenderedPayloads[endpointName] = payload;
+        return true;
+      }
+
+      const nextFingerprint = payloadFingerprint(payload);
+      if (nextFingerprint === null) return true;
+
+      if (endpointRenderFingerprints[endpointName] === nextFingerprint) {
+        return false;
+      }
+
+      endpointRenderFingerprints[endpointName] = nextFingerprint;
+      endpointLastRenderedPayloads[endpointName] = payload;
+      return true;
     }
 
     function modelUsageWithMonthly(state) {
@@ -169,7 +295,9 @@
     }
 
     function renderModelUsagePanel(state) {
-      renderEndpointPanel("model-usage", modelUsageWithMonthly(state), state.responseMeta["model-usage"]);
+      const payload = modelUsageWithMonthly(state);
+      if (!shouldRenderEndpointPayload("model-usage", payload, state.responseMeta["model-usage"])) return;
+      renderEndpointPanel("model-usage", payload, state.responseMeta["model-usage"]);
     }
 
     function applyMonthlyPayload(state, runId, monthlyResult) {
@@ -337,7 +465,9 @@
         return;
       }
 
-      renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
+      if (shouldRenderEndpointPayload(endpointName, state.data[endpointName], state.responseMeta[endpointName])) {
+        renderEndpointPanel(endpointName, state.data[endpointName], state.responseMeta[endpointName]);
+      }
 
       if (
         endpointName === "sessions" &&
@@ -381,7 +511,10 @@
 
       const runId = ++latestFetchRunId;
       const shouldFetchCold = shouldFetchColdEndpoints(request.includeCold);
-      const runTargets = shouldFetchCold ? hotEndpoints.concat(coldEndpoints) : hotEndpoints;
+      const hotRunTargets = hotEndpoints.filter(function (endpoint) {
+        return shouldFetchEndpoint(endpoint.name, request);
+      });
+      const runTargets = shouldFetchCold ? hotRunTargets.concat(coldEndpoints) : hotRunTargets;
       const runFetch = getFetch();
       const data = {};
       const responseMeta = {};
@@ -420,6 +553,9 @@
         try {
           const endpointTasks = runTargets.map(function (endpoint) {
             return fetchEndpoint(runFetch, endpoint).then(function (result) {
+              if (shouldMarkEndpointFetched(result)) {
+                markEndpointFetched(endpoint.name);
+              }
               applyEndpointResult(runId, state, endpoint.name, result);
               return {
                 endpointName: endpoint.name,
