@@ -377,7 +377,11 @@
   border: 1px solid;
   cursor: pointer;
   text-transform: uppercase;
-  transition: color 0.2s, border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
 }
 .hud-btn-save {
   background: rgba(0, 229, 255, 0.1);
