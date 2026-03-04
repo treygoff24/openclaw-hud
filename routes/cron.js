@@ -242,7 +242,7 @@ router.post("/api/cron/:jobId/toggle", requireLocalOrigin, async (req, res) => {
     }
 
     const job = await updateCronJob(
-      { id: jobId, patch: { enabled: !Boolean(match.enabled) } },
+      { id: jobId, patch: { enabled: !match.enabled } },
       { connectScopes: ["operator.admin"] },
     );
 
