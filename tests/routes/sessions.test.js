@@ -1,19 +1,46 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 const helpers = require("../../lib/helpers");
 const sessionCache = require("../../lib/session-cache");
 
-helpers.OPENCLAW_HOME = "/mock/home";
-helpers.safeReaddirAsync = vi.fn(async () => []);
-helpers.safeReadAsync = vi.fn(async () => null);
-sessionCache.getCachedSessions = vi.fn(async () => null);
-helpers.getSessionStatus = vi.fn(() => "active");
+const TMPDIR = path.join(os.tmpdir(), "openclaw-hud-routes-sessions-" + Date.now());
+fs.mkdirSync(TMPDIR, { recursive: true });
 
-function createApp() {
+afterEach(() => {
+  fs.rmSync(TMPDIR, { recursive: true, force: true });
+});
+
+helpers.OPENCLAW_HOME = TMPDIR;
+const originalGetModelAliasMap = helpers.getModelAliasMap;
+
+function writeSessionsFile(agentId, data) {
+  const dir = path.join(TMPDIR, "agents", agentId, "sessions");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "sessions.json"), JSON.stringify(data));
+}
+
+function clearAgentsDir() {
+  const agentsDir = path.join(TMPDIR, "agents");
+  fs.rmSync(agentsDir, { recursive: true, force: true });
+  fs.mkdirSync(agentsDir, { recursive: true });
+}
+
+function createApp(overrides = {}) {
   delete require.cache[require.resolve("../../routes/sessions")];
   const router = require("../../routes/sessions");
+  const deps = {
+    safeReaddirAsync: vi.fn(async () => []),
+    safeReadAsync: vi.fn(async () => null),
+    getCachedSessionEntries: sessionCache.getCachedSessionEntries,
+    canonicalizeRelationshipKey: helpers.canonicalizeRelationshipKey,
+    ...overrides,
+  };
+  router.__setDependencies?.(deps);
   const app = express();
   app.use(router);
   return app;
@@ -22,27 +49,30 @@ function createApp() {
 describe("GET /api/sessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    helpers.getSessionStatus.mockReturnValue("active");
-    helpers.safeReaddirAsync = vi.fn(async () => []);
-    sessionCache.getCachedSessions = vi.fn(async () => null);
+    clearAgentsDir();
+    sessionCache.clearSessionCache();
+    fs.writeFileSync(path.join(TMPDIR, "openclaw.json"), "{}");
+    helpers.getModelAliasMap = originalGetModelAliasMap;
+  });
+
+  afterEach(() => {
+    if (Date.now.mockRestore) Date.now.mockRestore();
   });
 
   it("returns empty array when no agents exist", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue([]);
-    const res = await request(createApp()).get("/api/sessions");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => []) });
+    const res = await request(app).get("/api/sessions");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   it("returns sessions from multiple agents sorted by updatedAt", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1", "a2"]);
-    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
-      if (agentId === "a1") return { k1: { sessionId: "s1", updatedAt: now - 2000 } };
-      if (agentId === "a2") return { k2: { sessionId: "s2", updatedAt: now - 1000 } };
-      return null;
-    });
-    const res = await request(createApp()).get("/api/sessions");
+    writeSessionsFile("a1", { k1: { sessionId: "s1", updatedAt: now - 2000 } });
+    writeSessionsFile("a2", { k2: { sessionId: "s2", updatedAt: now - 1000 } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1", "a2"]) });
+
+    const res = await request(app).get("/api/sessions");
     expect(res.body).toHaveLength(2);
     expect(res.body[0].key).toBe("k2");
     expect(res.body[0].agentId).toBe("a2");
@@ -51,57 +81,55 @@ describe("GET /api/sessions", () => {
 
   it("filters out sessions older than 24 hours", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       recent: { sessionId: "s1", updatedAt: now - 1000 },
       old: { sessionId: "s2", updatedAt: now - 90000000 },
     });
-    const res = await request(createApp()).get("/api/sessions");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+
+    const res = await request(app).get("/api/sessions");
     expect(res.body).toHaveLength(1);
     expect(res.body[0].key).toBe("recent");
   });
 
   it("limits results to 100 sessions", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
     const sessions = {};
-    for (let i = 0; i < 150; i++)
-      sessions[`k${i}`] = { sessionId: `s${i}`, updatedAt: now - i * 1000 };
-    sessionCache.getCachedSessions.mockResolvedValue(sessions);
-    const res = await request(createApp()).get("/api/sessions");
+    for (let i = 0; i < 150; i++) sessions[`k${i}`] = { sessionId: `s${i}`, updatedAt: now - i * 1000 };
+    writeSessionsFile("a1", sessions);
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+
+    const res = await request(app).get("/api/sessions");
     expect(res.body).toHaveLength(100);
   });
 
-  it("includes status from getSessionStatus", async () => {
+  it("includes status from canonical session computation", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
-      k1: { sessionId: "s1", updatedAt: now },
+    writeSessionsFile("a1", {
+      k1: { sessionId: "s1", updatedAt: now - 20 * 60 * 1000, spawnDepth: 0 },
     });
-    helpers.getSessionStatus.mockReturnValue("warm");
-    const res = await request(createApp()).get("/api/sessions");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/sessions");
     expect(res.body[0].status).toBe("warm");
   });
 
   it("canonicalizes main session key as agent:<agentId>:main", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["agentA"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
-      main: { sessionId: "internal-main-session", updatedAt: now },
-    });
-    const res = await request(createApp()).get("/api/sessions");
+    writeSessionsFile("agentA", { main: { sessionId: "internal-main-session", updatedAt: now } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agentA"]) });
+    const res = await request(app).get("/api/sessions");
     expect(res.status).toBe(200);
     expect(res.body[0].sessionKey).toBe("agent:agentA:main");
   });
 
   it("skips invalid stored session keys and exposes warning headers", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       validKey: { sessionId: "s-ok", updatedAt: now },
       "bad key": { sessionId: "s1", updatedAt: now },
     });
-    const res = await request(createApp()).get("/api/sessions");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/sessions");
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].key).toBe("validKey");
@@ -111,13 +139,12 @@ describe("GET /api/sessions", () => {
   });
 
   it("enriches sessions with display metadata and preserves slug fields", async () => {
-    const now = Date.now();
     helpers.getModelAliasMap = vi.fn(() => ({
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    const now = Date.now();
+    writeSessionsFile("agent-a", {
       main: {
         sessionId: "main-session",
         updatedAt: now,
@@ -132,8 +159,9 @@ describe("GET /api/sessions", () => {
         model: "openai/gpt-4o",
       },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent-a"]) });
 
-    const res = await request(createApp()).get("/api/sessions");
+    const res = await request(app).get("/api/sessions");
     const main = res.body.find((s) => s.key === "main");
     const sub = res.body.find((s) => s.key === "sub-task");
 
@@ -148,52 +176,82 @@ describe("GET /api/sessions", () => {
     expect(sub.modelLabel).toBe("gpt4o");
     expect(sub.fullSlug).toBe("agent:agent-a:sub-task");
     expect(sub.sessionKey).toBe(sub.fullSlug);
-    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one session read across concurrent /api/sessions and /api/session-tree calls", async () => {
+    const now = Date.now();
+    writeSessionsFile("a1", {
+      root: { sessionId: "s1", updatedAt: now, model: "anthropic/claude-sonnet-4" },
+    });
+    const readSpy = vi.spyOn(fs.promises, "readFile");
+
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    await Promise.all([request(app).get("/api/sessions"), request(app).get("/api/session-tree")]);
+
+    const sessionsReads = readSpy.mock.calls.filter(([file]) => String(file).includes("sessions.json"));
+    expect(sessionsReads).toHaveLength(1);
+    readSpy.mockRestore();
   });
 });
 
 describe("GET /api/session-log/:agentId/:sessionId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    helpers.safeReadAsync = vi.fn(async () => null);
+    clearAgentsDir();
+    sessionCache.clearSessionCache();
+    fs.writeFileSync(path.join(TMPDIR, "openclaw.json"), "{}");
   });
 
   it("rejects invalid agentId with path traversal", async () => {
-    const res = await request(createApp()).get("/api/session-log/agent%20bad/sess1");
+    const app = createApp({ safeReadAsync: vi.fn(async () => null) });
+    const res = await request(app).get("/api/session-log/agent%20bad/sess1");
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Invalid parameters");
   });
 
   it("rejects sessionId with special characters", async () => {
-    const res = await request(createApp()).get("/api/session-log/agent1/sess%20bad");
+    const app = createApp({ safeReadAsync: vi.fn(async () => null) });
+    const res = await request(app).get("/api/session-log/agent1/sess%20bad");
     expect(res.status).toBe(400);
   });
 
   it("returns empty array when log file does not exist", async () => {
-    helpers.safeReadAsync.mockResolvedValue(null);
-    const res = await request(createApp()).get("/api/session-log/agent1/sess1");
+    const app = createApp({
+      safeReadAsync: vi.fn(async () => null),
+      safeReaddirAsync: vi.fn(async () => ["agent1"]),
+    });
+    const res = await request(app).get("/api/session-log/agent1/sess1");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   it("returns parsed JSONL entries limited to last N lines", async () => {
     const lines = Array.from({ length: 100 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
-    helpers.safeReadAsync.mockResolvedValue(lines.join("\n"));
-    const res = await request(createApp()).get("/api/session-log/agent1/sess1?limit=10");
+    const app = createApp({
+      safeReadAsync: vi.fn(async () => lines.join("\n")),
+      safeReaddirAsync: vi.fn(async () => []),
+    });
+    const res = await request(app).get("/api/session-log/agent1/sess1?limit=10");
     expect(res.body).toHaveLength(10);
     expect(res.body[0].idx).toBe(90);
   });
 
   it("defaults to 50 entries when no limit specified", async () => {
     const lines = Array.from({ length: 80 }, (_, i) => JSON.stringify({ type: "msg", idx: i }));
-    helpers.safeReadAsync.mockResolvedValue(lines.join("\n"));
-    const res = await request(createApp()).get("/api/session-log/agent1/sess1");
+    const app = createApp({
+      safeReadAsync: vi.fn(async () => lines.join("\n")),
+      safeReaddirAsync: vi.fn(async () => []),
+    });
+    const res = await request(app).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(50);
   });
 
   it("skips malformed JSON lines gracefully", async () => {
-    helpers.safeReadAsync.mockResolvedValue('{"valid":true}\nnot-json\n{"also":"valid"}');
-    const res = await request(createApp()).get("/api/session-log/agent1/sess1");
+    const app = createApp({
+      safeReadAsync: vi.fn(async () => '{"valid":true}\nnot-json\n{"also":"valid"}'),
+      safeReaddirAsync: vi.fn(async () => []),
+    });
+    const res = await request(app).get("/api/session-log/agent1/sess1");
     expect(res.body).toHaveLength(2);
   });
 });
@@ -201,20 +259,25 @@ describe("GET /api/session-log/:agentId/:sessionId", () => {
 describe("GET /api/session-tree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    helpers.getSessionStatus.mockReturnValue("active");
-    helpers.safeReaddirAsync = vi.fn(async () => []);
-    sessionCache.getCachedSessions = vi.fn(async () => null);
+    clearAgentsDir();
+    sessionCache.clearSessionCache();
+    fs.writeFileSync(path.join(TMPDIR, "openclaw.json"), "{}");
+  });
+
+  afterEach(() => {
+    if (Date.now.mockRestore) Date.now.mockRestore();
   });
 
   it("returns sessions with child counts computed from spawnedBy links", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       parent: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       child1: { sessionId: "c1", updatedAt: now, spawnedBy: "parent", spawnDepth: 1 },
       child2: { sessionId: "c2", updatedAt: now, spawnedBy: "parent", spawnDepth: 1 },
     });
-    const res = await request(createApp()).get("/api/session-tree");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+
+    const res = await request(app).get("/api/session-tree");
     const parent = res.body.find((s) => s.key === "parent");
     expect(parent.childCount).toBe(2);
     const child = res.body.find((s) => s.key === "child1");
@@ -224,8 +287,7 @@ describe("GET /api/session-tree", () => {
 
   it("resolves mixed legacy/canonical spawnedBy values to the parent key present in payload", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       main: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       "child-legacy-key": {
         sessionId: "c1",
@@ -240,8 +302,9 @@ describe("GET /api/session-tree", () => {
         spawnDepth: 1,
       },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
-    const res = await request(createApp()).get("/api/session-tree");
+    const res = await request(app).get("/api/session-tree");
     const parent = res.body.find((s) => s.key === "main");
     const childWithCanonicalSpawnedBy = res.body.find((s) => s.key === "child-legacy-key");
     const childWithLegacySpawnedBy = res.body.find((s) => s.key === "agent:a1:child-canonical-key");
@@ -255,8 +318,7 @@ describe("GET /api/session-tree", () => {
 
   it("deterministically prefers canonical entries when legacy and canonical keys collide", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       main: { sessionId: "legacy-main", label: "legacy", updatedAt: now, spawnDepth: 0 },
       "agent:a1:main": {
         sessionId: "canonical-main",
@@ -272,8 +334,9 @@ describe("GET /api/session-tree", () => {
         spawnDepth: 1,
       },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
-    const res = await request(createApp()).get("/api/session-tree");
+    const res = await request(app).get("/api/session-tree");
     const parentMatches = res.body.filter((s) => s.sessionKey === "agent:a1:main");
     const childLegacyLink = res.body.find((s) => s.key === "child-legacy-link");
     const childCanonicalLink = res.body.find((s) => s.key === "child-canonical-link");
@@ -289,8 +352,7 @@ describe("GET /api/session-tree", () => {
 
   it("keeps canonical parent deterministic when canonical key appears before legacy alias", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       "agent:a1:main": {
         sessionId: "canonical-main",
         label: "canonical-first",
@@ -316,8 +378,9 @@ describe("GET /api/session-tree", () => {
         spawnDepth: 1,
       },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
-    const res = await request(createApp()).get("/api/session-tree");
+    const res = await request(app).get("/api/session-tree");
     const parentMatches = res.body.filter((s) => s.sessionKey === "agent:a1:main");
     const childLegacyLink = res.body.find((s) => s.key === "child-from-legacy-link");
     const childCanonicalLink = res.body.find((s) => s.key === "child-from-canonical-link");
@@ -333,8 +396,7 @@ describe("GET /api/session-tree", () => {
 
   it("ensures every non-null spawnedBy matches an existing parent key in the same payload", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       main: { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       "agent:a1:canonical-parent": { sessionId: "cp", updatedAt: now, spawnDepth: 0 },
       "child-from-canonical-input": {
@@ -351,8 +413,9 @@ describe("GET /api/session-tree", () => {
       },
       orphan: { sessionId: "o", updatedAt: now, spawnedBy: "missing-parent", spawnDepth: 1 },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
-    const res = await request(createApp()).get("/api/session-tree");
+    const res = await request(app).get("/api/session-tree");
     const keys = new Set(res.body.map((s) => s.key));
     for (const session of res.body) {
       if (session.spawnedBy !== null) {
@@ -363,8 +426,7 @@ describe("GET /api/session-tree", () => {
 
   it("uses computed canonicalSpawnedBy even when payload contains a persisted canonicalSpawnedBy field", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       "legacy-parent": { sessionId: "p", updatedAt: now, spawnDepth: 0 },
       child: {
         sessionId: "c1",
@@ -374,8 +436,9 @@ describe("GET /api/session-tree", () => {
         spawnDepth: 1,
       },
     });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
 
-    const res = await request(createApp()).get("/api/session-tree");
+    const res = await request(app).get("/api/session-tree");
     const parent = res.body.find((s) => s.key === "legacy-parent");
     const child = res.body.find((s) => s.key === "child");
 
@@ -385,45 +448,43 @@ describe("GET /api/session-tree", () => {
 
   it("nullifies spawnedBy when parent session does not exist", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       orphan: { sessionId: "o", updatedAt: now, spawnedBy: "nonexistent", spawnDepth: 1 },
     });
-    const res = await request(createApp()).get("/api/session-tree");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/session-tree");
     expect(res.body[0].spawnedBy).toBeNull();
   });
 
   it("filters sessions older than 24 hours", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       recent: { sessionId: "r", updatedAt: now },
       old: { sessionId: "o", updatedAt: now - 90000000 },
     });
-    const res = await request(createApp()).get("/api/session-tree");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/session-tree");
     expect(res.body).toHaveLength(1);
     expect(res.body[0].key).toBe("recent");
   });
 
   it("includes canonical sessionKey for tree nodes", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
-      main: { sessionId: "internal-main-id", updatedAt: now },
-    });
-    const res = await request(createApp()).get("/api/session-tree");
+    writeSessionsFile("a1", { main: { sessionId: "internal-main-id", updatedAt: now } });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/session-tree");
     expect(res.status).toBe(200);
     expect(res.body[0].sessionKey).toBe("agent:a1:main");
   });
 
   it("skips invalid tree session keys and exposes warning headers", async () => {
     const now = Date.now();
-    helpers.safeReaddirAsync.mockResolvedValue(["a1"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("a1", {
       main: { sessionId: "ok", updatedAt: now },
       "bad key": { sessionId: "x", updatedAt: now },
     });
-    const res = await request(createApp()).get("/api/session-tree");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["a1"]) });
+    const res = await request(app).get("/api/session-tree");
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].key).toBe("main");
@@ -433,13 +494,12 @@ describe("GET /api/session-tree", () => {
   });
 
   it("enriches tree entries with display metadata fields", async () => {
-    const now = Date.now();
     helpers.getModelAliasMap = vi.fn(() => ({
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
-    sessionCache.getCachedSessions.mockResolvedValue({
+    const now = Date.now();
+    writeSessionsFile("agent-a", {
       main: {
         sessionId: "main-session",
         updatedAt: now,
@@ -454,8 +514,8 @@ describe("GET /api/session-tree", () => {
         model: "openai/gpt-4o",
       },
     });
-
-    const res = await request(createApp()).get("/api/session-tree");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent-a"]) });
+    const res = await request(app).get("/api/session-tree");
     const main = res.body.find((s) => s.key === "main");
     const sub = res.body.find((s) => s.key === "sub-task");
 
@@ -468,6 +528,5 @@ describe("GET /api/session-tree", () => {
     expect(sub.sessionAlias).toBe("sub-task");
     expect(sub.modelLabel).toBe("gpt4o");
     expect(sub.fullSlug).toBe("agent:agent-a:sub-task");
-    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
   });
 });

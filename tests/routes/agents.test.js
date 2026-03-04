@@ -1,21 +1,51 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 const helpers = require("../../lib/helpers");
 const sessionCache = require("../../lib/session-cache");
-const fs = require("fs");
 
-helpers.OPENCLAW_HOME = "/mock/home";
-helpers.safeReaddirAsync = vi.fn(async () => []);
-sessionCache.getCachedSessions = vi.fn(async () => null);
+const TMPDIR = path.join(os.tmpdir(), "openclaw-hud-routes-agents-" + Date.now());
+fs.mkdirSync(TMPDIR, { recursive: true });
 
-// Mock fs.promises.stat via vi.spyOn
-vi.spyOn(fs.promises, "stat").mockResolvedValue({ isDirectory: () => true });
+afterEach(() => {
+  fs.rmSync(TMPDIR, { recursive: true, force: true });
+});
 
-function createApp() {
+helpers.OPENCLAW_HOME = TMPDIR;
+const originalGetModelAliasMap = helpers.getModelAliasMap;
+vi.spyOn(fs.promises, "stat");
+
+function writeConfig(models) {
+  const file = path.join(TMPDIR, "openclaw.json");
+  fs.mkdirSync(TMPDIR, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ agents: { defaults: { models } } }));
+}
+
+function writeSessionsFile(agentId, data) {
+  const dir = path.join(TMPDIR, "agents", agentId, "sessions");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "sessions.json"), JSON.stringify(data));
+}
+
+function clearAgentsDir() {
+  const agentsDir = path.join(TMPDIR, "agents");
+  fs.rmSync(agentsDir, { recursive: true, force: true });
+  fs.mkdirSync(agentsDir, { recursive: true });
+}
+
+function createApp(overrides = {}) {
   delete require.cache[require.resolve("../../routes/agents")];
   const router = require("../../routes/agents");
+  const deps = {
+    safeReaddirAsync: vi.fn(async () => []),
+    getCachedSessionEntries: sessionCache.getCachedSessionEntries,
+    ...overrides,
+  };
+  router.__setDependencies?.(deps);
   const app = express();
   app.use(router);
   return app;
@@ -24,31 +54,35 @@ function createApp() {
 describe("GET /api/agents", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAgentsDir();
+    sessionCache.clearSessionCache();
     fs.promises.stat.mockResolvedValue({ isDirectory: () => true });
-    helpers.safeReaddirAsync = vi.fn(async () => []);
-    sessionCache.getCachedSessions = vi.fn(async () => null);
+    fs.writeFileSync(path.join(TMPDIR, "openclaw.json"), "{}");
+    helpers.getModelAliasMap = originalGetModelAliasMap;
+  });
+
+  afterEach(() => {
+    if (Date.now.mockRestore) Date.now.mockRestore();
   });
 
   it("returns empty array when no agents exist", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue([]);
-    const res = await request(createApp()).get("/api/agents");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => []) });
+    const res = await request(app).get("/api/agents");
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   it("returns agents with session metadata sorted by most recent", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue(["bot-a", "bot-b"]);
     const now = Date.now();
-    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
-      if (agentId === "bot-a")
-        return {
-          "sess-1": { sessionId: "s1", updatedAt: now - 1000, label: "test", spawnDepth: 0 },
-        };
-      if (agentId === "bot-b")
-        return { "sess-2": { sessionId: "s2", updatedAt: now - 500, label: "newer" } };
-      return null;
+    writeSessionsFile("bot-a", {
+      "sess-1": { sessionId: "s1", updatedAt: now - 1000, label: "test", spawnDepth: 0 },
     });
-    const res = await request(createApp()).get("/api/agents");
+    writeSessionsFile("bot-b", {
+      "sess-2": { sessionId: "s2", updatedAt: now - 500, label: "newer" },
+    });
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["bot-a", "bot-b"]) });
+
+    const res = await request(app).get("/api/agents");
     expect(res.body).toHaveLength(2);
     expect(res.body[0].id).toBe("bot-b");
     expect(res.body[1].id).toBe("bot-a");
@@ -56,32 +90,32 @@ describe("GET /api/agents", () => {
   });
 
   it("counts active sessions correctly (within 1 hour)", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue(["agent1"]);
     const now = Date.now();
-    sessionCache.getCachedSessions.mockResolvedValue({
+    writeSessionsFile("agent1", {
       s1: { sessionId: "s1", updatedAt: now - 1000 },
       s2: { sessionId: "s2", updatedAt: now - 7200000 },
     });
-    const res = await request(createApp()).get("/api/agents");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+    const res = await request(app).get("/api/agents");
     expect(res.body[0].activeSessions).toBe(1);
     expect(res.body[0].sessionCount).toBe(2);
   });
 
   it("filters out non-directory entries", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue(["agent1", "file.txt"]);
+    writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: Date.now() } });
     fs.promises.stat.mockImplementation(async (fp) => ({
       isDirectory: () => !fp.includes("file.txt"),
     }));
-    sessionCache.getCachedSessions.mockResolvedValue(null);
-    const res = await request(createApp()).get("/api/agents");
+
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1", "file.txt"]) });
+    const res = await request(app).get("/api/agents");
     expect(res.body).toHaveLength(1);
     expect(res.body[0].id).toBe("agent1");
   });
 
   it("handles missing sessions.json gracefully", async () => {
-    helpers.safeReaddirAsync.mockResolvedValue(["agent1"]);
-    sessionCache.getCachedSessions.mockResolvedValue(null);
-    const res = await request(createApp()).get("/api/agents");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent1"]) });
+    const res = await request(app).get("/api/agents");
     expect(res.body[0].sessions).toEqual([]);
     expect(res.body[0].sessionCount).toBe(0);
   });
@@ -91,28 +125,25 @@ describe("GET /api/agents", () => {
       "anthropic/claude-sonnet-4": { alias: "sonnet" },
       "openai/gpt-4o": { alias: "gpt4o" },
     }));
-    helpers.safeReaddirAsync.mockResolvedValue(["agent-a"]);
     const now = Date.now();
-    sessionCache.getCachedSessions.mockImplementation(async (agentId) => {
-      if (agentId !== "agent-a") return null;
-      return {
-        main: {
-          sessionId: "main-session",
-          updatedAt: now - 1000,
-          model: "anthropic/claude-sonnet-4",
-        },
-        "sub-task": {
-          sessionId: "sub-session",
-          updatedAt: now,
-          spawnedBy: "main",
-          spawnDepth: 1,
-          model: "openai/gpt-4o",
-          label: "",
-        },
-      };
+    writeSessionsFile("agent-a", {
+      main: {
+        sessionId: "main-session",
+        updatedAt: now - 1000,
+        model: "anthropic/claude-sonnet-4",
+      },
+      "sub-task": {
+        sessionId: "sub-session",
+        updatedAt: now,
+        spawnedBy: "main",
+        spawnDepth: 1,
+        model: "openai/gpt-4o",
+        label: "",
+      },
     });
 
-    const res = await request(createApp()).get("/api/agents");
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent-a"]) });
+    const res = await request(app).get("/api/agents");
     const sessions = res.body[0].sessions;
     const sub = sessions.find((s) => s.key === "sub-task");
     const main = sessions.find((s) => s.key === "main");
@@ -128,6 +159,18 @@ describe("GET /api/agents", () => {
     expect(main.modelLabel).toBe("sonnet");
     expect(main.fullSlug).toBe("agent:agent-a:main");
     expect(main.sessionKey).toBe(main.fullSlug);
-    expect(helpers.getModelAliasMap).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces concurrent /api/agents requests to one sessions.json read", async () => {
+    const now = Date.now();
+    writeSessionsFile("agent-a", { main: { sessionId: "s1", updatedAt: now, model: "anthropic/claude-sonnet-4" } });
+    const readSpy = vi.spyOn(fs.promises, "readFile");
+
+    const app = createApp({ safeReaddirAsync: vi.fn(async () => ["agent-a"]) });
+    await Promise.all([request(app).get("/api/agents"), request(app).get("/api/agents"), request(app).get("/api/agents")]);
+
+    const sessionReads = readSpy.mock.calls.filter(([file]) => String(file).includes("sessions.json"));
+    expect(sessionReads).toHaveLength(1);
+    readSpy.mockRestore();
   });
 });

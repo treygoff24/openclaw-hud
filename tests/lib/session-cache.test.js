@@ -17,8 +17,10 @@ helpers.OPENCLAW_HOME = TMPDIR;
 const {
   getCachedSessions,
   getCachedSessionsSync,
+  getCachedSessionEntries,
   clearSessionCache,
   getSessionCacheStats,
+  setSessionCacheConfig,
 } = require("../../lib/session-cache");
 
 function writeSessionsFile(agentId, data) {
@@ -37,6 +39,29 @@ describe("session-cache", () => {
       writeSessionsFile("agent1", { s1: { sessionId: "s1", updatedAt: 1000 } });
       const result = await getCachedSessions("agent1");
       expect(result).toEqual({ s1: { sessionId: "s1", updatedAt: 1000 } });
+    });
+
+    it("coalesces concurrent read calls for the same agent", async () => {
+      writeSessionsFile("agent-concurrent", { s1: { sessionId: "s1", updatedAt: 1 } });
+      const originalReadFile = fs.promises.readFile;
+      const readSpy = vi.spyOn(fs.promises, "readFile").mockImplementation(async (fp, encoding) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return originalReadFile(fp, encoding);
+      });
+
+      const results = await Promise.all([
+        getCachedSessions("agent-concurrent"),
+        getCachedSessions("agent-concurrent"),
+        getCachedSessions("agent-concurrent"),
+      ]);
+
+      expect(results).toEqual([
+        { s1: { sessionId: "s1", updatedAt: 1 } },
+        { s1: { sessionId: "s1", updatedAt: 1 } },
+        { s1: { sessionId: "s1", updatedAt: 1 } },
+      ]);
+      expect(readSpy).toHaveBeenCalledTimes(1);
+      readSpy.mockRestore();
     });
 
     it("returns null for non-existent agent", async () => {
@@ -121,6 +146,99 @@ describe("session-cache", () => {
       expect(stats.hits).toBe(2);
       expect(stats.misses).toBe(3);
       expect(stats.size).toBe(2); // only agent7 and agent8 are cached
+    });
+  });
+
+  describe("getCachedSessionEntries", () => {
+    it("does not let persisted session payload overwrite canonical/session-computed fields", async () => {
+      writeSessionsFile("agent-override", {
+        legacy: {
+          sessionId: "legacy-session",
+          status: "poisoned",
+          sessionKey: "agent:evil:legacy",
+          sessionRole: "evil-role",
+          sessionAlias: "evil-alias",
+          modelLabel: "evil-model",
+          fullSlug: "not-a-canonical-slug",
+          updatedAt: 0,
+        },
+      });
+
+      const result = await getCachedSessionEntries("agent-override");
+      expect(result.invalid).toHaveLength(0);
+      expect(result.sessions).toHaveLength(1);
+
+      const session = result.sessions[0];
+      expect(session.key).toBe("legacy");
+      expect(session.sessionKey).toBe("agent:agent-override:legacy");
+      expect(session.status).toBe("stale");
+      expect(session.sessionRole).toBe("main");
+      expect(session.fullSlug).toBe("agent:agent-override:legacy");
+      expect(session.sessionAlias).toBe("legacy");
+      expect(session.modelLabel).not.toBe("evil-model");
+    });
+
+    it("builds and memoizes canonicalized sessions once across concurrent callers", async () => {
+      writeSessionsFile("agent-derive", {
+        "legacy-main": {
+          sessionId: "legacy-session",
+          updatedAt: 10,
+          spawnedBy: "missing",
+          model: "anthropic/claude-sonnet-4",
+          label: "",
+        },
+      });
+      const originalReadFile = fs.promises.readFile;
+      const readSpy = vi.spyOn(fs.promises, "readFile").mockImplementation(async (fp, encoding) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return originalReadFile(fp, encoding);
+      });
+
+      const [first, second, third] = await Promise.all([
+        getCachedSessionEntries("agent-derive"),
+        getCachedSessionEntries("agent-derive"),
+        getCachedSessionEntries("agent-derive"),
+      ]);
+
+      expect(first.sessions).toEqual(second.sessions);
+      expect(first.sessions).toEqual(third.sessions);
+      expect(first.invalid).toHaveLength(0);
+      expect(readSpy).toHaveBeenCalledTimes(1);
+      readSpy.mockRestore();
+    });
+
+    it("does not cache negative payload derivations from missing sessions.json", async () => {
+      const rawSpy = vi.spyOn(fs.promises, "readFile");
+
+      await getCachedSessionEntries("missing-json");
+      writeSessionsFile("missing-json", {
+        "main-session": { sessionId: "main", updatedAt: Date.now() },
+      });
+      await getCachedSessionEntries("missing-json");
+
+      expect(rawSpy).toHaveBeenCalledTimes(2);
+      rawSpy.mockRestore();
+    });
+
+    it("bounds cache maps and reports sizes", async () => {
+      setSessionCacheConfig({ maxRawEntries: 2, maxDerivedEntries: 1 });
+      try {
+        for (let i = 0; i < 4; i++) {
+          writeSessionsFile(`bounded-${i}`, {
+            session: { sessionId: "sid", updatedAt: Date.now() - i },
+          });
+        }
+
+        for (let i = 0; i < 4; i++) {
+          await getCachedSessionEntries(`bounded-${i}`);
+        }
+
+        const stats = getSessionCacheStats();
+        expect(stats.rawSize).toBeLessThanOrEqual(2);
+        expect(stats.derivedSize).toBeLessThanOrEqual(1);
+      } finally {
+        setSessionCacheConfig({ maxRawEntries: 128, maxDerivedEntries: 128 });
+      }
     });
   });
 });

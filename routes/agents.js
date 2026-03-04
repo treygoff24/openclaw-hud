@@ -4,18 +4,22 @@ const { Router } = require("express");
 const {
   OPENCLAW_HOME,
   safeReaddirAsync,
-  canonicalizeSessionKey,
-  getModelAliasMap,
-  enrichSessionMetadata,
 } = require("../lib/helpers");
-const { getCachedSessions } = require("../lib/session-cache");
+const { getCachedSessionEntries } = require("../lib/session-cache");
 
 const router = Router();
+const agentsDeps = {
+  safeReaddirAsync,
+  getCachedSessionEntries,
+};
+
+function setAgentsDependencies(overrides = {}) {
+  Object.assign(agentsDeps, overrides);
+}
 
 router.get("/api/agents", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const modelAliases = getModelAliasMap();
-  const allEntries = await safeReaddirAsync(agentsDir);
+  const allEntries = await agentsDeps.safeReaddirAsync(agentsDir);
   const agents = [];
   for (const f of allEntries) {
     try {
@@ -28,33 +32,12 @@ router.get("/api/agents", async (req, res) => {
 
   const result = [];
   for (const id of agents) {
-    const sessions = (await getCachedSessions(id)) || {};
-    const sessionList = Object.entries(sessions).reduce((acc, [key, val]) => {
-      let sessionKey;
-      try {
-        sessionKey = canonicalizeSessionKey(id, key);
-      } catch {
-        return acc;
-      }
-      acc.push({
-        key,
-        sessionKey,
-        sessionId: val.sessionId,
-        updatedAt: val.updatedAt,
-        label: val.label,
-        spawnedBy: val.spawnedBy,
-        spawnDepth: val.spawnDepth,
-        lastChannel: val.lastChannel,
-        groupChannel: val.groupChannel,
-        ...enrichSessionMetadata(sessionKey, { ...val, sessionKey }, { sessionKey, modelAliases }),
-      });
-      return acc;
-    }, []);
-    sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const { sessions: sessionList } = await agentsDeps.getCachedSessionEntries(id);
+    const sorted = [...sessionList].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const activeSessions = sessionList.filter(
       (s) => s.updatedAt && Date.now() - s.updatedAt < 3600000,
     ).length;
-    result.push({ id, sessions: sessionList, sessionCount: sessionList.length, activeSessions });
+    result.push({ id, sessions: sorted, sessionCount: sessionList.length, activeSessions });
   }
   result.sort((a, b) => {
     const aMax = a.sessions[0]?.updatedAt || 0;
@@ -63,5 +46,7 @@ router.get("/api/agents", async (req, res) => {
   });
   res.json(result);
 });
+
+router.__setDependencies = setAgentsDependencies;
 
 module.exports = router;

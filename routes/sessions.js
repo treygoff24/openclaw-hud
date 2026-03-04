@@ -4,15 +4,21 @@ const {
   OPENCLAW_HOME,
   safeReaddirAsync,
   safeReadAsync,
-  getSessionStatus,
-  canonicalizeSessionKey,
   canonicalizeRelationshipKey,
-  getModelAliasMap,
-  enrichSessionMetadata,
 } = require("../lib/helpers");
-const { getCachedSessions } = require("../lib/session-cache");
+const { getCachedSessionEntries } = require("../lib/session-cache");
 
 const router = Router();
+const sessionsDeps = {
+  safeReaddirAsync,
+  safeReadAsync,
+  canonicalizeRelationshipKey,
+  getCachedSessionEntries,
+};
+
+function setSessionsDependencies(overrides = {}) {
+  Object.assign(sessionsDeps, overrides);
+}
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const CANONICAL_SESSION_KEY_RE = /^agent:[a-zA-Z0-9_-]+:[a-zA-Z0-9:_-]+$/;
@@ -51,25 +57,19 @@ function mergeCanonicalSessionEntry(allSessions, candidate) {
 
 router.get("/api/sessions", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const agents = await safeReaddirAsync(agentsDir);
-  const modelAliases = getModelAliasMap();
+  const agents = await sessionsDeps.safeReaddirAsync(agentsDir);
   const all = [];
   const invalid = [];
   for (const agentId of agents) {
-    const sessions = (await getCachedSessions(agentId)) || {};
-    for (const [key, val] of Object.entries(sessions)) {
-      try {
-        const sessionKey = canonicalizeSessionKey(agentId, key);
-        const s = { agentId, key, sessionKey, ...val };
-        const displayMeta = enrichSessionMetadata(sessionKey, val, { sessionKey, modelAliases });
-        s.status = getSessionStatus(s);
-        Object.assign(s, displayMeta);
-        all.push(s);
-      } catch (err) {
-        invalid.push({ agentId, key, error: err.message });
-      }
+    const { sessions, invalid: invalidEntries } = await sessionsDeps.getCachedSessionEntries(agentId);
+    if (invalidEntries.length) {
+      invalid.push(...invalidEntries);
+    }
+    for (const val of sessions) {
+      all.push(val);
     }
   }
+
   attachSessionWarningHeaders(res, "/api/sessions", invalid);
   const recent = all.filter((s) => s.updatedAt && Date.now() - s.updatedAt < ONE_DAY);
   recent.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -83,7 +83,7 @@ router.get("/api/session-log/:agentId/:sessionId", async (req, res) => {
   }
   const limit = parseInt(req.query.limit) || 50;
   const logFile = path.join(OPENCLAW_HOME, "agents", agentId, "sessions", `${sessionId}.jsonl`);
-  const raw = await safeReadAsync(logFile);
+  const raw = await sessionsDeps.safeReadAsync(logFile);
   if (!raw) return res.json([]);
   const lines = raw.trim().split("\n").filter(Boolean);
   const entries = [];
@@ -97,26 +97,20 @@ router.get("/api/session-log/:agentId/:sessionId", async (req, res) => {
 
 router.get("/api/session-tree", async (req, res) => {
   const agentsDir = path.join(OPENCLAW_HOME, "agents");
-  const agents = await safeReaddirAsync(agentsDir);
-  const modelAliases = getModelAliasMap();
+  const agents = await sessionsDeps.safeReaddirAsync(agentsDir);
   const allSessions = {};
   const invalid = [];
 
   for (const agentId of agents) {
-    const sessions = (await getCachedSessions(agentId)) || {};
-    for (const [key, val] of Object.entries(sessions)) {
-      try {
-        const sessionKey = canonicalizeSessionKey(agentId, key);
-        mergeCanonicalSessionEntry(allSessions, {
-          ...val,
-          key,
-          sessionKey,
-          agentId,
-          canonicalSpawnedBy: canonicalizeRelationshipKey(agentId, val.spawnedBy),
-        });
-      } catch (err) {
-        invalid.push({ agentId, key, error: err.message });
-      }
+    const { sessions, invalid: invalidEntries } = await sessionsDeps.getCachedSessionEntries(agentId);
+    if (invalidEntries.length) {
+      invalid.push(...invalidEntries);
+    }
+    for (const val of sessions) {
+      mergeCanonicalSessionEntry(allSessions, {
+        ...val,
+        canonicalSpawnedBy: sessionsDeps.canonicalizeRelationshipKey(agentId, val.spawnedBy),
+      });
     }
   }
   attachSessionWarningHeaders(res, "/api/session-tree", invalid);
@@ -130,7 +124,6 @@ router.get("/api/session-tree", async (req, res) => {
 
   const result = Object.values(allSessions).map((s) => {
     const parent = s.canonicalSpawnedBy ? allSessions[s.canonicalSpawnedBy] : null;
-    const displayMeta = enrichSessionMetadata(s.key, s, { sessionKey: s.sessionKey, modelAliases });
     return {
       key: s.key,
       sessionKey: s.sessionKey,
@@ -143,8 +136,11 @@ router.get("/api/session-tree", async (req, res) => {
       lastChannel: s.lastChannel || null,
       groupChannel: s.groupChannel || null,
       childCount: childCounts[s.sessionKey] || 0,
-      status: getSessionStatus(s),
-      ...displayMeta,
+      status: s.status,
+      sessionRole: s.sessionRole,
+      sessionAlias: s.sessionAlias,
+      modelLabel: s.modelLabel,
+      fullSlug: s.fullSlug,
     };
   });
 
@@ -152,5 +148,7 @@ router.get("/api/session-tree", async (req, res) => {
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   res.json(filtered);
 });
+
+router.__setDependencies = setSessionsDependencies;
 
 module.exports = router;
