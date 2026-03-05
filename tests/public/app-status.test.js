@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 window.HUDApp = window.HUDApp || {};
 await import("../../public/app/status.js");
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 function createMockDocument() {
   const elements = {
@@ -88,6 +93,7 @@ describe("HUDApp.status.createStatusController", () => {
   });
 
   it("updates clock text immediately when started", () => {
+    vi.useFakeTimers();
     const document = createMockDocument();
     const controller = window.HUDApp.status.createStatusController({
       document,
