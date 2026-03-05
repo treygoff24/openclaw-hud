@@ -15,8 +15,8 @@ function createApp() {
 }
 
 function createAppWithTelemetry({ telemetry } = {}) {
-  delete require.cache[require.resolve("../../routes/model-usage")];
-  const router = require("../../routes/model-usage");
+  delete require.cache[require.resolve("../../routes/model-usage.js")];
+  const router = require("../../routes/model-usage.js");
   const app = express();
   if (telemetry) {
     app.use("/api", telemetry);
@@ -188,5 +188,38 @@ describe("model-usage route seam", () => {
     );
 
     statSpy.mockRestore();
+  });
+
+  it("returns 304 when cached ETag matches and payload is unchanged", async () => {
+    helpers.safeReaddir.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents") return ["agent-a"];
+      if (fp === "/mock/home/agents/agent-a/sessions") return ["sess-1.jsonl"];
+      return [];
+    });
+    helpers.safeRead.mockImplementation((fp) => {
+      if (fp === "/mock/home/agents/agent-a/sessions/sess-1.jsonl") {
+        return JSON.stringify({
+          type: "message",
+          message: {
+            model: "openai/gpt-5",
+            usage: {
+              input: 10,
+              output: 5,
+              totalTokens: 15,
+              cost: { total: 0.01 },
+            },
+          },
+        });
+      }
+      return null;
+    });
+
+    const app = createApp();
+    const first = await request(app).get("/api/model-usage");
+    expect(first.status).toBe(200);
+
+    const etag = first.headers.etag;
+    const second = await request(app).get("/api/model-usage").set("If-None-Match", etag);
+    expect(second.status).toBe(304);
   });
 });

@@ -24,6 +24,8 @@ yarn-error.log*
 tmp/
 .opencode/
 output/
+.desloppify/
+scorecard.png
 
 # Generated E2E fixture timestamps
 e2e/fixtures/openclaw-home/agents/test-agent/sessions/sess-abc-001.jsonl

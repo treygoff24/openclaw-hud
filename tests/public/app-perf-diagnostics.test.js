@@ -771,6 +771,46 @@ describe("app bootstrap with perf monitor disabled", () => {
     );
   });
 
+  it("stops existing perf hooks before installing replacements on re-init", async () => {
+    const previousPerfLongTaskHook = { stop: vi.fn() };
+    const previousPerfLongAnimationFrameHook = { stop: vi.fn() };
+    const previousPerfFrameBudgetHook = { stop: vi.fn() };
+
+    const diagnostics = {
+      ensureHudDiagLogger: vi.fn(() => vi.fn()),
+      resolvePerfDiagnosticsFlags: vi.fn(() => ({ enabled: true, longTask: true })),
+      createPerfMonitor: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        record: vi.fn(),
+        isEnabled: () => true,
+      })),
+      createLongTaskTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
+      createLongAnimationFrameTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
+      createFrameBudgetTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
+      createPerfBatchTransport: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        enqueue: vi.fn(),
+        flush: vi.fn(),
+        isEnabled: () => true,
+      })),
+    };
+    const { HUD } = createBootstrapHarness({ diagnostics });
+
+    window.HUDApp.perfMonitor = { stop: vi.fn() };
+    window.HUDApp.perfLongTaskHook = previousPerfLongTaskHook;
+    window.HUDApp.perfLongAnimationFrameHook = previousPerfLongAnimationFrameHook;
+    window.HUDApp.perfFrameBudgetHook = previousPerfFrameBudgetHook;
+
+    await import("../../public/app/bootstrap.js");
+    window.HUDApp.bootstrap.initApp({ document, HUD });
+
+    expect(previousPerfLongTaskHook.stop).toHaveBeenCalledTimes(1);
+    expect(previousPerfLongAnimationFrameHook.stop).toHaveBeenCalledTimes(1);
+    expect(previousPerfFrameBudgetHook.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("does not crash bootstrap when window.localStorage accessor throws SecurityError", async () => {
     const securityError = new DOMException("Blocked by browser policy", "SecurityError");
     Object.defineProperty(window, "localStorage", {
@@ -1416,6 +1456,28 @@ describe("data controller perf instrumentation", () => {
     await controller.fetchAll({ includeCold: true });
 
     expect(record).not.toHaveBeenCalled();
+  });
+
+  it("returns safe invalid endpoint metadata when data fetch helper input is malformed", async () => {
+    window.HUDApp = {
+      perfMonitor: {
+        isEnabled: () => false,
+        record: vi.fn(),
+      },
+    };
+    await import("../../public/app/data.js");
+
+    const { controller } = createDataControllerPerfHarness({});
+    const result = await controller._test.fetchEndpoint();
+
+    expect(result).toEqual({
+      payload: null,
+      payloadFingerprint: null,
+      meta: expect.objectContaining({
+        status: 0,
+        statusText: "invalid-test-endpoint",
+      }),
+    });
   });
 
   it("adds HUD correlation request headers for instrumented fetch cycles", async () => {

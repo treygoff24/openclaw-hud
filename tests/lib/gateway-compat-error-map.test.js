@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-const { normalizeGatewayError } = await import("../../lib/gateway-compat/error-map.js");
+import { normalizeGatewayError } from "../../lib/gateway-compat/error-map.js";
 
 describe("gateway-compat error-map", () => {
   it("maps invalid request missing scope to FORBIDDEN with 403", () => {
@@ -74,6 +73,49 @@ describe("gateway-compat error-map", () => {
       reason: "gateway_error",
       message: "weird gateway state",
       rawCode: "MYSTERY",
+    });
+  });
+
+  it("maps status 401/403 to FORBIDDEN even when code is absent", () => {
+    const fromStatus = normalizeGatewayError({ status: 401, message: "challenge failed" });
+    const fromStatusNumber = normalizeGatewayError({ statusCode: 403, message: "no session" });
+
+    expect(fromStatus).toMatchObject({
+      code: "FORBIDDEN",
+      status: 403,
+      reason: "forbidden",
+    });
+    expect(fromStatusNumber).toMatchObject({
+      code: "FORBIDDEN",
+      status: 403,
+      reason: "forbidden",
+    });
+  });
+
+  it("extracts a message fallback when code is missing entirely", () => {
+    const result = normalizeGatewayError({
+      message: "timeout exceeded waiting for gateway",
+    });
+    expect(result).toMatchObject({
+      code: "UNAVAILABLE",
+      status: 503,
+      reason: "timeout",
+      message: "timeout exceeded waiting for gateway",
+    });
+  });
+
+  it("classifies unknown status classes that include 5xx as gateway unavailable", () => {
+    const result = normalizeGatewayError({
+      status: 503,
+      message: "backend is currently unavailable",
+    });
+
+    expect(result).toEqual({
+      code: "UNAVAILABLE",
+      status: 503,
+      reason: "network_unreachable",
+      message: "backend is currently unavailable",
+      rawStatus: 503,
     });
   });
 });
