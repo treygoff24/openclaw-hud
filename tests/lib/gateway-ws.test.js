@@ -260,4 +260,31 @@ describe("GatewayWS", () => {
     expect(first).toBeInstanceOf(Error);
     expect(first.message).toMatch(/overflow/);
   });
+
+  it("forwards seq-gap diagnostics when a sequence jump is detected", async () => {
+    server = createMockServer({
+      onRequest: (ws, msg) => {
+        ws.send(JSON.stringify({ type: "res", id: msg.id, ok: true, payload: {} }));
+      },
+    });
+    gw = new GatewayWS({
+      url: server.url(),
+      token: "gap-test",
+      reconnect: { enabled: false },
+    });
+    await gw.connect();
+
+    const seqGap = waitEvent(gw, "seq-gap");
+    for (const ws of server.wss.clients) {
+      ws.send(
+        JSON.stringify({ type: "event", event: "chat", seq: 10, payload: { text: "first" } }),
+      );
+      ws.send(
+        JSON.stringify({ type: "event", event: "chat", seq: 12, payload: { text: "second" } }),
+      );
+    }
+
+    const gap = await seqGap;
+    expect(gap).toEqual({ expected: 11, received: 12 });
+  });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createPerfLogWriter, sanitizePerfEvent, PERF_LOG_WRITER_DEFAULTS } from "../../lib/perf-log-writer.js";
 
 const TMP_ROOT = path.join(os.tmpdir(), `perf-log-writer-test-${Date.now()}`);
 
@@ -15,9 +16,6 @@ afterEach(() => {
 
 describe("perf log writer rotation", () => {
   it("exports canonical writer defaults and applies them when options are omitted", async () => {
-    const { createPerfLogWriter, PERF_LOG_WRITER_DEFAULTS } =
-      await import("../../lib/perf-log-writer.js");
-
     expect(PERF_LOG_WRITER_DEFAULTS).toMatchObject({
       maxBytes: expect.any(Number),
       maxFiles: expect.any(Number),
@@ -39,7 +37,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("keeps an explicit baseName untouched", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
     const explicitBaseName = "hud-perf-explicit";
 
     const writer = createPerfLogWriter({
@@ -52,7 +49,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("generates distinct default base names for separate writers", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writerA = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -92,7 +88,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("rotates to a new segment when maxBytes is exceeded", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -136,7 +131,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("enforces maxFiles retention during repeated rotations", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -163,7 +157,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("rejects oversized single events instead of bypassing maxBytes rotation policy", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -189,7 +182,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists only the whitelisted perf schema fields and strips unknown fields", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -250,7 +242,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists runId and source in sanitized event payload", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -282,7 +273,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("drops unknown object-valued top-level keys from sanitized and persisted events", async () => {
-    const { createPerfLogWriter, sanitizePerfEvent } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -324,7 +314,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists bounded API-tail fields and strips unbounded payloads", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
 
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
@@ -391,7 +380,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("does not throw during writer creation when target perf directory cannot be created", async () => {
-    const { createPerfLogWriter } = await import("../../lib/perf-log-writer.js");
     const blockedPath = path.join(TMP_ROOT, "openclaw-home-file");
     fs.writeFileSync(blockedPath, "not-a-directory", "utf8");
 
@@ -401,5 +389,37 @@ describe("perf log writer rotation", () => {
         baseName: "hud-perf",
       }),
     ).not.toThrow();
+  });
+
+  it("returns an unavailable writer contract when append target is invalid", async () => {
+    const invalidDir = path.join(TMP_ROOT, "\u0000");
+    const writer = createPerfLogWriter({
+      dir: invalidDir,
+      baseName: "hud-perf",
+    });
+
+    expect(writer).toMatchObject({
+      isAvailable: false,
+      config: expect.objectContaining({ dir: invalidDir, baseName: "hud-perf" }),
+    });
+
+    const result = writer.appendBatch([{ ts: "2026-03-03T00:00:00.000Z", summary: {} }]);
+
+    await expect(result).rejects.toMatchObject({
+      code: "E_PERF_LOG_WRITER_UNAVAILABLE",
+    });
+    await expect(result).rejects.toHaveProperty("message");
+  });
+
+  it("throws when appendBatch receives a non-array payload and leaves writer untouched", async () => {
+    const writer = createPerfLogWriter({
+      dir: TMP_ROOT,
+      baseName: "hud-perf",
+    });
+    await expect(writer.appendBatch(null)).resolves.toMatchObject({
+      written: 0,
+      bytes: 0,
+    });
+    expect(writer.readSegmentPaths()).toHaveLength(0);
   });
 });

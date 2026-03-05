@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
-
-const { createInProcessMemoCache } = require("../../lib/inprocess-memo-cache");
+import { createInProcessMemoCache } from "../../lib/inprocess-memo-cache.js";
 
 function createStat(size, mtimeMs) {
   return {
@@ -98,5 +97,83 @@ describe("createInProcessMemoCache", () => {
     expect(first.cacheState.dependencyCount).toBe(0);
     expect(second.cacheState.state).toBe("hit");
     expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws for invalid cache key or missing loader", async () => {
+    const cache = createInProcessMemoCache({ name: "test-cache-validation" });
+
+    await expect(
+      cache.getOrSet({
+        key: "",
+        ttlMs: 1,
+        loader: async () => ({ value: "ok", dependencyPaths: [] }),
+      }),
+    ).rejects.toThrow(/non-empty/);
+
+    await expect(
+      cache.getOrSet({
+        key: "missing-loader",
+        ttlMs: 1,
+        loader: null,
+      }),
+    ).rejects.toThrow(/loader function/);
+  });
+
+  it("expires cached entries by ttl and reports stale state on recompute", async () => {
+    const cache = createInProcessMemoCache({ name: "test-cache-ttl" });
+    const loader = vi.fn(async () => ({ value: { ok: true }, dependencyPaths: [] }));
+
+    const first = await cache.getOrSet({
+      key: "ttl-key",
+      ttlMs: 100,
+      nowMs: 1000,
+      loader,
+    });
+    const second = await cache.getOrSet({
+      key: "ttl-key",
+      ttlMs: 100,
+      nowMs: 1050,
+      loader,
+    });
+    const third = await cache.getOrSet({
+      key: "ttl-key",
+      ttlMs: 100,
+      nowMs: 1201,
+      loader,
+    });
+
+    expect(first.cacheState.state).toBe("miss");
+    expect(second.cacheState.state).toBe("hit");
+    expect(third.cacheState.state).toBe("stale");
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports explicit invalidate without key as a full clear", async () => {
+    const cache = createInProcessMemoCache({ name: "test-cache-clear" });
+    const loader = vi.fn(async () => ({ value: { ok: true }, dependencyPaths: [] }));
+
+    await cache.getOrSet({
+      key: "a",
+      ttlMs: 1000,
+      nowMs: 10,
+      loader,
+    });
+    await cache.getOrSet({
+      key: "b",
+      ttlMs: 1000,
+      nowMs: 11,
+      loader,
+    });
+
+    cache.invalidate();
+    const afterClear = await cache.getOrSet({
+      key: "a",
+      ttlMs: 1000,
+      nowMs: 20,
+      loader,
+    });
+
+    expect(afterClear.cacheState.state).toBe("miss");
+    expect(loader).toHaveBeenCalledTimes(3);
   });
 });
