@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 window.HUDApp = window.HUDApp || {};
 await import("../../public/app/ws.js");
@@ -74,7 +74,8 @@ describe("HUDApp.ws.createWsController", () => {
     });
     expect(setGatewayUptimeSnapshot).toHaveBeenCalledWith(5000);
 
-    socket.onmessage({ data: JSON.stringify({ type: "tick", payload: {} }) });    expect(fetchAll).toHaveBeenCalledWith(
+    socket.onmessage({ data: JSON.stringify({ type: "tick", payload: {} }) });
+    expect(fetchAll).toHaveBeenCalledWith(
       expect.objectContaining({
         includeCold: false,
         runId: expect.any(String),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 import {
@@ -350,55 +350,54 @@ describe("api tail telemetry middleware", () => {
     expect(event.summary["apiTail.cache"].cacheMiss.sum).toBe(1);
   });
 
-  it("uses environment defaults when options are omitted and recording is deterministic with sample seed", async () => {
-    const originalSampleRate = process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE;
-    const originalSlowThreshold = process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS;
-    process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = "0.75";
-    process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = "5";
+  describe("environment defaults", () => {
+    let originalSampleRate;
+    let originalSlowThreshold;
 
-    const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
-    const middleware = createApiTailTelemetryMiddleware({
-      appendPerfEvents,
-      randomFn: () => 0.1,
-    });
-    const app = express();
-    app.use("/api", middleware);
-    app.get("/api/env-defaults", (_req, res) => {
-      setTimeout(() => {
-        res.sendStatus(204);
-      }, 8);
+    beforeEach(() => {
+      originalSampleRate = process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE;
+      originalSlowThreshold = process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS;
     });
 
-    const res = await request(app).get("/api/env-defaults");
-    expect(res.status).toBe(204);
-    await waitForTelemetryFlush();
-
-    expect(appendPerfEvents).toHaveBeenCalledTimes(1);
-    expect(appendPerfEvents.mock.calls.at(-1)[0][0]).toMatchObject({
-      endpoint: "/api/env-defaults",
-      method: "GET",
-      status: 204,
-    });
-
-    expect(parseSampleRate(process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE)).toBe(0.75);
-    expect(parseSlowThreshold(process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS)).toBe(5);
-
-    process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = originalSampleRate;
-    process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = originalSlowThreshold;
-  });
-
-  it("falls back to safe defaults for malformed environment values", () => {
-    const originalSampleRate = process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE;
-    const originalSlowThreshold = process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS;
-    process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = "not-a-number";
-    process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = "-12";
-
-    try {
-      expect(parseSampleRate(process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE)).toBe(0.2);
-      expect(parseSlowThreshold(process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS)).toBe(500);
-    } finally {
+    afterEach(() => {
       process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = originalSampleRate;
       process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = originalSlowThreshold;
-    }
+    });
+
+    it("uses environment defaults when options are omitted and recording is deterministic with sample seed", async () => {
+      process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = "0.75";
+      process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = "5";
+
+      const appendPerfEvents = vi.fn(async () => ({ accepted: 1 }));
+      const middleware = createApiTailTelemetryMiddleware({
+        appendPerfEvents,
+        randomFn: () => 0.1,
+      });
+      const app = express();
+      app.use("/api", middleware);
+      app.get("/api/env-defaults", (_req, res) => res.sendStatus(204));
+
+      const res = await request(app).get("/api/env-defaults");
+      expect(res.status).toBe(204);
+      await waitForTelemetryFlush();
+
+      expect(appendPerfEvents).toHaveBeenCalledTimes(1);
+      expect(appendPerfEvents.mock.calls.at(-1)[0][0]).toMatchObject({
+        endpoint: "/api/env-defaults",
+        method: "GET",
+        status: 204,
+      });
+
+      expect(parseSampleRate(process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE)).toBe(0.75);
+      expect(parseSlowThreshold(process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS)).toBe(5);
+    });
+
+    it("falls back to safe defaults for malformed environment values", () => {
+      process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE = "not-a-number";
+      process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS = "-12";
+
+      expect(parseSampleRate(process.env.HUD_API_TAIL_TELEMETRY_SAMPLE_RATE)).toBe(0.2);
+      expect(parseSlowThreshold(process.env.HUD_API_TAIL_TELEMETRY_SLOW_MS)).toBe(500);
+    });
   });
 });

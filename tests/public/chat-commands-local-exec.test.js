@@ -12,19 +12,18 @@ window.ChatState = {
 
 await import("../../public/chat-commands/local-exec.js");
 
-beforeEach(() => {
-  document.body.innerHTML = `
-    <div id="chat-messages"><div id="chat-empty">No messages</div></div>
-    <span id="stat-uptime">01:02:03</span>
-    <span id="stat-agents">4</span>
-    <span id="stat-active">2</span>
-    <span id="sys-model">claude-3.7</span>
-  `;
-  vi.clearAllMocks();
+describe("ChatCommandsModules.localExec", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="chat-messages"><div id="chat-empty">No messages</div></div>
+      <span id="stat-uptime">01:02:03</span>
+      <span id="stat-agents">4</span>
+      <span id="stat-active">2</span>
+      <span id="sys-model">claude-3.7</span>
+    `;
+    vi.clearAllMocks();
     window.ChatState.currentSession = { sessionKey: "agent:test:session1" };
   });
-
-describe("ChatCommandsModules.localExec", () => {
   it("handles help and returns help payload", () => {
     const response = window.ChatCommandsModules.localExec.executeLocal(
       { name: "help" },
