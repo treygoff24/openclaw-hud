@@ -272,10 +272,7 @@ describe("chat-event stream overwrite guard", () => {
 
   it("retries stream-gap history request when the first attempt is skipped", () => {
     setCurrentSession();
-    window.ChatState.requestChatHistory = vi
-      .fn()
-      .mockReturnValueOnce(false)
-      .mockReturnValue(true);
+    window.ChatState.requestChatHistory = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
 
     window.ChatWsHandler.handle({
       type: "chat-event",

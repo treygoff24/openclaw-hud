@@ -77,15 +77,15 @@
     var container = document.getElementById("chat-messages");
     if (!container) return;
 
-      if (p.state === "delta" || p.state === "final") {
-        var run = getOrCreateRun(container, s, p);
+    if (p.state === "delta" || p.state === "final") {
+      var run = getOrCreateRun(container, s, p);
 
-        maybeRequestHistoryForGap(p, run);
-        if (p.seq) run.lastSeq = p.seq;
-        updateRunContent(run, p);
-        if (p.state === "final") {
-          finalizeRun(s, p, run);
-        }
+      maybeRequestHistoryForGap(p, run);
+      if (p.seq) run.lastSeq = p.seq;
+      updateRunContent(run, p);
+      if (p.state === "final") {
+        finalizeRun(s, p, run);
+      }
       runtime.updateButtons();
       if (window.ChatScroll) window.ChatScroll.scrollToBottom(false);
       return;
