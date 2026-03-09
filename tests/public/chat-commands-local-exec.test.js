@@ -25,10 +25,7 @@ describe("ChatCommandsModules.localExec", () => {
     window.ChatState.currentSession = { sessionKey: "agent:test:session1" };
   });
   it("handles help and returns help payload", () => {
-    const response = window.ChatCommandsModules.localExec.executeLocal(
-      { name: "help" },
-      "",
-    );
+    const response = window.ChatCommandsModules.localExec.executeLocal({ name: "help" }, "");
 
     expect(response).toEqual({
       handled: true,
@@ -40,10 +37,7 @@ describe("ChatCommandsModules.localExec", () => {
   it("sends chat-abort and chat-reset when session exists", () => {
     window.ChatState.currentSession = { sessionKey: "agent:test:session1" };
 
-    const abortResult = window.ChatCommandsModules.localExec.executeLocal(
-      { name: "abort" },
-      "",
-    );
+    const abortResult = window.ChatCommandsModules.localExec.executeLocal({ name: "abort" }, "");
     const resetResult = window.ChatCommandsModules.localExec.executeLocal(
       { name: "reset" },
       "foo=bar",
@@ -65,10 +59,7 @@ describe("ChatCommandsModules.localExec", () => {
 
   it("sends chat-reset with null session", () => {
     window.ChatState.currentSession = null;
-    const result = window.ChatCommandsModules.localExec.executeLocal(
-      { name: "reset" },
-      "foo=bar",
-    );
+    const result = window.ChatCommandsModules.localExec.executeLocal({ name: "reset" }, "foo=bar");
 
     expect(result.handled).toBe(true);
     expect(window.ChatState.sendWs).not.toHaveBeenCalled();
@@ -105,7 +96,10 @@ describe("ChatCommandsModules.localExec", () => {
       "mistral-7b",
     );
     expect(modelSet.result).toBe("Setting model to mistral-7b...");
-    expect(window.ChatState.sendWs).toHaveBeenCalledWith({ type: "chat-model", model: "mistral-7b" });
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
+      type: "chat-model",
+      model: "mistral-7b",
+    });
 
     const think = window.ChatCommandsModules.localExec.executeLocal({ name: "think" }, "off");
     expect(think.result).toBe("Setting thinking to off...");

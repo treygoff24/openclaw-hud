@@ -64,7 +64,10 @@ describe("HUDApp.ws.createWsController", () => {
 
     window.handleChatWsMessage = vi.fn();
     socket.onmessage({ data: JSON.stringify({ type: "chat", payload: { text: "hello" } }) });
-    expect(window.handleChatWsMessage).toHaveBeenCalledWith({ type: "chat", payload: { text: "hello" } });
+    expect(window.handleChatWsMessage).toHaveBeenCalledWith({
+      type: "chat",
+      payload: { text: "hello" },
+    });
 
     socket.onmessage({
       data: JSON.stringify({
@@ -79,7 +82,7 @@ describe("HUDApp.ws.createWsController", () => {
       expect.objectContaining({
         includeCold: false,
         runId: expect.any(String),
-      })
+      }),
     );
 
     socket.onclose({ code: 1006, reason: "network" });

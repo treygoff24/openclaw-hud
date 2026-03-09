@@ -785,9 +785,21 @@ describe("app bootstrap with perf monitor disabled", () => {
         record: vi.fn(),
         isEnabled: () => true,
       })),
-      createLongTaskTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
-      createLongAnimationFrameTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
-      createFrameBudgetTelemetryHook: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), isEnabled: () => true })),
+      createLongTaskTelemetryHook: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        isEnabled: () => true,
+      })),
+      createLongAnimationFrameTelemetryHook: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        isEnabled: () => true,
+      })),
+      createFrameBudgetTelemetryHook: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        isEnabled: () => true,
+      })),
       createPerfBatchTransport: vi.fn(() => ({
         start: vi.fn(),
         stop: vi.fn(),

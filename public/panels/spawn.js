@@ -237,7 +237,7 @@ HUD.spawn = (function () {
     });
 
     if (typeof fetch === "function") {
-      refreshPreflight();
+      void refreshPreflight();
     }
   }
 

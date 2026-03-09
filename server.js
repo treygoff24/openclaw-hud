@@ -339,7 +339,7 @@ if (require.main === module) {
   });
 
   warmModelAliasCacheForSpawn();
-  runStartupProbe();
+  void runStartupProbe();
   // Connect (non-blocking)
   gatewayWS.connect().catch((err) => console.error("Gateway WS initial connect failed:", err));
 

@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createPerfLogWriter, sanitizePerfEvent, PERF_LOG_WRITER_DEFAULTS } from "../../lib/perf-log-writer.js";
+import {
+  createPerfLogWriter,
+  sanitizePerfEvent,
+  PERF_LOG_WRITER_DEFAULTS,
+} from "../../lib/perf-log-writer.js";
 
 const TMP_ROOT = path.join(os.tmpdir(), `perf-log-writer-test-${Date.now()}`);
 
@@ -49,7 +53,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("generates distinct default base names for separate writers", async () => {
-
     const writerA = createPerfLogWriter({
       dir: TMP_ROOT,
       maxBytes: 220,
@@ -88,7 +91,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("rotates to a new segment when maxBytes is exceeded", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -131,7 +133,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("enforces maxFiles retention during repeated rotations", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -157,7 +158,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("rejects oversized single events instead of bypassing maxBytes rotation policy", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -182,7 +182,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists only the whitelisted perf schema fields and strips unknown fields", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -242,7 +241,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists runId and source in sanitized event payload", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -273,7 +271,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("drops unknown object-valued top-level keys from sanitized and persisted events", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
@@ -314,7 +311,6 @@ describe("perf log writer rotation", () => {
   });
 
   it("persists bounded API-tail fields and strips unbounded payloads", async () => {
-
     const writer = createPerfLogWriter({
       dir: TMP_ROOT,
       baseName: "hud-perf",
