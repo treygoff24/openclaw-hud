@@ -34,16 +34,26 @@
   text-overflow: ellipsis;
 }
 .chat-close {
-  background: none;
-  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
   color: var(--text-dim);
-  font-size: calc(24px * var(--fs-scale));
+  font-size: calc(16px * var(--fs-scale));
+  line-height: 1;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
 }
 .chat-close:hover {
   color: var(--magenta);
+  border-color: var(--magenta);
+  background: rgba(255, 45, 123, 0.08);
+  box-shadow: 0 0 8px rgba(255, 45, 123, 0.2);
 }
 
 .chat-messages {
@@ -56,16 +66,7 @@
   contain: strict;
   overflow-anchor: auto;
 }
-.chat-messages::-webkit-scrollbar {
-  width: 4px;
-}
-.chat-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat-messages::-webkit-scrollbar-thumb {
-  background: var(--border-dim);
-  border-radius: 2px;
-}
+/* chat-messages inherits global scrollbar styles */
 
 .chat-empty {
   text-align: center;

@@ -307,12 +307,25 @@
 }
 .modal-close {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
   color: var(--text-dim);
-  font-size: calc(20px * var(--fs-scale));
-  transition: color 0.2s ease;
+  font-size: calc(16px * var(--fs-scale));
+  line-height: 1;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 .modal-close:hover {
   color: var(--magenta);
+  border-color: var(--magenta);
+  background: rgba(255, 45, 123, 0.08);
+  box-shadow: 0 0 8px rgba(255, 45, 123, 0.2);
 }
 .modal-body {
   padding: 16px;

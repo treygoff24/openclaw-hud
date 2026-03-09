@@ -55,7 +55,8 @@ button:focus-visible,
 .modal-close:focus-visible,
 .chat-close:focus-visible {
   outline: 2px solid var(--magenta);
-  outline-offset: 2px;
+  outline-offset: 1px;
+  box-shadow: 0 0 8px rgba(255, 45, 123, 0.3);
 }
 
 /* ============================================
