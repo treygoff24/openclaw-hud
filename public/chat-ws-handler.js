@@ -60,6 +60,28 @@
           s.cachedModels = data.models;
           window.ChatInput.renderModelPicker(data.models);
           return;
+        case "sessions.patched":
+          if (!s.currentSession || data.sessionKey !== s.currentSession.sessionKey) return;
+          if (Object.prototype.hasOwnProperty.call(data, "model")) {
+            s.currentSession.model = data.model;
+          }
+          if (Object.prototype.hasOwnProperty.call(data, "thinking")) {
+            s.currentSession.thinking = data.thinking;
+          }
+          if (Object.prototype.hasOwnProperty.call(data, "verbose")) {
+            s.currentSession.verbose = data.verbose;
+          }
+          if (window.HUD && typeof window.HUD.showToast === "function") {
+            window.HUD.showToast(data.message || "Session settings updated");
+          }
+          return;
+        case "error":
+          var errorMessage =
+            (data.error && data.error.message) || data.message;
+          if (errorMessage && window.HUD && typeof window.HUD.showToast === "function") {
+            window.HUD.showToast(errorMessage, true);
+          }
+          return;
         case "chat-new-result":
           if (data.ok && data.sessionKey) {
             var parts = data.sessionKey.split(":");

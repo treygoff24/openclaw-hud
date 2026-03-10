@@ -3,6 +3,15 @@
 
   window.ChatCommandsModules = window.ChatCommandsModules || {};
 
+  function getActiveSession(state) {
+    if (!state.currentSession || !state.currentSession.sessionKey) return null;
+    return state.currentSession;
+  }
+
+  function noActiveSessionResult() {
+    return { handled: true, local: true, result: "No active session. Start one with /new." };
+  }
+
   function executeLocal(cmd, args) {
     const state = window.ChatState;
 
@@ -32,12 +41,11 @@
       }
 
       case "reset":
-        if (state.currentSession) {
-          state.sendWs({
-            type: "chat-reset",
-            sessionKey: state.currentSession.sessionKey,
-            options: args,
-          });
+        if (!getActiveSession(state)) return noActiveSessionResult();
+        {
+          const modelMatch = args.match(/^\S+/);
+          const model = modelMatch ? modelMatch[0] : null;
+          state.sendWs({ type: "chat-new", model: model });
         }
         return { handled: true, local: true, result: "Resetting current session..." };
 
@@ -53,7 +61,13 @@
 
       case "model":
         if (args) {
-          state.sendWs({ type: "chat-model", model: args });
+          const activeSession = getActiveSession(state);
+          if (!activeSession) return noActiveSessionResult();
+          state.sendWs({
+            type: "sessions.patch",
+            sessionKey: activeSession.sessionKey,
+            model: args,
+          });
           return { handled: true, local: true, result: "Setting model to " + args + "..." };
         }
 
@@ -65,15 +79,42 @@
         };
 
       case "think": {
-        const level = args.trim() || "on";
-        state.sendWs({ type: "chat-think", value: level });
+        const activeSession = getActiveSession(state);
+        if (!activeSession) return noActiveSessionResult();
+        const level = (args.trim() || "on").toLowerCase();
+        if (!["on", "off", "extended"].includes(level)) {
+          return {
+            handled: true,
+            local: true,
+            result: "Invalid thinking mode. Use on, off, or extended.",
+          };
+        }
+        state.sendWs({
+          type: "sessions.patch",
+          sessionKey: activeSession.sessionKey,
+          thinking: level,
+        });
         return { handled: true, local: true, result: "Setting thinking to " + level + "..." };
       }
 
       case "verbose": {
-        const verboseMode = args.trim() || "on";
-        state.sendWs({ type: "chat-verbose", value: verboseMode });
-        return { handled: true, local: true, result: "Setting verbose to " + verboseMode + "..." };
+        const activeSession = getActiveSession(state);
+        if (!activeSession) return noActiveSessionResult();
+        const verboseInput = (args.trim() || "on").toLowerCase();
+        if (!["on", "off"].includes(verboseInput)) {
+          return { handled: true, local: true, result: "Invalid verbose mode. Use on or off." };
+        }
+        const verboseValue = verboseInput === "on";
+        state.sendWs({
+          type: "sessions.patch",
+          sessionKey: activeSession.sessionKey,
+          verbose: verboseValue,
+        });
+        return {
+          handled: true,
+          local: true,
+          result: "Setting verbose to " + verboseInput + "...",
+        };
       }
 
       case "status": {

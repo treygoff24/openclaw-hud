@@ -64,6 +64,9 @@ window.ChatInput = {
   renderModelPicker: vi.fn(),
 };
 window.openChatPane = vi.fn();
+window.HUD = {
+  showToast: vi.fn(),
+};
 
 await import("../../public/chat-ws/runtime.js");
 await import("../../public/chat-ws/history-log.js");
@@ -81,6 +84,7 @@ function resetState() {
   window.ChatState.sendWs = vi.fn();
   window.ChatState.setMessages = vi.fn();
   window.WebSocketMessageBatcher = undefined;
+  window.HUD.showToast = vi.fn();
 }
 
 function setCurrentSession() {
@@ -220,6 +224,54 @@ describe("ChatWsHandler branches", () => {
 
     expect(queue).toHaveBeenCalledWith(event);
     expect(document.querySelector(".chat-msg.assistant")).toBeNull();
+  });
+
+  it("applies sessions.patched payload to current session and toasts", () => {
+    setCurrentSession();
+
+    window.ChatWsHandler.handle({
+      type: "sessions.patched",
+      sessionKey: "agent:agent1:session1",
+      model: "openai/gpt-5",
+      thinking: "extended",
+      verbose: true,
+    });
+
+    expect(window.ChatState.currentSession.model).toBe("openai/gpt-5");
+    expect(window.ChatState.currentSession.thinking).toBe("extended");
+    expect(window.ChatState.currentSession.verbose).toBe(true);
+    expect(window.HUD.showToast).toHaveBeenCalledWith("Session settings updated");
+  });
+
+  it("ignores sessions.patched for non-active session", () => {
+    setCurrentSession();
+
+    window.ChatWsHandler.handle({
+      type: "sessions.patched",
+      sessionKey: "agent:agent1:other",
+      model: "openai/gpt-5",
+    });
+
+    expect(window.ChatState.currentSession.model).toBeUndefined();
+    expect(window.HUD.showToast).not.toHaveBeenCalled();
+  });
+
+  it("shows nested backend error messages as toast", () => {
+    window.ChatWsHandler.handle({
+      type: "error",
+      error: { code: "backend_error", message: "backend exploded" },
+    });
+
+    expect(window.HUD.showToast).toHaveBeenCalledWith("backend exploded", true);
+  });
+
+  it("falls back to top-level backend error message as toast", () => {
+    window.ChatWsHandler.handle({
+      type: "error",
+      message: "backend exploded",
+    });
+
+    expect(window.HUD.showToast).toHaveBeenCalledWith("backend exploded", true);
   });
 });
 

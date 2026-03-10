@@ -34,14 +34,11 @@ describe("ChatCommandsModules.localExec", () => {
     });
   });
 
-  it("sends chat-abort and chat-reset when session exists", () => {
+  it("sends chat-abort and chat-new when session exists", () => {
     window.ChatState.currentSession = { sessionKey: "agent:test:session1" };
 
     const abortResult = window.ChatCommandsModules.localExec.executeLocal({ name: "abort" }, "");
-    const resetResult = window.ChatCommandsModules.localExec.executeLocal(
-      { name: "reset" },
-      "foo=bar",
-    );
+    const resetResult = window.ChatCommandsModules.localExec.executeLocal({ name: "reset" }, "");
 
     expect(abortResult.handled).toBe(true);
     expect(resetResult.result).toContain("Resetting current session...");
@@ -50,18 +47,15 @@ describe("ChatCommandsModules.localExec", () => {
       type: "chat-abort",
       sessionKey: "agent:test:session1",
     });
-    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
-      type: "chat-reset",
-      sessionKey: "agent:test:session1",
-      options: "foo=bar",
-    });
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({ type: "chat-new", model: null });
   });
 
-  it("sends chat-reset with null session", () => {
+  it("returns a local no-session result for /reset when session is missing", () => {
     window.ChatState.currentSession = null;
-    const result = window.ChatCommandsModules.localExec.executeLocal({ name: "reset" }, "foo=bar");
+    const result = window.ChatCommandsModules.localExec.executeLocal({ name: "reset" }, "");
 
     expect(result.handled).toBe(true);
+    expect(result.result).toContain("No active session");
     expect(window.ChatState.sendWs).not.toHaveBeenCalled();
   });
 
@@ -97,17 +91,26 @@ describe("ChatCommandsModules.localExec", () => {
     );
     expect(modelSet.result).toBe("Setting model to mistral-7b...");
     expect(window.ChatState.sendWs).toHaveBeenCalledWith({
-      type: "chat-model",
+      type: "sessions.patch",
+      sessionKey: "agent:test:session1",
       model: "mistral-7b",
     });
 
     const think = window.ChatCommandsModules.localExec.executeLocal({ name: "think" }, "off");
     expect(think.result).toBe("Setting thinking to off...");
-    expect(window.ChatState.sendWs).toHaveBeenCalledWith({ type: "chat-think", value: "off" });
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
+      type: "sessions.patch",
+      sessionKey: "agent:test:session1",
+      thinking: "off",
+    });
 
     const verbose = window.ChatCommandsModules.localExec.executeLocal({ name: "verbose" }, "");
     expect(verbose.result).toBe("Setting verbose to on...");
-    expect(window.ChatState.sendWs).toHaveBeenCalledWith({ type: "chat-verbose", value: "on" });
+    expect(window.ChatState.sendWs).toHaveBeenCalledWith({
+      type: "sessions.patch",
+      sessionKey: "agent:test:session1",
+      verbose: true,
+    });
 
     const models = window.ChatCommandsModules.localExec.executeLocal(
       { name: "models" },
@@ -124,6 +127,31 @@ describe("ChatCommandsModules.localExec", () => {
     expect(status.result).toContain("Agents: 4");
     expect(status.result).toContain("Active: 2");
     expect(status.result).toContain("Session: agent:test:session1");
+  });
+
+  it("rejects invalid think/verbose values without sending WS", () => {
+    const badThink = window.ChatCommandsModules.localExec.executeLocal({ name: "think" }, "high");
+    const badVerbose = window.ChatCommandsModules.localExec.executeLocal(
+      { name: "verbose" },
+      "maybe",
+    );
+
+    expect(badThink.result).toContain("Invalid thinking mode");
+    expect(badVerbose.result).toContain("Invalid verbose mode");
+    expect(window.ChatState.sendWs).not.toHaveBeenCalled();
+  });
+
+  it("returns no-session result for session-setting commands without sending WS", () => {
+    window.ChatState.currentSession = null;
+
+    const modelSet = window.ChatCommandsModules.localExec.executeLocal({ name: "model" }, "gpt-5");
+    const think = window.ChatCommandsModules.localExec.executeLocal({ name: "think" }, "on");
+    const verbose = window.ChatCommandsModules.localExec.executeLocal({ name: "verbose" }, "off");
+
+    expect(modelSet.result).toContain("No active session");
+    expect(think.result).toContain("No active session");
+    expect(verbose.result).toContain("No active session");
+    expect(window.ChatState.sendWs).not.toHaveBeenCalled();
   });
 
   it("returns unhandled for unknown command", () => {
