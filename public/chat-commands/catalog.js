@@ -157,7 +157,7 @@
     {
       name: "think",
       aliases: ["thinking", "t"],
-      description: "Toggle or set thinking level (on/off/minimal/low/medium/high/xhigh)",
+      description: "Toggle or set thinking mode (on/off/extended)",
       category: CATEGORIES.DISPLAY,
       local: true,
       args: [
@@ -165,7 +165,7 @@
           name: "level",
           description: "Thinking level",
           required: false,
-          choices: ["on", "off", "minimal", "low", "medium", "high", "xhigh"],
+          choices: ["on", "off", "extended"],
         },
       ],
     },

@@ -156,6 +156,12 @@ describe("chat-commands.js", () => {
         expect(cmd.local).toBe(true);
       }
     });
+
+    it("restricts /think choices to on/off/extended", () => {
+      const think = window.ChatCommands.getAll().find((c) => c.name === "think");
+      expect(think).toBeDefined();
+      expect(think.args[0].choices).toEqual(["on", "off", "extended"]);
+    });
   });
 
   describe("Command Search", () => {
@@ -261,7 +267,7 @@ describe("chat-commands.js", () => {
       expect(result.handled).toBe(true);
       expect(result.local).toBe(true);
       expect(window.ChatState.sendWs).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "chat-reset" }),
+        expect.objectContaining({ type: "chat-new" }),
       );
     });
 
@@ -270,7 +276,11 @@ describe("chat-commands.js", () => {
       expect(result.handled).toBe(true);
       expect(result.local).toBe(true);
       expect(window.ChatState.sendWs).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "chat-model", model: "openai/gpt-4" }),
+        expect.objectContaining({
+          type: "sessions.patch",
+          sessionKey: "agent:test:session1",
+          model: "openai/gpt-4",
+        }),
       );
     });
 
@@ -279,7 +289,11 @@ describe("chat-commands.js", () => {
       expect(result.handled).toBe(true);
       expect(result.local).toBe(true);
       expect(window.ChatState.sendWs).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "chat-think", value: "on" }),
+        expect.objectContaining({
+          type: "sessions.patch",
+          sessionKey: "agent:test:session1",
+          thinking: "on",
+        }),
       );
     });
 
@@ -288,7 +302,11 @@ describe("chat-commands.js", () => {
       expect(result.handled).toBe(true);
       expect(result.local).toBe(true);
       expect(window.ChatState.sendWs).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "chat-verbose", value: "off" }),
+        expect.objectContaining({
+          type: "sessions.patch",
+          sessionKey: "agent:test:session1",
+          verbose: false,
+        }),
       );
     });
 
