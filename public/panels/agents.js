@@ -17,30 +17,34 @@ HUD.agents = (function () {
 
   function buildAgentsHTML(agents) {
     if (!Array.isArray(agents)) agents = [];
-    const filtered = agents.filter((a) => a.id.toLowerCase().includes(agentFilter));
+    const safeAgents = agents.filter((a) => a && typeof a === "object" && typeof a.id === "string");
+    const filtered = safeAgents.filter((a) => a.id.toLowerCase().includes(agentFilter));
     const now = Date.now();
     let activeCount = 0;
 
     const html = filtered
       .map((a, index) => {
-        const recent = a.sessions[0]?.updatedAt;
+        const sessionList = Array.isArray(a.sessions) ? a.sessions : [];
+        const recent = sessionList[0]?.updatedAt;
         const isActive = recent && now - recent < 600000;
         if (isActive) activeCount++;
         const dotClass = isActive ? "status-dot-green" : "status-dot-gray";
+        const sessionCount = Number.isFinite(a.sessionCount) ? a.sessionCount : sessionList.length;
+        const activeSessions = Number.isFinite(a.activeSessions) ? a.activeSessions : 0;
         const activeBadge =
-          a.activeSessions > 0
-            ? `<span style="color:var(--green);font-size:11px;margin-left:6px;">${a.activeSessions} live</span>`
+          activeSessions > 0
+            ? `<span style="color:var(--green);font-size:11px;margin-left:6px;">${activeSessions} live</span>`
             : "";
         const statusLabel = isActive ? "Active" : "Inactive";
-        return `<div class="agent-card" data-agent-id="${escapeHtml(a.id)}" role="listitem" tabindex="0" aria-label="Agent ${escapeHtml(a.id)}, ${statusLabel}, ${a.sessionCount} sessions" data-index="${index}">
+        return `<div class="agent-card" data-agent-id="${escapeHtml(a.id)}" role="listitem" tabindex="0" aria-label="Agent ${escapeHtml(a.id)}, ${statusLabel}, ${sessionCount} sessions" data-index="${index}">
         <div class="${dotClass}" aria-hidden="true"></div>
         <div class="agent-id">${escapeHtml(a.id)}${activeBadge}</div>
-        <div class="agent-sessions-count">${a.sessionCount} sess</div>
+        <div class="agent-sessions-count">${sessionCount} sess</div>
       </div>`;
       })
       .join("");
 
-    return { html, filteredCount: filtered.length, activeCount, totalCount: agents.length };
+    return { html, filteredCount: filtered.length, activeCount, totalCount: safeAgents.length };
   }
 
   function updateAgentsList() {

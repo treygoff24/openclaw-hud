@@ -155,6 +155,19 @@ describe("agents.render", () => {
     expect(document.querySelectorAll(".agent-card").length).toBe(0);
   });
 
+  it("skips malformed agent rows without throwing", () => {
+    expect(() =>
+      HUD.agents.render([
+        { sessions: null, sessionCount: 0, activeSessions: 0 },
+        { id: null, sessions: "bad", sessionCount: 0, activeSessions: 0 },
+        { id: "bot-ok", sessions: [], sessionCount: 0, activeSessions: 0 },
+      ]),
+    ).not.toThrow();
+    expect(document.getElementById("agent-count").textContent).toBe("1");
+    expect(document.querySelectorAll(".agent-card").length).toBe(1);
+    expect(document.querySelector(".agent-id").textContent).toContain("bot-ok");
+  });
+
   it("does not stack makeFocusable listeners on rerender", () => {
     HUD.agents.render([
       {

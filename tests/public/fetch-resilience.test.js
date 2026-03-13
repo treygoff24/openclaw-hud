@@ -1178,6 +1178,79 @@ describe("fetchAll resilient fetching", () => {
     expect(setConnectionStatus).toBeDefined();
     expect(setConnectionStatus).not.toHaveBeenCalledWith(false);
   });
+
+  it("degrades gracefully when cached fallback payloads lose canonical fields", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const callCounts = Object.create(null);
+    const agentsPayload = [
+      {
+        id: "agent-alpha",
+        sessions: [],
+        sessionCount: 1,
+        activeSessions: 0,
+      },
+    ];
+    const sessionsPayload = [
+      {
+        sessionKey: "agent-alpha::session-a",
+        agentId: "agent-alpha",
+        sessionId: "session-a",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+      },
+    ];
+    const sessionTreePayload = [
+      {
+        key: "agent-alpha::session-a",
+        sessionKey: "agent-alpha::session-a",
+        agentId: "agent-alpha",
+        sessionId: "session-a",
+        updatedAt: "2026-03-03T18:00:00.000Z",
+        status: "active",
+      },
+    ];
+
+    window.fetch = vi.fn((url) => {
+      const seq = (callCounts[url] = (callCounts[url] || 0) + 1);
+      if (url === "/api/agents") {
+        if (seq === 1) return Promise.resolve(createResolvedResponse(agentsPayload));
+        return Promise.reject(new Error("agents unavailable"));
+      }
+      if (url === "/api/sessions") {
+        if (seq === 1) return Promise.resolve(createResolvedResponse(sessionsPayload));
+        return Promise.reject(new Error("sessions unavailable"));
+      }
+      if (url === "/api/session-tree") {
+        if (seq === 1) return Promise.resolve(createResolvedResponse(sessionTreePayload));
+        return Promise.reject(new Error("tree unavailable"));
+      }
+      return Promise.resolve(createEndpointResponse([], { status: 200 }));
+    });
+
+    try {
+      const controller = createColdAndModelUsageController();
+
+      await controller.fetchAll();
+
+      delete window._agents[0].id;
+      window._agents[0].sessions = null;
+      delete window._allSessions[0].sessionKey;
+      delete window._treeData[0].sessionKey;
+
+      await controller.fetchAll();
+
+      expect(window._allSessions).toEqual([]);
+      const panelRenderErrors = consoleErrorSpy.mock.calls.filter(([msg]) =>
+        typeof msg === "string" &&
+        (msg.includes("Panel render failed: agents") ||
+          msg.includes("Panel render failed: sessions") ||
+          msg.includes("Panel render failed: session-tree")),
+      );
+      expect(panelRenderErrors).toHaveLength(0);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });
 
 describe("renderPanelSafe error boundaries", () => {
