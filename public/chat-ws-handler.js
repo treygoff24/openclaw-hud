@@ -76,8 +76,7 @@
           }
           return;
         case "error":
-          var errorMessage =
-            (data.error && data.error.message) || data.message;
+          var errorMessage = (data.error && data.error.message) || data.message;
           if (errorMessage && window.HUD && typeof window.HUD.showToast === "function") {
             window.HUD.showToast(errorMessage, true);
           }
