@@ -340,6 +340,29 @@
       return Object.prototype.hasOwnProperty.call(endpointPayloadCache, endpointName);
     }
 
+    function sanitizeFallbackPayload(endpointName, payload) {
+      if (endpointName === "sessions" || endpointName === "session-tree") {
+        if (!Array.isArray(payload)) return [];
+        return payload.filter(function (entry) {
+          return (
+            entry &&
+            typeof entry === "object" &&
+            typeof entry.sessionKey === "string" &&
+            entry.sessionKey.trim() !== ""
+          );
+        });
+      }
+
+      if (endpointName === "agents") {
+        if (!Array.isArray(payload)) return [];
+        return payload.filter(function (entry) {
+          return entry && typeof entry === "object" && typeof entry.id === "string";
+        });
+      }
+
+      return payload;
+    }
+
     function modelUsageWithMonthly(state) {
       const weeklyPayload = state.data["model-usage"];
       if (!cachedMonthlyPayload) {
@@ -636,8 +659,16 @@
       endpointMetaCache[endpointName] = state.responseMeta[endpointName];
 
       if ((payload === null || payload === undefined || isNotModified) && hasCachedPayload) {
-        state.data[endpointName] = endpointPayloadCache[endpointName];
-        state.responseFingerprints[endpointName] = endpointRenderFingerprints[endpointName] || null;
+        const cachedPayload = endpointPayloadCache[endpointName];
+        const sanitizedPayload = sanitizeFallbackPayload(endpointName, cachedPayload);
+        state.data[endpointName] = sanitizedPayload;
+        if (sanitizedPayload !== cachedPayload) {
+          endpointPayloadCache[endpointName] = sanitizedPayload;
+          state.responseFingerprints[endpointName] = null;
+        } else {
+          state.responseFingerprints[endpointName] =
+            endpointRenderFingerprints[endpointName] || null;
+        }
       } else {
         state.data[endpointName] = payload;
         state.responseFingerprints[endpointName] =
@@ -652,7 +683,7 @@
         window._modelAliases = state.data.models || [];
       }
       if (endpointName === "sessions") {
-        window._allSessions = state.data.sessions || [];
+        window._allSessions = Array.isArray(state.data.sessions) ? state.data.sessions : [];
       }
 
       if (endpointName === "model-usage") {
