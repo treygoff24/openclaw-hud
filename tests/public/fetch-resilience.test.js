@@ -1240,11 +1240,12 @@ describe("fetchAll resilient fetching", () => {
       await controller.fetchAll();
 
       expect(window._allSessions).toEqual([]);
-      const panelRenderErrors = consoleErrorSpy.mock.calls.filter(([msg]) =>
-        typeof msg === "string" &&
-        (msg.includes("Panel render failed: agents") ||
-          msg.includes("Panel render failed: sessions") ||
-          msg.includes("Panel render failed: session-tree")),
+      const panelRenderErrors = consoleErrorSpy.mock.calls.filter(
+        ([msg]) =>
+          typeof msg === "string" &&
+          (msg.includes("Panel render failed: agents") ||
+            msg.includes("Panel render failed: sessions") ||
+            msg.includes("Panel render failed: session-tree")),
       );
       expect(panelRenderErrors).toHaveLength(0);
     } finally {
