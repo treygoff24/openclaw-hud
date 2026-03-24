@@ -32,25 +32,9 @@ test.describe("Chat diagnostics and degraded behavior", () => {
     await page.locator("#chat-input").fill("simulate fail-fast diagnostics");
     await page.locator("#chat-send-btn").click();
 
-    const pendingAckKey = await page.evaluate(() => {
-      if (!window.ChatState || !window.ChatState.pendingAcks) return "";
-      const keys = Array.from(window.ChatState.pendingAcks.keys());
-      return keys[keys.length - 1] || "";
-    });
-
-    expect(pendingAckKey).not.toBe("");
-
-    await page.evaluate((key) => {
-      window.handleChatWsMessage({
-        type: "chat-send-ack",
-        idempotencyKey: key,
-        ok: false,
-        error: { message: "Gateway unavailable" },
-      });
-    }, pendingAckKey);
-
     const failedMessage = page.locator("#chat-messages .chat-msg.failed");
     await expect(failedMessage).toBeVisible();
+    await expect(failedMessage).toContainText("simulate fail-fast diagnostics");
     await expect(failedMessage.locator(".retry-btn")).toBeVisible();
     await expect(page.locator("#chat-input")).toBeEnabled();
   });
