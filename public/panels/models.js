@@ -82,6 +82,23 @@ HUD.models = (function () {
     };
   }
 
+  function resolveMonthlyStatus(monthlyPayload, monthlyState) {
+    const stateStatus =
+      monthlyState && typeof monthlyState.status === "string" ? monthlyState.status : "";
+    if (
+      stateStatus === "ok" ||
+      stateStatus === "partial" ||
+      stateStatus === "stale" ||
+      stateStatus === "unavailable"
+    ) {
+      return stateStatus;
+    }
+
+    const isPayloadPartial = Boolean(monthlyPayload?.meta?.sessionsUsage?.isPartial === true);
+    if (monthlyPayload) return isPayloadPartial ? "partial" : "ok";
+    return "unavailable";
+  }
+
   function buildUsageSummary(usagePayload, rows) {
     const payload = usagePayload && typeof usagePayload === "object" ? usagePayload : {};
     const payloadSummary =
@@ -92,10 +109,15 @@ HUD.models = (function () {
       payload._monthlyData && typeof payload._monthlyData === "object"
         ? payload._monthlyData
         : null;
+    const monthlyState =
+      payload._monthlyState && typeof payload._monthlyState === "object"
+        ? payload._monthlyState
+        : null;
     const monthlySummary =
       monthlyPayload?.summary && typeof monthlyPayload.summary === "object"
         ? monthlyPayload.summary
         : {};
+    const monthlyStatus = resolveMonthlyStatus(monthlyPayload, monthlyState);
 
     const weeklySpend = pickFirstFinite(
       [
@@ -124,13 +146,12 @@ HUD.models = (function () {
     );
     const monthModels = Array.isArray(monthlyPayload?.models) ? monthlyPayload.models : [];
     const derivedTopFromMonthRows = getTopModelFromRows(monthModels);
-    const derivedTopFromWeeklyRows = getTopModelFromRows(rows);
-    const topModel = explicitTop || derivedTopFromMonthRows || derivedTopFromWeeklyRows;
+    const topModel =
+      monthlyStatus === "unavailable" ? null : explicitTop || derivedTopFromMonthRows || null;
     const topModelName = topModel?.modelName || "";
     const topModelSpend = pickFirstFinite([topModel?.spend], 0);
 
-    // Check if month data is partial (from diagnostics)
-    const isMonthToDatePartial = Boolean(monthlyPayload?.meta?.sessionsUsage?.isPartial === true);
+    const isMonthToDatePartial = monthlyStatus === "partial";
 
     return {
       weeklySpend,
@@ -138,26 +159,57 @@ HUD.models = (function () {
       topModelName,
       topModelSpend,
       isMonthToDatePartial,
+      monthlyStatus,
     };
   }
 
   function renderSummaryCards(summary) {
-    const topModelDisplay = summary.topModelName
+    const topModelDisplay =
+      summary.monthlyStatus === "unavailable"
+        ? "—"
+        : summary.topModelName
       ? `${getShortModelName(summary.topModelName)} · ${formatCurrency(summary.topModelSpend)}`
       : "—";
+
+    const monthLabelSuffix =
+      summary.monthlyStatus === "partial"
+        ? " · PARTIAL"
+        : summary.monthlyStatus === "stale"
+          ? " · STALE"
+          : summary.monthlyStatus === "unavailable"
+            ? " · UNAVAILABLE"
+            : "";
+    const monthValue =
+      summary.monthlyStatus === "unavailable" ? "—" : formatCurrency(summary.monthlySpend);
 
     const cards = [
       { label: "THIS WEEK SPEND", value: formatCurrency(summary.weeklySpend) },
       {
-        label: summary.isMonthToDatePartial ? "THIS MONTH SPEND · PARTIAL" : "THIS MONTH SPEND",
-        value: formatCurrency(summary.monthlySpend),
+        label: "THIS MONTH SPEND" + monthLabelSuffix,
+        value: monthValue,
+        stateClass:
+          summary.monthlyStatus === "unavailable"
+            ? "is-unavailable"
+            : summary.monthlyStatus === "stale"
+              ? "is-stale"
+              : "",
       },
-      { label: "TOP MONTH MODEL", value: topModelDisplay },
+      {
+        label: "TOP MONTH MODEL",
+        value: topModelDisplay,
+        stateClass:
+          summary.monthlyStatus === "unavailable"
+            ? "is-unavailable"
+            : summary.monthlyStatus === "stale"
+              ? "is-stale"
+              : "",
+      },
     ];
 
     return `<div class="model-summary-grid">${cards
       .map(function (card) {
-        return `<div class="model-summary-card">
+        const className = card.stateClass ? `model-summary-card ${card.stateClass}` : "model-summary-card";
+        return `<div class="${escape(className)}">
           <div class="model-summary-label">${escape(card.label)}</div>
           <div class="model-summary-value">${escape(card.value)}</div>
         </div>`;
@@ -168,6 +220,24 @@ HUD.models = (function () {
   function updateMonthlySpendStat(summary) {
     const statEl = $("#stat-monthly-spend");
     if (!statEl) return;
+    statEl.classList.remove("state-unavailable", "state-stale");
+    statEl.removeAttribute("title");
+    if (summary.monthlyStatus === "unavailable") {
+      statEl.textContent = "UNAVAIL";
+      statEl.classList.add("state-unavailable");
+      statEl.title = "Monthly usage unavailable.";
+      return;
+    }
+    if (summary.monthlyStatus === "stale") {
+      statEl.textContent = formatCurrency(summary.monthlySpend);
+      statEl.classList.add("state-stale");
+      statEl.title = "Monthly usage unavailable; showing cached data.";
+      return;
+    }
+    if (summary.monthlyStatus === "partial") {
+      statEl.textContent = `~${formatCurrency(summary.monthlySpend)}`;
+      return;
+    }
     statEl.textContent = formatCurrency(summary.monthlySpend);
   }
 

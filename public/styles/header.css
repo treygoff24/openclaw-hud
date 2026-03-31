@@ -140,6 +140,14 @@
   color: var(--amber);
   text-shadow: 0 0 10px rgba(255, 171, 0, 0.35);
 }
+.stat-value.state-stale {
+  color: var(--amber);
+  text-shadow: 0 0 10px rgba(255, 171, 0, 0.35);
+}
+.stat-value.state-unavailable {
+  color: var(--magenta);
+  text-shadow: 0 0 10px rgba(255, 45, 123, 0.35);
+}
 .header-divider {
   width: 1px;
   height: 32px;

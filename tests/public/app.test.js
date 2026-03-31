@@ -900,6 +900,89 @@ describe("data controller progressive endpoint loading", () => {
     modelsRenderSpy.mockRestore();
   });
 
+  it("marks monthly usage as unavailable when monthly follow-up fails without cache", async () => {
+    const weeklyPayload = {
+      models: [{ model: "gpt-4", totalCost: 2 }],
+      summary: { weekSpend: 2 },
+    };
+
+    const fetchImpl = vi.fn((url) => {
+      if (url === "/api/model-usage/live-weekly") {
+        return Promise.resolve(createMockJsonResponse(weeklyPayload));
+      }
+      if (url === "/api/model-usage/monthly") {
+        return Promise.reject(new Error("monthly unavailable"));
+      }
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+
+    const { controller, HUD } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 20,
+    });
+
+    await controller.fetchAll({ includeCold: true });
+
+    expect(HUD.models.render).toHaveBeenCalledTimes(2);
+    const firstRenderPayload = HUD.models.render.mock.calls[0][0];
+    const secondRenderPayload = HUD.models.render.mock.calls[1][0];
+    expect(firstRenderPayload).not.toHaveProperty("_monthlyState");
+    expect(secondRenderPayload).toMatchObject({
+      _monthlyState: {
+        status: "unavailable",
+        hasCachedData: false,
+      },
+    });
+    expect(secondRenderPayload).not.toHaveProperty("_monthlyData");
+  });
+
+  it("marks cached monthly usage as stale when cold refresh fails", async () => {
+    const weeklyPayload = {
+      models: [{ model: "gpt-4", totalCost: 2 }],
+      summary: { weekSpend: 2 },
+    };
+    const monthlyPayload = {
+      summary: {
+        monthSpend: 50,
+        topMonthModel: { model: "gpt-4", totalCost: 50 },
+      },
+      models: [{ model: "gpt-4", totalCost: 50 }],
+    };
+
+    let monthlyFetchCount = 0;
+    const fetchImpl = vi.fn((url) => {
+      if (url === "/api/model-usage/live-weekly") {
+        return Promise.resolve(createMockJsonResponse(weeklyPayload));
+      }
+      if (url === "/api/model-usage/monthly") {
+        monthlyFetchCount += 1;
+        if (monthlyFetchCount === 1) {
+          return Promise.resolve(createMockJsonResponse(monthlyPayload));
+        }
+        return Promise.reject(new Error("monthly timeout"));
+      }
+      return Promise.resolve(createMockJsonResponse([]));
+    });
+
+    const { controller, HUD } = createDataControllerHarness({
+      fetchImpl,
+      endpointTimeoutMs: 20,
+    });
+
+    await controller.fetchAll({ includeCold: true });
+    await controller.fetchAll({ includeCold: true });
+
+    expect(HUD.models.render).toHaveBeenCalledTimes(3);
+    const stalePayload = HUD.models.render.mock.calls[2][0];
+    expect(stalePayload).toMatchObject({
+      _monthlyData: monthlyPayload,
+      _monthlyState: {
+        status: "stale",
+        hasCachedData: true,
+      },
+    });
+  });
+
   it("renders sessions before slow model-usage resolves and keeps one-time chat restore", async () => {
     const endpoints = [
       "/api/agents",
@@ -907,6 +990,7 @@ describe("data controller progressive endpoint loading", () => {
       "/api/cron",
       "/api/config",
       "/api/model-usage/live-weekly",
+      "/api/model-usage/monthly",
       "/api/activity",
       "/api/session-tree",
       "/api/models",
@@ -944,9 +1028,17 @@ describe("data controller progressive endpoint loading", () => {
     expect(HUD.models.render).not.toHaveBeenCalled();
 
     deferredByUrl["/api/model-usage/live-weekly"].resolve(createMockJsonResponse([]));
+    deferredByUrl["/api/model-usage/monthly"].resolve(createMockJsonResponse({}));
     await fetchPromise;
 
-    expect(HUD.models.render).toHaveBeenCalledTimes(1);
+    expect(HUD.models.render).toHaveBeenCalledTimes(2);
+    expect(HUD.models.render.mock.calls[1][0]).toMatchObject({
+      _monthlyData: {},
+      _monthlyState: {
+        status: "ok",
+        hasCachedData: true,
+      },
+    });
     expect(window._modelAliases).toEqual([{ alias: "gpt-4.1" }]);
     expect(window._endpointResponseMeta.sessions).toEqual(
       expect.objectContaining({

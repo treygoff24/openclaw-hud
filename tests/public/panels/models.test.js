@@ -103,7 +103,7 @@ describe("render", () => {
     expect(cards[1].textContent).toContain("$1.23");
     expect(cards[2].textContent).toContain("TOP MONTH MODEL");
     expect(cards[2].textContent).toContain("claude-sonnet-4 · $0.87");
-    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$1.23");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("~$1.23");
   });
 
   it("toggles month partial indicator on rerender with monthly data", () => {
@@ -148,8 +148,7 @@ describe("render", () => {
     expect(document.getElementById("model-usage").textContent).toContain("No model data yet");
   });
 
-  it("shows $0 monthly spend when monthly data unavailable and derives top from weekly", () => {
-    // When monthly data is unavailable, monthSpend is $0 and top model is derived from weekly data
+  it("shows explicit unavailable diagnostics when monthly data is unavailable", () => {
     HUD.models.render({
       meta: { tz: "UTC" },
       models: [
@@ -164,14 +163,52 @@ describe("render", () => {
         },
       ],
       totals: { totalTokens: 9100, totalCost: 0.99 },
+      _monthlyState: {
+        status: "unavailable",
+        hasCachedData: false,
+        reason: "timeout",
+      },
     });
 
     const cards = document.querySelectorAll(".model-summary-card");
-    // Monthly spend is $0 when no monthly data available
-    expect(cards[1].textContent).toContain("$0.00");
-    // Top model is derived from weekly rows when monthly unavailable
-    expect(cards[2].textContent).toContain("big · $0.99");
-    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$0.00");
+    expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).toContain("UNAVAILABLE");
+    expect(cards[1].textContent).toContain("—");
+    expect(cards[2].textContent).toContain("TOP MONTH MODEL");
+    expect(cards[2].textContent).toContain("—");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("UNAVAIL");
+    expect(document.getElementById("stat-monthly-spend").className).toContain("state-unavailable");
+    expect(document.getElementById("stat-monthly-spend").title).toBe("Monthly usage unavailable.");
+  });
+
+  it("marks cached monthly data as stale when refresh degrades", () => {
+    HUD.models.render({
+      meta: { tz: "UTC" },
+      models: [{ provider: "x", model: "m1", totalTokens: 1, totalCost: 0.1 }],
+      summary: { weekSpend: 0.1 },
+      _monthlyData: {
+        meta: { tz: "UTC" },
+        models: [{ provider: "x", model: "m1", totalTokens: 20, totalCost: 2.22 }],
+        summary: { monthSpend: 2.22, topMonthModel: { model: "m1", totalCost: 2.22 } },
+      },
+      _monthlyState: {
+        status: "stale",
+        hasCachedData: true,
+        reason: "timeout",
+      },
+    });
+
+    const cards = document.querySelectorAll(".model-summary-card");
+    expect(cards[1].textContent).toContain("THIS MONTH SPEND");
+    expect(cards[1].textContent).toContain("STALE");
+    expect(cards[1].textContent).toContain("$2.22");
+    expect(cards[2].textContent).toContain("TOP MONTH MODEL");
+    expect(cards[2].textContent).toContain("m1 · $2.22");
+    expect(document.getElementById("stat-monthly-spend").textContent).toBe("$2.22");
+    expect(document.getElementById("stat-monthly-spend").className).toContain("state-stale");
+    expect(document.getElementById("stat-monthly-spend").title).toBe(
+      "Monthly usage unavailable; showing cached data.",
+    );
   });
 
   it("sorts by totalTokens descending", () => {

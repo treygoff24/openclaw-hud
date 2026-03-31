@@ -118,9 +118,14 @@
     let activeRefreshRenderContext = null;
 
     // Cached monthly data survives across tick-based fetchAll() calls so the
-    // models panel never flashes back to $0 between the weekly render and the
-    // async monthly callback.
+    // models panel can render deterministic monthly diagnostics while the
+    // async monthly callback resolves.
     let cachedMonthlyPayload = null;
+    let cachedMonthlyState = {
+      status: "unknown",
+      hasCachedData: false,
+      reason: "",
+    };
 
     const hotEndpoints = [
       { name: "agents", url: "/api/agents" },
@@ -365,7 +370,8 @@
 
     function modelUsageWithMonthly(state) {
       const weeklyPayload = state.data["model-usage"];
-      if (!cachedMonthlyPayload) {
+      const shouldAttachMonthlyState = cachedMonthlyState.status !== "unknown";
+      if (!cachedMonthlyPayload && !shouldAttachMonthlyState) {
         return weeklyPayload;
       }
 
@@ -373,29 +379,120 @@
         return weeklyPayload;
       }
 
-      return Object.assign({}, weeklyPayload, {
-        _monthlyData: cachedMonthlyPayload,
-      });
+      const modelUsage = Object.assign({}, weeklyPayload);
+      if (cachedMonthlyPayload) {
+        modelUsage._monthlyData = cachedMonthlyPayload;
+      }
+      if (shouldAttachMonthlyState) {
+        modelUsage._monthlyState = toPublicMonthlyState(cachedMonthlyState);
+      }
+      return modelUsage;
     }
 
     function renderModelUsagePanel(state) {
       const payload = modelUsageWithMonthly(state);
-      const modelUsageFingerprint = cachedMonthlyPayload
+      const hasMonthlyOverlay =
+        Boolean(cachedMonthlyPayload) || cachedMonthlyState.status !== "unknown";
+      const modelUsageFingerprint = hasMonthlyOverlay
         ? null
         : state.responseFingerprints["model-usage"];
       if (!shouldRenderEndpointPayload("model-usage", payload, modelUsageFingerprint)) return;
       renderEndpointPanel("model-usage", payload, state.responseMeta["model-usage"]);
     }
 
-    function applyMonthlyPayload(state, runId, monthlyResult) {
-      if (runId !== latestFetchRunId) return false;
-      if (!monthlyResult.payload) return false;
+    function deriveMonthlyStateFromPayload(payload) {
+      const isPartial = Boolean(payload?.meta?.sessionsUsage?.isPartial === true);
+      return {
+        status: isPartial ? "partial" : "ok",
+        hasCachedData: true,
+        reason: "",
+      };
+    }
 
-      const nextFingerprint = monthlyFingerprint(monthlyResult.payload);
-      const monthlyChanged = nextFingerprint !== cachedMonthlyFingerprint;
-      if (!monthlyChanged) return false;
-      cachedMonthlyPayload = monthlyResult.payload;
-      cachedMonthlyFingerprint = nextFingerprint;
+    function toPublicMonthlyState(monthlyState) {
+      const state = monthlyState && typeof monthlyState === "object" ? monthlyState : {};
+      const status = String(state.status || "");
+      const normalizedStatus =
+        status === "ok" || status === "partial" || status === "stale" || status === "unavailable"
+          ? status
+          : "unavailable";
+      const publicState = {
+        status: normalizedStatus,
+      };
+      if (typeof state.reason === "string" && state.reason.trim() !== "") {
+        publicState.reason = state.reason;
+      }
+      if (typeof state.hasCachedData === "boolean") {
+        publicState.hasCachedData = state.hasCachedData;
+      }
+      return publicState;
+    }
+
+    function setMonthlyState(nextState) {
+      const changed =
+        cachedMonthlyState.status !== nextState.status ||
+        cachedMonthlyState.hasCachedData !== nextState.hasCachedData ||
+        cachedMonthlyState.reason !== nextState.reason;
+      if (changed) {
+        cachedMonthlyState = nextState;
+      }
+      return changed;
+    }
+
+    function getMonthlyFailureReason(monthlyResult) {
+      const statusText = String(monthlyResult?.meta?.statusText || "").trim().toLowerCase();
+      if (statusText) return statusText;
+      const status = Number(monthlyResult?.meta?.status);
+      if (Number.isFinite(status) && status > 0) {
+        return "status-" + status;
+      }
+      return "unavailable";
+    }
+
+    function applyMonthlyResult(state, runId, monthlyResult) {
+      if (runId !== latestFetchRunId) return false;
+      const isNotModified = isEndpointNotModified(monthlyResult);
+      const isSuccessfulMeta = isSuccessfulFetchMeta(monthlyResult?.meta || null);
+      const hasPayload =
+        Boolean(monthlyResult && monthlyResult.payload != null) &&
+        isSuccessfulMeta &&
+        !isNotModified;
+      let shouldRender = false;
+
+      if (hasPayload) {
+        const nextFingerprint = monthlyFingerprint(monthlyResult.payload);
+        const monthlyChanged = nextFingerprint !== cachedMonthlyFingerprint;
+        if (monthlyChanged) {
+          cachedMonthlyPayload = monthlyResult.payload;
+          cachedMonthlyFingerprint = nextFingerprint;
+          shouldRender = true;
+        }
+        if (setMonthlyState(deriveMonthlyStateFromPayload(monthlyResult.payload))) {
+          shouldRender = true;
+        }
+      } else if (isNotModified && cachedMonthlyPayload) {
+        if (setMonthlyState(deriveMonthlyStateFromPayload(cachedMonthlyPayload))) {
+          shouldRender = true;
+        }
+      } else {
+        const hasCachedMonthly = Boolean(cachedMonthlyPayload);
+        const nextMonthlyState = hasCachedMonthly
+          ? {
+              status: "stale",
+              hasCachedData: true,
+              reason: getMonthlyFailureReason(monthlyResult),
+            }
+          : {
+              status: "unavailable",
+              hasCachedData: false,
+              reason: getMonthlyFailureReason(monthlyResult),
+            };
+        if (setMonthlyState(nextMonthlyState)) {
+          shouldRender = true;
+        }
+      }
+
+      if (!shouldRender) return false;
       if (!Object.prototype.hasOwnProperty.call(state.data, "model-usage")) return false;
       renderModelUsagePanel(state);
       return true;
@@ -1002,7 +1099,7 @@
                 shouldRecordPerf: shouldRecordPerf,
               })
                 .then(function (monthlyResult) {
-                  applyMonthlyPayload(state, runId, monthlyResult);
+                  applyMonthlyResult(state, runId, monthlyResult);
                   return finalizeRun({
                     hasAnyData: hasAnyData,
                     success: true,

@@ -35,6 +35,18 @@
     var(--bg-card);
 }
 
+.model-summary-card.is-stale {
+  border-color: rgba(255, 171, 0, 0.55);
+}
+
+.model-summary-card.is-unavailable {
+  border-color: rgba(255, 45, 123, 0.7);
+}
+
+.model-summary-card.is-unavailable .model-summary-value {
+  color: var(--magenta);
+}
+
 .model-summary-label {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
