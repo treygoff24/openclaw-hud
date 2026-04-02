@@ -46,7 +46,11 @@
   font-size: calc(16px * var(--fs-scale));
   line-height: 1;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s,
+    box-shadow 0.2s;
   flex-shrink: 0;
 }
 .chat-close:hover {

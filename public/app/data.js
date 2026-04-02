@@ -121,6 +121,9 @@
     // models panel can render deterministic monthly diagnostics while the
     // async monthly callback resolves.
     let cachedMonthlyPayload = null;
+    // Initial status "unknown" is intentionally NOT in the valid set recognized
+    // by toPublicMonthlyState — modelUsageWithMonthly gates on status !== "unknown"
+    // to avoid attaching _monthlyState before the first monthly fetch completes.
     let cachedMonthlyState = {
       status: "unknown",
       hasCachedData: false,
@@ -440,13 +443,15 @@
     }
 
     function getMonthlyFailureReason(monthlyResult) {
-      const statusText = String(monthlyResult?.meta?.statusText || "").trim().toLowerCase();
+      const statusText = String(monthlyResult?.meta?.statusText || "")
+        .trim()
+        .toLowerCase();
       if (statusText) return statusText;
       const status = Number(monthlyResult?.meta?.status);
       if (Number.isFinite(status) && status > 0) {
         return "status-" + status;
       }
-      return "unavailable";
+      return "fetch-failed";
     }
 
     function applyMonthlyResult(state, runId, monthlyResult) {

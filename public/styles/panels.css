@@ -318,7 +318,10 @@
   color: var(--text-dim);
   font-size: calc(16px * var(--fs-scale));
   line-height: 1;
-  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease,
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
     box-shadow 0.2s ease;
 }
 .modal-close:hover {

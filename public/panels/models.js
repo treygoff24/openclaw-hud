@@ -163,52 +163,48 @@ HUD.models = (function () {
     };
   }
 
-  function renderSummaryCards(summary) {
-    const topModelDisplay =
-      summary.monthlyStatus === "unavailable"
-        ? "—"
-        : summary.topModelName
-      ? `${getShortModelName(summary.topModelName)} · ${formatCurrency(summary.topModelSpend)}`
-      : "—";
+  function monthlyStateClass(status) {
+    if (status === "unavailable") return "is-unavailable";
+    if (status === "stale") return "is-stale";
+    return "";
+  }
 
-    const monthLabelSuffix =
-      summary.monthlyStatus === "partial"
-        ? " · PARTIAL"
-        : summary.monthlyStatus === "stale"
-          ? " · STALE"
-          : summary.monthlyStatus === "unavailable"
-            ? " · UNAVAILABLE"
-            : "";
-    const monthValue =
-      summary.monthlyStatus === "unavailable" ? "—" : formatCurrency(summary.monthlySpend);
+  function monthlyStatusSuffix(status) {
+    if (status === "partial") return " · PARTIAL";
+    if (status === "stale") return " · STALE";
+    if (status === "unavailable") return " · UNAVAILABLE";
+    return "";
+  }
+
+  function renderSummaryCards(summary) {
+    const isUnavailable = summary.monthlyStatus === "unavailable";
+    const topModelDisplay = isUnavailable
+      ? "—"
+      : summary.topModelName
+        ? `${getShortModelName(summary.topModelName)} · ${formatCurrency(summary.topModelSpend)}`
+        : "—";
+    const monthValue = isUnavailable ? "—" : formatCurrency(summary.monthlySpend);
+    const degradedClass = monthlyStateClass(summary.monthlyStatus);
 
     const cards = [
       { label: "THIS WEEK SPEND", value: formatCurrency(summary.weeklySpend) },
       {
-        label: "THIS MONTH SPEND" + monthLabelSuffix,
+        label: "THIS MONTH SPEND" + monthlyStatusSuffix(summary.monthlyStatus),
         value: monthValue,
-        stateClass:
-          summary.monthlyStatus === "unavailable"
-            ? "is-unavailable"
-            : summary.monthlyStatus === "stale"
-              ? "is-stale"
-              : "",
+        stateClass: degradedClass,
       },
       {
         label: "TOP MONTH MODEL",
         value: topModelDisplay,
-        stateClass:
-          summary.monthlyStatus === "unavailable"
-            ? "is-unavailable"
-            : summary.monthlyStatus === "stale"
-              ? "is-stale"
-              : "",
+        stateClass: degradedClass,
       },
     ];
 
     return `<div class="model-summary-grid">${cards
       .map(function (card) {
-        const className = card.stateClass ? `model-summary-card ${card.stateClass}` : "model-summary-card";
+        const className = card.stateClass
+          ? `model-summary-card ${card.stateClass}`
+          : "model-summary-card";
         return `<div class="${escape(className)}">
           <div class="model-summary-label">${escape(card.label)}</div>
           <div class="model-summary-value">${escape(card.value)}</div>
